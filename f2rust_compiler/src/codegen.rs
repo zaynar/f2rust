@@ -1078,14 +1078,14 @@ impl CodeGenUnit<'_> {
         }
     }
 
-    fn emit_save_borrow(&self) -> Result<String> {
+    fn emit_save_borrow(&self, entry_name: &str) -> Result<String> {
         let mut code = String::new();
 
         // Check if we actually need to save anything in this entry
         let saved = self
             .syms
             .iter()
-            .filter(|(_, sym)| sym.ast.save)
+            .filter(|(_, sym)| sym.ast.save && sym.ast.used.contains(entry_name))
             .collect::<Vec<_>>();
 
         if saved.is_empty() {
@@ -1711,7 +1711,7 @@ impl<'a> CodeGen<'a> {
             }
             let dargs = dargs.join(", ");
             code += &format!("pub fn {entry_name}({dargs}) {ret} {{\n");
-            code += &entry.codegen.emit_save_borrow()?;
+            code += &entry.codegen.emit_save_borrow(entry_name)?;
             code += &entry.codegen.emit_locals(entry_name)?;
             code += &entry.codegen.emit_statements(entry.ast, &entry.ast.body)?;
             if !matches!(ret_type, DataType::Void | DataType::Character) {
