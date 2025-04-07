@@ -56,7 +56,6 @@ pub enum UnaryOp {
     // Not semantically meaningful, but we preserve the original parenthesisation
     // so the Rust code can better reflect the original source
     Paren,
-
 }
 
 #[derive(Debug, Clone, PartialEq)]

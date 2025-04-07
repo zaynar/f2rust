@@ -268,10 +268,10 @@ fn emit_datatype(ty: &DataType) -> String {
         DataType::Void => "()".to_owned(),
 
         // CHARACTER types are handled specially, so this should never be seen
-        DataType::Character => "INVALID_CHARACTER".to_owned(),
+        DataType::Character => "INVALID_TYPE_CHARACTER".to_owned(),
 
         // There shouldn't be any UNKNOWN at this stage
-        DataType::Unknown => "INVALID_UNKNOWN".to_owned(),
+        DataType::Unknown => "INVALID_TYPE_UNKNOWN".to_owned(),
 
         // Procedures used as variables are Rust function pointers
         DataType::Procedure(args) => {
@@ -521,8 +521,14 @@ impl CodeGenUnit<'_> {
             Ctx::SaveStruct => match sym.rs_ty {
                 RustType::SavePrimitive => format!("{name}: {ty}"),
                 RustType::SaveChar => format!("{name}: Vec<u8>"),
-                RustType::SaveActualArray => format!("{name}: ActualArray<{ty}>"),
-                RustType::SaveActualCharArray => format!("{name}: ActualCharArray"),
+                RustType::SaveActualArray => match sym.ast.dims.len() {
+                    1 => format!("{name}: ActualArray<{ty}>"),
+                    n => format!("{name}: ActualArray{n}D<{ty}>"),
+                },
+                RustType::SaveActualCharArray => match sym.ast.dims.len() {
+                    1 => format!("{name}: ActualCharArray"),
+                    n => format!("{name}: ActualCharArray{n}D"),
+                },
                 _ => bail!("invalid context {ctx:?} for symbol {name}: {sym:?}"),
             },
             Ctx::SaveInit => match sym.rs_ty {
@@ -1275,11 +1281,12 @@ impl CodeGenUnit<'_> {
     fn emit_data_init(&self, data: &ast::DataStatement) -> Result<String> {
         let mut code = String::new();
 
+        // Handle the simple case, assigning to a single variable
         if data.nlist.len() == 1 {
             if let Some(Expression::Symbol(name)) = data.nlist.first() {
                 let sym = self.syms.get(name)?;
                 match sym.rs_ty {
-                    RustType::SavePrimitive => {
+                    RustType::SavePrimitive | RustType::SaveChar => {
                         if data.clist.len() != 1 {
                             bail!("DATA {name} trying to assign wrong number of items to scalar");
                         }
@@ -1292,20 +1299,46 @@ impl CodeGenUnit<'_> {
                         let target = Expression::Symbol(name.clone());
                         code += &self.emit_assignment(&target, value, Ctx::SaveInit)?;
                     }
-                    RustType::SaveChar => {
-                        warn!("TODO: DATA for char");
-                    }
-                    RustType::SaveActualArray => {
-                        warn!("TODO: DATA for array");
-                    }
-                    RustType::SaveActualCharArray => {
-                        warn!("TODO: DATA for char array");
+                    RustType::SaveActualArray | RustType::SaveActualCharArray => {
+                        // To assign to arrays, without needing to know indexes and dimensions,
+                        // we create an iterator over the array and assign sequentially to that
+
+                        code += "{\n";
+                        code += &format!("  let mut nlist = {name}.iter_mut();\n");
+
+                        for (reps, value) in &data.clist {
+                            let e = self.emit_expression(value)?;
+
+                            let assign = match sym.rs_ty {
+                                RustType::SaveActualArray => {
+                                    format!("*nlist.next().unwrap() = {e}")
+                                }
+                                RustType::SaveActualCharArray => {
+                                    format!("fstr::assign(nlist.next().unwrap(), {e})")
+                                }
+                                _ => panic!(),
+                            };
+
+                            if let Some(reps) = reps {
+                                let reps_ex = self.emit_expression(reps)?;
+                                code += &format!("  for _ in 1..={reps_ex} {{\n");
+                                code += &format!("    {assign};\n");
+                                code += "  }\n";
+                            } else {
+                                code += &format!("  {assign};\n");
+                            }
+                        }
+                        code += "}\n";
                     }
                     _ => bail!("non-save type in DATA"),
                 }
+
+                return Ok(code);
             }
         }
 
+        warn!("unsupported DATA statement");
+        code += &format!("todo!(); /* {:?} */\n", data);
         Ok(code)
     }
 
@@ -1576,12 +1609,7 @@ impl CodeGenUnit<'_> {
 
         // DATA initialisation
         for data in &self.program.ast.datas {
-            let data_init = self.emit_data_init(data)?;
-            if data_init.is_empty() {
-                code += &format!("todo!(); /* {:?} */\n", data);
-            } else {
-                code += &data_init;
-            }
+            code += &self.emit_data_init(data)?;
         }
         code += "\n";
 

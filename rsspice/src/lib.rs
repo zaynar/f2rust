@@ -158,4 +158,26 @@ mod tests {
         spicelib::UCASE(&mut ctx, b"test 2", &mut out);
         assert_eq!(out.trim_ascii_end(), b"TEST 2");
     }
+
+    #[test]
+    fn ana() {
+        let mut ctx = Context::new();
+
+        let mut out = vec![0; 256];
+
+        spicelib::ANA(&mut ctx, b"new", b"L", &mut out);
+        assert_eq!(out.trim_ascii_end(), b"a");
+
+        spicelib::ANA(&mut ctx, b"new", b"U", &mut out);
+        assert_eq!(out.trim_ascii_end(), b"A");
+
+        spicelib::ANA(&mut ctx, b"existing", b"L", &mut out);
+        assert_eq!(out.trim_ascii_end(), b"an");
+
+        spicelib::ANA(&mut ctx, b"hour", b"L", &mut out);
+        assert_eq!(out.trim_ascii_end(), b"an");
+
+        spicelib::ANA(&mut ctx, b"once", b"L", &mut out);
+        assert_eq!(out.trim_ascii_end(), b"a");
+    }
 }

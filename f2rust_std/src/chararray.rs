@@ -61,7 +61,7 @@ impl ActualCharArray {
         let len = element_length as usize;
 
         Self {
-            data: vec![Default::default(); size as usize],
+            data: vec![Default::default(); len * size as usize],
             bounds,
             element_length: len,
         }
@@ -101,6 +101,10 @@ impl ActualCharArray {
     pub fn get_mut(&mut self, index: i32) -> &mut [u8] {
         let offset = self.offset(index);
         &mut self.data[offset..offset + self.element_length]
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut [u8]> {
+        self.data.chunks_mut(self.element_length)
     }
 }
 

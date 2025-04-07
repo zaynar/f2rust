@@ -13,7 +13,7 @@ use f2rust_compiler::globan;
 fn main() -> Result<()> {
     let out_dir = env::var_os("OUT_DIR").unwrap();
 
-    println!("cargo::rerun-if-changed=build.rs");
+    println!("cargo::rerun-if-changed=fortran/");
 
     let mut generated = vec![];
 
@@ -31,8 +31,6 @@ fn main() -> Result<()> {
                 .unwrap()
                 .to_string_lossy()
                 .into_owned();
-
-            println!("cargo::rerun-if-changed={}", path.display());
 
             build(&path, &dst, &filename)
                 .context(format!("Building {}", std::path::absolute(path)?.display()))?;
