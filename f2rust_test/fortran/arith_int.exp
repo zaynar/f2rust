@@ -1,0 +1,10 @@
+ add          10
+ precedence          14
+ parens          20
+ pow assoc      262144
+ unary           0
+ pow precedence          -1
+ negative pow           1
+ negative pow           0
+ division           2
+ neg division          -2

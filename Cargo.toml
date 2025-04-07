@@ -1,0 +1,4 @@
+[workspace]
+resolver = "2"
+members = ["f2rust_compiler", "f2rust_std", "f2rust_test", "rsspice", "rsspice_build", "rsspice_gen"]
+

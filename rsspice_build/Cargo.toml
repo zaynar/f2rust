@@ -1,0 +1,13 @@
+[package]
+name = "rsspice_build"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.97"
+rayon = "1.10.0"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["fmt"] }
+walkdir = "2.5.0"
+
+f2rust_compiler = { path = "../f2rust_compiler" }

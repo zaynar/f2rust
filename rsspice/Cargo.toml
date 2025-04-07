@@ -1,0 +1,11 @@
+[package]
+name = "rsspice"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+f2rust_std = { path = "../f2rust_std" }
+rsspice_gen = { path = "../rsspice_gen" }
+
+[dev-dependencies]
+approx = "0.5.1"

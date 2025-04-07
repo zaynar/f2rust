@@ -1,0 +1,12 @@
+[package]
+name = "f2rust_test"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+f2rust_std = { path = "../f2rust_std" }
+libtest-mimic = "0.8.1"
+
+[build-dependencies]
+anyhow = "1.0.97"
+f2rust_compiler = { path = "../f2rust_compiler" }

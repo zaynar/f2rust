@@ -1,0 +1,29 @@
+ normal loop
+           1
+           2
+           3
+           4
+           5
+ step
+          -5
+          -3
+          -1
+           1
+           3
+           5
+ negative step
+           6
+           4
+           2
+           0
+          -2
+          -4
+ no iterations
+ var used outside loop
+          -5
+          -3
+          -1
+           1
+           3
+           5
+           7

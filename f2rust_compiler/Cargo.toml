@@ -1,0 +1,13 @@
+[package]
+name = "f2rust_compiler"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.97"
+clap = { version = "4.5.35", features = ["derive"] }
+indexmap = "2.8.0"
+log = "0.4.27"
+peg = "0.8.5"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["fmt"] }
