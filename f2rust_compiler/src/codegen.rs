@@ -1450,10 +1450,10 @@ impl CodeGenUnit<'_> {
                     code += &format!("let m1__: i32 = {m1};\n");
                     code += &format!("let m2__: i32 = {m2};\n");
                     code += &format!("let m3__: i32 = {m3};\n");
-                    code += &format!("{var} = m1__;\n");
+                    code += &(self.emit_symbol(var, Ctx::Assignment)? + " = m1__;\n");
                     code += "for _ in 0..((m2__ - m1__ + m3__) / m3__) as i32 {\n";
                     code += &body;
-                    code += &format!("{var} += m3__;\n");
+                    code += &(self.emit_symbol(var, Ctx::Assignment)? + " += m3__;\n");
                     code += "}\n";
                 } else if e3.is_some() {
                     code += &format!("for {var} in intrinsics::range({m1}, {m2}, {m3}) {{\n");
@@ -1520,7 +1520,7 @@ impl CodeGenUnit<'_> {
                 if matches!(self.program.ast.ty, ast::ProgramUnitType::Function)
                     && self.syms.get(&entry.name)?.ast.base_type != DataType::Character
                 {
-                    let name = &entry.name;
+                    let name = self.emit_symbol(&entry.name, Ctx::Value)?;
                     code += &format!("return {name};\n");
                 } else {
                     code += "return;\n";
@@ -1714,7 +1714,8 @@ impl<'a> CodeGen<'a> {
             code += &entry.codegen.emit_locals(entry_name)?;
             code += &entry.codegen.emit_statements(entry.ast, &entry.ast.body)?;
             if !matches!(ret_type, DataType::Void | DataType::Character) {
-                code += &format!("return {entry_name};\n");
+                let name = entry.codegen.emit_symbol(entry_name, Ctx::Value)?;
+                code += &format!("return {name};\n");
             };
             code += "}\n\n";
         }

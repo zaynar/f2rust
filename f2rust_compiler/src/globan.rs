@@ -464,7 +464,7 @@ impl GlobalAnalysis {
                         if actual.0 == "intrinsics" || actual.0 == "statement_function" {
                             false
                         } else {
-                            let proc = self.procedures.get(&actual).unwrap();
+                            let proc = self.procedures.get(actual).unwrap();
                             proc.requires_ctx
                         }
                     }) {
