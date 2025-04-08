@@ -51,7 +51,21 @@ pub fn ne(a1: &[u8], a2: &[u8]) -> bool {
     cmp(a1, a2).is_ne()
 }
 
-// TODO: other operations
+pub fn lt(a1: &[u8], a2: &[u8]) -> bool {
+    cmp(a1, a2).is_lt()
+}
+
+pub fn le(a1: &[u8], a2: &[u8]) -> bool {
+    cmp(a1, a2).is_le()
+}
+
+pub fn ge(a1: &[u8], a2: &[u8]) -> bool {
+    cmp(a1, a2).is_ge()
+}
+
+pub fn gt(a1: &[u8], a2: &[u8]) -> bool {
+    cmp(a1, a2).is_gt()
+}
 
 fn substr_bounds<R: RangeBounds<i32>>(range: R) -> (usize, Option<usize>) {
     let lower = match range.start_bound() {
@@ -110,11 +124,44 @@ mod tests {
         assert!(fstr::eq(b"test   ", b"test"));
         assert!(fstr::eq(b"test", b"test   "));
         assert!(!fstr::eq(b"test", b" test"));
+
+        assert!(!fstr::ne(b"test", b"test"));
+        assert!(!fstr::ne(b"test   ", b"test"));
+        assert!(!fstr::ne(b"test", b"test   "));
+        assert!(fstr::ne(b"test", b" test"));
     }
 
     #[test]
     fn substr() {
         assert_eq!(fstr::substr(b"test", 2..=3), b"es");
         assert_eq!(fstr::substr(b"test", 2..), b"est");
+    }
+
+    #[test]
+    fn cmp() {
+        assert!(!fstr::lt(b"test", b"test"));
+        assert!(fstr::le(b"test", b"test"));
+        assert!(fstr::ge(b"test", b"test"));
+        assert!(!fstr::gt(b"test", b"test"));
+
+        assert!(!fstr::lt(b"test   ", b"test"));
+        assert!(fstr::le(b"test   ", b"test"));
+        assert!(fstr::ge(b"test   ", b"test"));
+        assert!(!fstr::gt(b"test   ", b"test"));
+
+        assert!(!fstr::lt(b"test", b"test   "));
+        assert!(fstr::le(b"test", b"test   "));
+        assert!(fstr::ge(b"test", b"test   "));
+        assert!(!fstr::gt(b"test", b"test   "));
+
+        assert!(fstr::lt(b"A", b"B"));
+        assert!(fstr::le(b"A", b"B"));
+        assert!(!fstr::ge(b"A", b"B"));
+        assert!(!fstr::gt(b"A", b"B"));
+
+        assert!(!fstr::lt(b"B", b"A"));
+        assert!(!fstr::le(b"B", b"A"));
+        assert!(fstr::ge(b"B", b"A"));
+        assert!(fstr::gt(b"B", b"A"));
     }
 }

@@ -51,15 +51,20 @@ impl<'a> Context<'a> {
         self.stdout = Box::new(stdout);
     }
 
-    // Used in the implementation of PRINT
+    /// Used in the implementation of PRINT
     pub fn stdout(&mut self) -> &mut dyn std::io::Write {
         &mut self.stdout
     }
 
-    // Implementation of STOP
+    /// STOP statement
     pub fn stop(&self) {
         // TODO: provide a way for tests etc to override this
         std::process::exit(0);
+    }
+
+    /// EXIT intrinsic
+    pub fn exit(&self, status: &[i32]) {
+        std::process::exit(*status.first().unwrap_or(&0));
     }
 }
 

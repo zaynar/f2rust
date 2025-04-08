@@ -461,7 +461,9 @@ impl GlobalAnalysis {
                     let actual_procs = program.symbols.get(&called)?.actual_procs.clone();
 
                     if actual_procs.iter().any(|actual| {
-                        if actual.0 == "intrinsics" || actual.0 == "statement_function" {
+                        if actual.0 == "intrinsics" {
+                            intrinsics::requires_ctx(&actual.1)
+                        } else if actual.0 == "statement_function" {
                             false
                         } else {
                             let proc = self.procedures.get(actual).unwrap();

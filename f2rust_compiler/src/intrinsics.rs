@@ -157,12 +157,12 @@ const INTRINSICS: &[IntrinsicDef] = &[
     ("", "IBCLR", DataType::Integer, DataType::Integer, CallSyntax::Func("intrinsics::IBCLR")),
 
     // UNIX extensions:
-    ("DATE_AND_TIME", "", DataType::Unknown, DataType::Void, CallSyntax::Func("intrinsics::DATE_AND_TIME")),
-    ("EXIT", "", DataType::Unknown, DataType::Void, CallSyntax::Func("intrinsics::EXIT")),
-    ("GETARG", "", DataType::Integer, DataType::Void, CallSyntax::Func("intrinsics::GETARG")),
-    ("GETENV", "", DataType::Character, DataType::Void, CallSyntax::Func("intrinsics::GETENV")),
-    ("IARGC", "", DataType::Unknown, DataType::Integer, CallSyntax::Func("intrinsics::IARGC")),
-    ("SYSTEM", "", DataType::Character, DataType::Void, CallSyntax::Func("intrinsics::SYSTEM")),
+    ("DATE_AND_TIME", "", DataType::Unknown, DataType::Void, CallSyntax::Func("ctx.date_and_time")),
+    ("EXIT", "", DataType::Unknown, DataType::Void, CallSyntax::VarFunc("ctx.exit")),
+    ("GETARG", "", DataType::Integer, DataType::Void, CallSyntax::Func("ctx.getarg")),
+    ("GETENV", "", DataType::Character, DataType::Void, CallSyntax::Func("ctx.getenv")),
+    ("IARGC", "", DataType::Unknown, DataType::Integer, CallSyntax::Func("ctx.iargc")),
+    ("SYSTEM", "", DataType::Character, DataType::Void, CallSyntax::Func("ctx.system")),
 ];
 
 fn find_intrinsic(name: &str, first_arg: Option<DataType>) -> Option<&'static IntrinsicDef> {
@@ -199,9 +199,14 @@ pub fn call_info(
 pub fn arg_is_mutated(name: &str, idx: usize) -> bool {
     match name {
         "DATE_AND_TIME" => true,
-
         "GETARG" | "GETENV" | "SYSTEM" => idx == 1,
-
         _ => false,
     }
+}
+
+pub fn requires_ctx(name: &str) -> bool {
+    matches!(
+        name,
+        "DATE_AND_TIME" | "EXIT" | "GETARG" | "GETENV" | "IARGC" | "SYSTEM"
+    )
 }
