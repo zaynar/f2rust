@@ -180,4 +180,15 @@ mod tests {
         spicelib::ANA(&mut ctx, b"once", b"L", &mut out);
         assert_eq!(out.trim_ascii_end(), b"a");
     }
+
+    // #[test]
+    // fn chk() {
+    //     let mut ctx = Context::new();
+
+    //     spicelib::CHKIN(&mut ctx, b"TEST");
+    //     spicelib::SETMSG(&mut ctx, b"Test message.");
+    //     spicelib::ERRINT(&mut ctx, b"#", 123);
+    //     spicelib::SIGERR(&mut ctx, b"SPICE(NOTSUPPORTED)");
+    //     spicelib::CHKOUT(&mut ctx, b"TEST");
+    // }
 }

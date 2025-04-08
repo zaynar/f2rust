@@ -30,6 +30,7 @@ use crate::{
 /// PROGRAM/SUBROUTINE/FUNCTION, or ENTRY
 #[derive(Debug, Clone)]
 pub struct Procedure {
+    pub source: (String, String), // TODO: better tracking of source files
     pub name: Name,
     pub return_type: ast::DataType,
     pub dargs: Vec<DummyArg>,
@@ -283,6 +284,7 @@ impl GlobalAnalysis {
                 });
 
                 let proc = Procedure {
+                    source: (program.namespace.clone(), program.filename.clone()),
                     name: name.clone(),
                     return_type,
                     dargs: Vec::new(),
@@ -701,6 +703,28 @@ impl GlobalAnalysis {
         // (This is for when only users provide the callback)
 
         Ok(())
+    }
+
+    pub fn dependency_graph(&self) -> HashMap<(String, String), HashSet<(String, String)>> {
+        let mut deps = HashMap::new();
+
+        for pu in &self.programs {
+            let mut pu_deps = HashSet::new();
+
+            for (_name, sym) in pu.symbols.iter() {
+                if !sym.ast.darg {
+                    for actual in &sym.actual_procs {
+                        if let Some(proc) = self.procedures.get(actual) {
+                            pu_deps.insert(proc.source.clone());
+                        }
+                    }
+                }
+            }
+
+            deps.insert((pu.namespace.clone(), pu.filename.clone()), pu_deps);
+        }
+
+        deps
     }
 
     pub fn codegen(&self, target: &str, filename: &str, pretty: bool) -> Result<String> {

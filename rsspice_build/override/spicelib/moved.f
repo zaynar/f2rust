@@ -1,3 +1,7 @@
+C$ Keywords
+C     ARRAY
+C-&
+
       SUBROUTINE MOVED (ARRFRM, NDIM, ARRTO)
 
 C     SPICE's implementation calls MOVEI(ARRFRM, 2*NDIM, ARRTO) which

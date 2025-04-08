@@ -4,14 +4,25 @@
 //! and extract into the workspace directory. (Be aware of its restrictions on distribution:
 //! https://naif.jpl.nasa.gov/naif/rules.html)
 
-use std::{collections::HashMap, fs::File, io::Write, path::PathBuf, time::Instant};
+use std::{
+    collections::{HashMap, HashSet},
+    fs::File,
+    io::{BufRead, BufReader, Write},
+    path::PathBuf,
+    time::Instant,
+};
 
 use anyhow::{Context, Result, bail};
+use indexmap::IndexMap;
 use rayon::prelude::*;
 use tracing::{Level, error, info, span};
 use walkdir::WalkDir;
 
-use f2rust_compiler::{ast, file::parse_fixed, globan};
+use f2rust_compiler::{
+    ast,
+    file::parse_fixed,
+    globan::{self, GlobalAnalysis},
+};
 
 fn safe_identifier(s: &str) -> String {
     // From https://doc.rust-lang.org/reference/keywords.html, 2024 edition
@@ -28,6 +39,186 @@ fn safe_identifier(s: &str) -> String {
     } else {
         s.to_owned()
     }
+}
+
+type Node = (String, String);
+struct DepGraph {
+    keywords: HashMap<String, Vec<Node>>,
+    deps: HashMap<Node, HashSet<Node>>,
+    trans: HashMap<Node, HashSet<Node>>,
+
+    assigned: HashMap<Node, String>,
+    crates: IndexMap<String, Vec<Node>>,
+}
+
+// Some crude stuff for building a subset of the code, and potentially splitting it
+// into multiple crates to help build times
+impl DepGraph {
+    fn new(glob: &GlobalAnalysis, keywords: HashMap<String, Vec<Node>>) -> Self {
+        Self {
+            keywords,
+            deps: glob.dependency_graph(),
+            trans: HashMap::new(),
+            assigned: HashMap::new(),
+            crates: IndexMap::new(),
+        }
+    }
+
+    fn compute(&mut self) {
+        for k in self.deps.keys().cloned().collect::<Vec<_>>() {
+            self.find_transitive_deps(k);
+        }
+    }
+
+    fn find_transitive_deps(&mut self, start: Node) -> HashSet<Node> {
+        let mut found = HashSet::new();
+        found.insert(start.clone());
+
+        let mut open = vec![start.clone()];
+        while let Some(node) = open.pop() {
+            for next in self.deps.get(&node).unwrap() {
+                if let Some(next_trans) = self.trans.get(next) {
+                    found.extend(next_trans.iter().cloned());
+                } else if found.insert(next.clone()) {
+                    open.push(next.clone());
+                }
+            }
+        }
+
+        self.trans.insert(start, found.clone());
+        found
+    }
+
+    // Get files from the given namespace, matching either keyword or filename
+    fn files(&self, ns: &str, kws: &[&str], files: &[&str]) -> Vec<(String, String)> {
+        let mut r: Vec<_> = files
+            .iter()
+            .map(|f| (ns.to_string(), f.to_string()))
+            .collect();
+        for kw in kws {
+            r.extend(self.keywords[*kw].clone());
+        }
+        r.retain(|n| n.0 == ns);
+        r.sort();
+        r
+    }
+
+    // Add the given set of files to the crate, as long as they only depend on
+    // files already assigned to a crate
+    fn assign_crate(&mut self, cname: &str, starts: &[(String, String)]) {
+        let mut files = HashSet::new();
+
+        loop {
+            let mut dirty = false;
+            for start in starts {
+                if self.assigned.contains_key(start) {
+                    continue;
+                }
+
+                let trans = self.trans.get(start).unwrap();
+
+                if trans
+                    .iter()
+                    .all(|n| n == start || self.assigned.contains_key(n))
+                {
+                    self.assigned.insert(start.clone(), cname.to_owned());
+                    files.insert(start.clone());
+                    dirty = true;
+                }
+            }
+            if !dirty {
+                break;
+            }
+        }
+
+        let entry = self.crates.entry(cname.to_owned()).or_default();
+        entry.extend(files);
+        entry.sort();
+        entry.dedup();
+    }
+
+    // Add the given set of files to the crate, plus all their transitive dependencies
+    fn assign_crate_trans(&mut self, cname: &str, starts: &[(String, String)]) {
+        let mut files = HashSet::new();
+
+        for start in starts {
+            if self.assigned.contains_key(start) {
+                continue;
+            }
+
+            let trans = self.trans.get(start).unwrap();
+            files.extend(
+                trans
+                    .iter()
+                    .filter(|n| !self.assigned.contains_key(n))
+                    .cloned(),
+            );
+            for n in trans {
+                self.assigned.insert(n.clone(), cname.to_owned());
+            }
+        }
+
+        let entry = self.crates.entry(cname.to_owned()).or_default();
+        entry.extend(files);
+        entry.sort();
+        entry.dedup();
+    }
+
+    fn dump(&self) {
+        for (cname, files) in &self.crates {
+            println!("Assigned to {cname}: {}", files.len());
+            if false {
+                println!(
+                    "  {}",
+                    files
+                        .iter()
+                        .map(|(_, b)| b.to_owned())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                );
+            }
+        }
+    }
+}
+
+// Extract the keywords from SPICE comments
+fn read_keywords(path: &PathBuf) -> Result<Vec<String>> {
+    let mut keywords = Vec::new();
+    let mut section = "".to_owned();
+    for line in BufReader::new(File::open(path)?).lines() {
+        let line = line?;
+        if let Some(s) = line.strip_prefix("C$ ") {
+            section = s.to_owned();
+        } else if line.trim() == "C-&" {
+            section = "".to_owned();
+        } else if let Some(k) = line.strip_prefix("C     ") {
+            if section == "Keywords" || section == "Required_Reading" {
+                for k in k.split(",") {
+                    for k in k.split(" --- ") {
+                        let k = k.trim();
+                        if !k.is_empty() {
+                            if section == "Required_Reading" {
+                                if k.to_uppercase() != "NONE." {
+                                    keywords.push("$".to_string() + &k.to_uppercase());
+                                }
+                            } else {
+                                keywords.push(k.to_uppercase());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    keywords.sort();
+    keywords.dedup();
+
+    if keywords.is_empty() {
+        keywords.push("_NONE".to_owned());
+    }
+
+    Ok(keywords)
 }
 
 fn main() -> Result<()> {
@@ -57,12 +248,6 @@ fn main() -> Result<()> {
                 Some("f") | Some("pgm")
             )
         })
-        // .filter(|entry| {
-        //     !matches!(
-        //         entry.path().parent().unwrap().file_name().unwrap().to_str(),
-        //         Some("tspice")
-        //     )
-        // })
         .filter(|entry| {
             // Skip these because they have multiple procedures in one file, which we don't support yet
             ![
@@ -134,7 +319,11 @@ fn main() -> Result<()> {
                 .parse(parsed)
                 .context(format!("parsing {path:?}"))?;
 
-            Ok(globan::ProgramUnit::new(&namespace, &filename, ast))
+            let keywords = (namespace.clone(), filename.clone(), read_keywords(&path)?);
+            Ok((
+                globan::ProgramUnit::new(&namespace, &filename, ast),
+                keywords,
+            ))
         });
 
     let (program_units, errs): (Vec<Result<_>>, Vec<Result<_>>) =
@@ -149,64 +338,151 @@ fn main() -> Result<()> {
 
     info!("Parsed all in {:?}", t0.elapsed());
 
-    let program_units: Vec<_> = program_units.into_iter().map(|pu| pu.unwrap()).collect();
+    let (program_units, keywords): (Vec<_>, Vec<_>) =
+        program_units.into_iter().map(|pu| pu.unwrap()).unzip();
 
-    // All files
-    let _sources = program_units
-        .iter()
-        .map(|pu| (pu.namespace.clone(), pu.filename.clone()))
-        .collect::<Vec<_>>();
-
-    // All spicelib files
-    let _sources = program_units
-        .iter()
-        .filter_map(|pu| {
-            if pu.namespace == "spicelib" {
-                Some((pu.namespace.clone(), pu.filename.clone()))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-
-    // Some files that currently work
-    let sources = [
-        ("spicelib", "vrotv.f"),
-        ("spicelib", "vadd.f"),
-        ("spicelib", "vaddg.f"),
-        ("spicelib", "vnorm.f"),
-        ("spicelib", "vhat.f"),
-        ("spicelib", "vproj.f"),
-        ("spicelib", "vsub.f"),
-        ("spicelib", "vcrss.f"),
-        ("spicelib", "vlcom.f"),
-        ("spicelib", "vdot.f"),
-        ("spicelib", "vscl.f"),
-        ("spicelib", "moved.f"),
-        //
-        // ("spicelib", "cyadip.f"),
-        ("spicelib", "pos.f"),
-        ("spicelib", "cpos.f"),
-        ("spicelib", "beint.f"),
-        ("spicelib", "beuns.f"),
-        ("spicelib", "benum.f"),
-        ("spicelib", "bedec.f"),
-        ("spicelib", "frstnb.f"),
-        //
-        ("spicelib", "q2m.f"),
-        //
-        ("spicelib", "ana.f"),
-        ("spicelib", "ucase.f"),
-        ("spicelib", "replch.f"),
-        ("spicelib", "ljust.f"),
-        ("spicelib", "isrchc.f"),
-        // ("support", "m2core.f"),
-        //
-        // ("spicelib", "sclu01.f"),
-    ];
+    // Create a list of files that use each keyword
+    let mut keyword_files = HashMap::new();
+    for (ns, name, kws) in keywords {
+        for kw in kws {
+            keyword_files
+                .entry(kw)
+                .or_insert_with(Vec::new)
+                .push((ns.to_string(), name.to_string()));
+        }
+    }
 
     let mut glob = globan::GlobalAnalysis::new(&["spicelib", "support", "testutil"], program_units);
     glob.analyse()?;
+
+    let mut deps = DepGraph::new(&glob, keyword_files);
+    deps.compute();
+
+    // HACK: this was a very rough attempt to manually split the codebase into chunks
+    // of roughly <200 files, each depending only on earlier chunks. We should do something
+    // much cleaner and more sensible.
+
+    deps.assign_crate(
+        "early",
+        &deps.files(
+            "spicelib",
+            &[],
+            &[
+                "vrotv.f", "vadd.f", "vaddg.f", "vnorm.f", "vhat.f", "vproj.f", "vsub.f",
+                "vcrss.f", "vlcom.f", "vdot.f", "vscl.f", "moved.f", "pos.f", "cpos.f", "beint.f",
+                "beuns.f", "benum.f", "bedec.f", "frstnb.f", "q2m.f", "ana.f", "ucase.f",
+                "replch.f", "ljust.f", "isrchc.f",
+            ],
+        ),
+    );
+
+    deps.assign_crate(
+        "trace",
+        &deps.files(
+            "spicelib",
+            &["CHARACTER", "ALPHANUMERIC", "FILES", "ERROR"],
+            &[],
+        ),
+    );
+    deps.assign_crate_trans("trace", &deps.files("spicelib", &[], &["sigerr.f"]));
+
+    deps.assign_crate(
+        "base",
+        &deps.files(
+            "spicelib",
+            &[
+                "CONSTANTS",
+                "CHARACTER",
+                "STRING",
+                "WORD",
+                "ALPHANUMERIC",
+                "CONVERSION",
+                "FILES",
+                "ERROR",
+                "UTILITY",
+            ],
+            &[],
+        ),
+    );
+
+    deps.assign_crate_trans("test", &deps.files("tspice", &[], &["f_vector3.f"]));
+
+    deps.assign_crate("array", &deps.files("spicelib", &["ARRAY"], &[]));
+
+    deps.assign_crate(
+        "math",
+        &deps.files(
+            "spicelib",
+            &[
+                "MATRIX", "VECTOR", "MATH", "NUMBERS", "NUMBER", "NUMERIC", "INTEGER",
+            ],
+            &[],
+        ),
+    );
+
+    deps.assign_crate(
+        "lists",
+        &deps.files(
+            "spicelib",
+            &[
+                "LIST",
+                "LINKED LIST",
+                "AB LINKED LIST",
+                "CELLS",
+                "WINDOWS",
+                "SETS",
+            ],
+            &[],
+        ),
+    );
+
+    deps.assign_crate(
+        "shapes",
+        &deps.files(
+            "spicelib",
+            &[
+                "CONIC",
+                "ELLIPSE",
+                "ELLIPSOID",
+                "$PLANES",
+                "$ELLIPSES",
+                "LINE",
+                "LATITUDE",
+                "EXTREMA",
+                "INTERSECTION",
+            ],
+            &[],
+        ),
+    );
+    deps.assign_crate_trans("parsing", &deps.files("spicelib", &["PARSING"], &[]));
+    deps.assign_crate_trans("constants", &deps.files("spicelib", &["CONSTANTS"], &[]));
+    deps.assign_crate_trans("frames", &deps.files("spicelib", &["FRAME", "FRAMES"], &[]));
+    deps.assign_crate_trans("files", &deps.files("spicelib", &["FILES"], &[]));
+    deps.assign_crate_trans("ek", &deps.files("spicelib", &["EK"], &[]));
+    deps.assign_crate_trans("ephemeris", &deps.files("spicelib", &["EPHEMERIS"], &[]));
+
+    for lib in ["spicelib", "support", "testutil", "tspice"] {
+        deps.assign_crate_trans(
+            lib,
+            &deps
+                .trans
+                .keys()
+                .filter(|k| k.0 == lib)
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    deps.dump();
+    println!("Unassigned: {}", deps.trans.len() - deps.assigned.len());
+
+    let mut sources = deps.crates["early"].clone();
+    sources.extend_from_slice(&deps.crates["trace"]);
+    // sources.extend_from_slice(&deps.crates["base"]);
+    // sources.extend_from_slice(&deps.crates["array"]);
+    // sources.extend_from_slice(&deps.crates["math"]);
+
+    println!("Compiling {} files", sources.len());
 
     const PRETTY_PRINT: bool = false;
     const SINGLE_FILE_PER_MOD: bool = false;
@@ -285,11 +561,13 @@ fn main() -> Result<()> {
         file.write_all(b"#![allow(unused_parens, clippy::double_parens)]\n")?;
         file.write_all(b"#![allow(unused_mut, unused_assignments)]\n")?;
         file.write_all(b"#![allow(unused_imports)]\n")?;
+        file.write_all(b"#![allow(unused_variables)]\n")?;
         file.write_all(b"#![allow(clippy::while_immutable_condition)]\n")?;
         file.write_all(b"#![allow(clippy::assign_op_pattern)]\n")?;
         file.write_all(b"#![allow(clippy::needless_return)]\n")?;
         file.write_all(b"#![allow(clippy::unnecessary_cast)]\n")?;
         file.write_all(b"#![allow(clippy::if_same_then_else)]\n")?;
+        file.write_all(b"#![allow(clippy::needless_bool_assign)]\n")?;
         file.write_all(b"\n")?;
 
         let mut modnames = mods.keys().collect::<Vec<_>>();
