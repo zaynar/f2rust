@@ -962,9 +962,12 @@ impl CodeGenUnit<'_> {
                         let s = self.emit_symbol(name, Ctx::Value)?;
                         let range = self.emit_range(e1, e2)?;
 
-                        // TODO: work out how to implement this properly
                         // TODO: handle aliasing
-                        format!("fstr::substr({s}, {range})")
+                        if darg.mutated {
+                            format!("fstr::substr_mut({s}, {range})")
+                        } else {
+                            format!("fstr::substr({s}, {range})")
+                        }
                     }
                     Expression::SubstringArrayElement(..) => {
                         warn!("TODO: emit_args SubstringArrayElement");
