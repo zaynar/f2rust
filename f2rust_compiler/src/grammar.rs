@@ -4,6 +4,7 @@
 //!
 //! * Allow symbols >6 characters (as in Fortran 90)
 //! * Allow "_" in symbols (as in Fortran 90)
+//! * Allow double-quoted strings (as in Fortran 90)
 //! * Allow some illegal syntax such as "A ** -B" (because it's easier to implement this way)
 //! * Support DO WHILE, END DO, INCLUDE, IMPLICIT NONE (from MIL-STD 1753)
 //! * Support `<` as equivalent to `.LT.`, etc (from Fortran 90)
@@ -224,7 +225,7 @@ pub enum Statement {
 }
 
 /// Convert character constant like "'ab''cd'" into "ab'cd"
-fn unescape_characters(s: &str) -> String {
+fn unescape_characters(s: &str, delim: char) -> String {
     let mut r = String::new();
 
     enum State {
@@ -240,14 +241,14 @@ fn unescape_characters(s: &str) -> String {
                 state = State::Normal;
             }
             State::Normal => {
-                if c == '\'' {
+                if c == delim {
                     state = State::Quote;
                 } else {
                     r.push(c);
                 }
             }
             State::Quote => {
-                r.push('\'');
+                r.push(delim);
                 state = State::Normal;
             }
         }
@@ -301,7 +302,8 @@ peg::parser! {
                 {? (b.to_owned() + "e" + e).parse().or(Err("invalid double precision constant")) }
 
         rule character_constant() -> String
-            = s:$(("'" [^ '\'']* "'")+) { unescape_characters(s) }
+            = s:$(("'" [^ '\'']* "'")+) { unescape_characters(s, '\'') }
+            / s:$(("\"" [^ '"']* "\"")+) { unescape_characters(s, '"') }
 
         rule symbol() -> String
             = s:$(['A'..='Z'] ['A'..='Z' | '0'..='9' | '_']*) { s.to_owned() }

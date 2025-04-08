@@ -44,15 +44,17 @@ enum Line {
 pub fn remove_blanks(s: &str) -> String {
     let mut r = String::new();
 
-    let mut quoted = false;
+    let mut quoted = None;
     for c in s.chars() {
-        if quoted {
+        if quoted.is_some() {
             r.push(c);
         } else if c != ' ' {
             r.push(c.to_ascii_uppercase());
         }
-        if c == '\'' {
-            quoted = !quoted;
+        if quoted == Some(c) {
+            quoted = None;
+        } else if quoted.is_none() && (c == '\'' || c == '"') {
+            quoted = Some(c);
         }
     }
 
@@ -63,17 +65,19 @@ pub fn remove_blanks(s: &str) -> String {
 fn remove_f90_comments(s: &str) -> String {
     let mut r = String::new();
 
-    let mut quoted = false;
+    let mut quoted = None;
     for c in s.chars() {
-        if quoted {
+        if quoted.is_some() {
             r.push(c);
         } else if c == '!' {
             return r;
         } else {
             r.push(c.to_ascii_uppercase());
         }
-        if c == '\'' {
-            quoted = !quoted;
+        if quoted == Some(c) {
+            quoted = None;
+        } else if quoted.is_none() && (c == '\'' || c == '"') {
+            quoted = Some(c);
         }
     }
 
