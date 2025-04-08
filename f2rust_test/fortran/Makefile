@@ -16,4 +16,4 @@ clean:
 
 build/%: %.f90 Makefile
 	@mkdir -p build
-	@gfortran -std=f95 -Wall -Wno-integer-division -Wno-zerotrip $< -o $@
+	@gfortran -std=gnu -Wall -Wno-integer-division -Wno-zerotrip $< -o $@

@@ -61,7 +61,7 @@ impl ActualCharArray {
         let len = element_length as usize;
 
         Self {
-            data: vec![Default::default(); len * size as usize],
+            data: vec![b' '; len * size as usize],
             bounds,
             element_length: len,
         }

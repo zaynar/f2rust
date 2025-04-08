@@ -786,7 +786,7 @@ impl CodeGenUnit<'_> {
                 }
             },
             Expression::ImpliedDo { .. } => bail!("cannot emit implied-DO"),
-            Expression::ImpliedDoVar(..) => bail!("cannot emit implied-DO-var"),
+            Expression::ImpliedDoVar(name) => name.clone(),
         })
     }
 
@@ -1205,7 +1205,11 @@ impl CodeGenUnit<'_> {
                     _ => "".to_owned(),
                 };
 
-                code += &format!("let {mut_label}{name} = {array}::new({len_label}{dims});\n");
+                let ty = match sym.ast.base_type {
+                    DataType::Character => "".to_owned(),
+                    _ => format!("::<{}>", emit_datatype(&sym.ast.base_type)),
+                };
+                code += &format!("let {mut_label}{name} = {array}{ty}::new({len_label}{dims});\n");
             }
         } else if sym.ast.base_type == DataType::Character {
             let len = sym
@@ -1283,64 +1287,168 @@ impl CodeGenUnit<'_> {
     fn emit_data_init(&self, data: &ast::DataStatement) -> Result<String> {
         let mut code = String::new();
 
-        // Handle the simple case, assigning to a single variable
+        // Handle the simple case, assigning to a single scalar
         if data.nlist.len() == 1 {
             if let Some(Expression::Symbol(name)) = data.nlist.first() {
                 let sym = self.syms.get(name)?;
-                match sym.rs_ty {
-                    RustType::SavePrimitive | RustType::SaveChar => {
-                        if data.clist.len() != 1 {
-                            bail!("DATA {name} trying to assign wrong number of items to scalar");
-                        }
-                        let (reps, value) = data.clist.first().unwrap();
-                        if reps.is_some() {
-                            // TODO: should allow an explicit 1
-                            bail!("DATA {name} using reps with scalar");
-                        }
+                if matches!(sym.rs_ty, RustType::SavePrimitive | RustType::SaveChar) {
+                    if data.clist.len() != 1 {
+                        bail!("DATA {name} trying to assign wrong number of items to scalar");
+                    }
+                    let (reps, value) = data.clist.first().unwrap();
 
+                    // reps must be 1, but it could be a constant expression that gives 1,
+                    // and we can't evaluate constants, so skip any expression
+                    if reps.is_none() {
                         let target = Expression::Symbol(name.clone());
                         code += &self.emit_assignment(&target, value, Ctx::SaveInit)?;
+
+                        return Ok(code);
                     }
-                    RustType::SaveActualArray | RustType::SaveActualCharArray => {
-                        // To assign to arrays, without needing to know indexes and dimensions,
-                        // we create an iterator over the array and assign sequentially to that
-
-                        code += "{\n";
-                        code += &format!("  let mut nlist = {name}.iter_mut();\n");
-
-                        for (reps, value) in &data.clist {
-                            let e = self.emit_expression(value)?;
-
-                            let assign = match sym.rs_ty {
-                                RustType::SaveActualArray => {
-                                    format!("*nlist.next().unwrap() = {e}")
-                                }
-                                RustType::SaveActualCharArray => {
-                                    format!("fstr::assign(nlist.next().unwrap(), {e})")
-                                }
-                                _ => panic!(),
-                            };
-
-                            if let Some(reps) = reps {
-                                let reps_ex = self.emit_expression(reps)?;
-                                code += &format!("  for _ in 1..={reps_ex} {{\n");
-                                code += &format!("    {assign};\n");
-                                code += "  }\n";
-                            } else {
-                                code += &format!("  {assign};\n");
-                            }
-                        }
-                        code += "}\n";
-                    }
-                    _ => bail!("non-save type in DATA"),
                 }
-
-                return Ok(code);
             }
         }
 
-        warn!("unsupported DATA statement");
-        code += &format!("todo!(); /* {:?} */\n", data);
+        // For the non-simple cases:
+        //
+        // Our aim is to minimise the number of lines of Rust code generated, not necessarily
+        // to optimise the resulting machine code, because we don't want FORTRAN code initialising
+        // large arrays with loops/reps/etc to explode into a huge amount of Rust code.
+        //
+        // So we construct an iterator over the whole clist, by chaining slices and repeat_n.
+        // `Val` is an enum that lets us store any primitive, and cast back to the required type
+        // (it will panic on type mismatch).
+        //
+        // Then we walk through nlist, translating implied-DO into `for` loops, consuming from
+        // clist as we go. This results in some runtime overhead, but the Rust code is a fairly
+        // direct match to the FORTRAN.
+        //
+        // We could optimise some other special cases, but this generic approach will do for now.
+
+        code += "{\n";
+        code += "  use f2rust_std::data::Val;\n\n";
+        code += "  let mut clist = [\n";
+        let mut needs_into_iter = true;
+
+        for (reps, value) in &data.clist {
+            let e = self.emit_expression(value)?;
+
+            let val = match value.resolve_type(&self.syms)? {
+                DataType::Integer => format!("Val::I({e})"),
+                DataType::Real => format!("Val::R({e})"),
+                DataType::Double => format!("Val::D({e})"),
+                DataType::Logical => format!("Val::L({e})"),
+                DataType::Character => format!("Val::C({e})"),
+                _ => bail!("invalid type in DATA clist"),
+            };
+
+            if let Some(reps) = reps {
+                let reps_ex = self.emit_expression(reps)?;
+                if needs_into_iter {
+                    code += "    ].into_iter()";
+                    needs_into_iter = false;
+                } else {
+                    code += "    ])";
+                }
+                code +=
+                    &format!(".chain(std::iter::repeat_n({val}, {reps_ex} as usize)).chain([\n");
+            } else {
+                code += &format!("    {val},\n");
+            }
+        }
+
+        if needs_into_iter {
+            code += "  ].into_iter();\n";
+        } else {
+            code += "  ]);\n\n";
+        }
+        code += &self.emit_data_nlist(&data.nlist)?;
+        code += "\n";
+        code += "  debug_assert!(clist.next().is_none(), \"DATA not fully initialised\");\n";
+        code += "}\n";
+
+        Ok(code)
+    }
+
+    // Used by emit_data_init. Recursively handles implied-DO loops
+    fn emit_data_nlist(&self, nlist: &[Expression]) -> Result<String> {
+        let mut code = String::new();
+
+        for v in nlist {
+            let ctx = Ctx::SaveInit;
+            let e = "clist.next().unwrap()";
+            match v {
+                Expression::Symbol(name) => {
+                    let sym = self.syms.get(name)?;
+                    let vt = v.resolve_type(&self.syms)?;
+                    let s = self.emit_symbol(name, ctx)?;
+
+                    if !sym.ast.dims.is_empty() {
+                        // Copy from clist into the array
+                        if matches!(vt, DataType::Character) {
+                            code += &format!(
+                                "{s}.iter_mut().for_each(|n| fstr::assign(n, {e}.into_str()));\n"
+                            );
+                        } else {
+                            let ty = emit_datatype(&vt);
+                            code +=
+                                &format!("{s}.iter_mut().for_each(|n| *n = {e}.into_{ty}());\n");
+                        }
+                    } else if matches!(vt, DataType::Character) {
+                        code += &format!("fstr::assign({s}, {e}.into_str());\n");
+                    } else {
+                        let ty = emit_datatype(&vt);
+                        code += &format!("{s} = {e}.into_{ty}();\n");
+                    }
+                }
+                Expression::ArrayElement(name, idx) => {
+                    let vt = v.resolve_type(&self.syms)?;
+                    let s = self.emit_symbol(name, ctx)?;
+                    let idx_ex = self.emit_index(idx)?;
+                    if matches!(vt, DataType::Character) {
+                        code += &format!("fstr::assign({s}.get_mut({idx_ex}), {e}.into_str());\n");
+                    } else {
+                        let ty = emit_datatype(&vt);
+                        code += &format!("{s}[{idx_ex}] = {e}.into_{ty}();\n");
+                    }
+                }
+                Expression::Substring(name, e1, e2) => {
+                    let s = self.emit_symbol(name, ctx)?;
+                    let range = self.emit_range(e1, e2)?;
+
+                    code +=
+                        &format!("fstr::assign(fstr::substr_mut({s}, {range}), {e}.into_str());\n");
+                }
+                Expression::SubstringArrayElement(name, idx, e1, e2) => {
+                    let s = self.emit_symbol(name, ctx)?;
+                    let idx_ex = self.emit_expressions(idx, Ctx::Value)?;
+                    let range = self.emit_range(e1, e2)?;
+
+                    code += &format!(
+                        "fstr::assign(fstr::substr_mut({s}.get_mut({idx_ex}), {range}), {e}.into_str());\n"
+                    );
+                }
+                Expression::ImpliedDo {
+                    data,
+                    do_var,
+                    e1,
+                    e2,
+                    e3,
+                } => {
+                    let m1 = self.emit_expression(e1)?;
+                    let m2 = self.emit_expression(e2)?;
+                    let m3 = e3
+                        .clone()
+                        .map_or_else(|| Ok("1".to_owned()), |e| self.emit_expression(&e))?;
+
+                    code += &format!("for {do_var} in intrinsics::range({m1}, {m2}, {m3}) {{\n");
+                    code += &self.emit_data_nlist(data)?;
+                    code += "}\n";
+                }
+                _ => bail!("invalid expression in nlist"),
+            }
+        }
+
         Ok(code)
     }
 
@@ -1389,8 +1497,9 @@ impl CodeGenUnit<'_> {
                 let idx_ex = self.emit_expressions(idx, Ctx::Value)?;
                 let range = self.emit_range(e1, e2)?;
 
-                code +=
-                    &format!("fstr::assign(fstr::substr_mut({s}.get({idx_ex}), {range}), {e});\n");
+                code += &format!(
+                    "fstr::assign(fstr::substr_mut({s}.get_mut({idx_ex}), {range}), {e});\n"
+                );
             }
             _ => bail!("invalid assignment LHS"),
         }
