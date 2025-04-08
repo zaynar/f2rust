@@ -113,7 +113,7 @@ impl Symbol {
                 // Chars
                 if sym.ast.darg && mutated {
                     RustType::CharSliceMut
-                } else if sym.ast.darg {
+                } else if sym.ast.darg || sym.ast.parameter.is_some() {
                     RustType::CharSliceRef
                 } else {
                     RustType::CharVec
@@ -652,12 +652,11 @@ impl CodeGenUnit<'_> {
     fn emit_binop_concat(&self, e1: &Expression, e2: &Expression) -> Result<String> {
         let t1 = e1.resolve_type(&self.syms)?;
         let t2 = e2.resolve_type(&self.syms)?;
-        let a = self.emit_expression(e1)?;
-        let b = self.emit_expression(e2)?;
+        let a = self.emit_expression_ctx(e1, Ctx::ArgScalar)?;
+        let b = self.emit_expression_ctx(e2, Ctx::ArgScalar)?;
 
-        // TODO: implement this properly. Also, maybe preprocess to concat multiline string literals
         Ok(match (&t1, &t2) {
-            (DataType::Character, DataType::Character) => format!("({a} + {b})"),
+            (DataType::Character, DataType::Character) => format!("&fstr::concat({a}, {b})"),
             _ => bail!("invalid types in character op '//': {t1:?}, {t2:?}"),
         })
     }

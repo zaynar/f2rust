@@ -94,6 +94,12 @@ pub fn assign(a1: &mut [u8], a2: &[u8]) {
     a1[p..].fill(b' ');
 }
 
+pub fn concat(a1: &[u8], a2: &[u8]) -> Vec<u8> {
+    let mut r = a1.to_vec();
+    r.extend(a2);
+    r
+}
+
 #[cfg(test)]
 mod tests {
     use crate::fstr;
