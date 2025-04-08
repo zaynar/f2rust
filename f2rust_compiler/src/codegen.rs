@@ -1621,6 +1621,16 @@ impl CodeGenUnit<'_> {
                             args.push(format!("String::from_utf8_lossy({s})"));
                             prev_char = true;
                         }
+                        DataType::Real => {
+                            fmt.push(" {}");
+                            args.push(format!("Context::dtoa32({s})"));
+                            prev_char = false;
+                        }
+                        DataType::Double => {
+                            fmt.push(" {}");
+                            args.push(format!("Context::dtoa64({s})"));
+                            prev_char = false;
+                        }
                         _ => {
                             fmt.push(" {:>11}");
                             args.push(s);

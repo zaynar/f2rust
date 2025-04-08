@@ -66,6 +66,26 @@ impl<'a> Context<'a> {
     pub fn exit(&self, status: &[i32]) {
         std::process::exit(*status.first().unwrap_or(&0));
     }
+
+    pub fn dtoa32(n: f32) -> String {
+        // TODO: try to match gfortran better, to help with testing
+        let width = 16;
+        let mut s = format!("{n:.8}    ");
+        while s.len() < width {
+            s.insert(0, ' ');
+        }
+        s
+    }
+
+    pub fn dtoa64(n: f64) -> String {
+        // TODO: try to match gfortran better, to help with testing
+        let width = 25;
+        let mut s = format!("{n:.16}     ");
+        while s.len() < width {
+            s.insert(0, ' ');
+        }
+        s
+    }
 }
 
 impl Default for Context<'_> {
