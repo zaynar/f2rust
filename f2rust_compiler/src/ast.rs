@@ -4,7 +4,7 @@
 //! We also set up the symbol table with various information on how each symbol is declared
 //! and used.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
@@ -40,6 +40,15 @@ pub enum Expression {
     ImpliedDoVar(String),
 }
 
+// UNIT/FMT specifiers in READ/WRITE/PRINT
+#[derive(Debug, Clone)]
+pub enum Specifier {
+    Asterisk,
+    Expression(Expression),
+}
+
+type Specifiers = HashMap<String, Expression>;
+
 /// Executable statements
 #[derive(Debug, Clone)]
 pub enum Statement {
@@ -68,16 +77,28 @@ pub enum Statement {
 
     Stop,
 
-    // TODO: when implementing these, update globan uses_io
-    // Read(Specifiers, Vec<DataName>),
-    // Write(Specifiers, Vec<DataName>),
-    Print(Option<Expression>, Vec<Expression>),
-    // Open(Specifiers),
-    // Close(Specifiers),
-    // Inquire(Specifiers),
-    // Backspace(Specifiers),
-    // Endfile(Specifiers),
-    // Rewind(Specifiers),
+    Read {
+        unit: Specifier,
+        fmt: Option<Specifier>,
+        other: Specifiers,
+        iolist: Vec<Expression>,
+    },
+    Write {
+        unit: Specifier,
+        fmt: Option<Specifier>,
+        other: Specifiers,
+        iolist: Vec<Expression>,
+    },
+    Print {
+        fmt: Specifier,
+        iolist: Vec<Expression>,
+    },
+    Open(Specifiers),
+    Close(Specifiers),
+    Inquire(Specifiers),
+    Backspace(Specifiers),
+    Endfile(Specifiers),
+    Rewind(Specifiers),
     Call(String, Vec<Expression>),
     Return,
 }
@@ -394,13 +415,42 @@ impl Statement {
 
                 v.call(name, args, false);
             }
-            Statement::Print(fmt, iolist) => {
-                if let Some(e) = fmt {
+            Statement::Read {
+                unit,
+                fmt,
+                other,
+                iolist,
+            }
+            | Statement::Write {
+                unit,
+                fmt,
+                other,
+                iolist,
+            } => {
+                if let Specifier::Expression(e) = unit {
+                    e.walk(v);
+                }
+                if let Some(Specifier::Expression(e)) = fmt {
+                    e.walk(v);
+                }
+                other.values().for_each(|e| e.walk(v));
+                iolist.iter().for_each(|e| e.walk(v));
+            }
+            Statement::Print { fmt, iolist } => {
+                if let Specifier::Expression(e) = fmt {
                     e.walk(v);
                 }
                 for e in iolist {
                     e.walk(v);
                 }
+            }
+            Statement::Open(specs)
+            | Statement::Close(specs)
+            | Statement::Inquire(specs)
+            | Statement::Backspace(specs)
+            | Statement::Endfile(specs)
+            | Statement::Rewind(specs) => {
+                specs.values().for_each(|e| e.walk(v));
             }
             Statement::Return | Statement::Stop => {}
         }
@@ -1521,22 +1571,46 @@ impl Parser {
 
             grammar::Statement::Stop => Some(Statement::Stop),
 
-            grammar::Statement::Read(..)
-            | grammar::Statement::Write(..)
-            | grammar::Statement::Open(..)
-            | grammar::Statement::Close(..)
-            | grammar::Statement::Inquire(..)
-            | grammar::Statement::Backspace(..)
-            | grammar::Statement::Endfile(..)
-            | grammar::Statement::Rewind(..) => {
-                self.state = ParseState::Executable;
-                // println!("TODO executable statement: {:?}", line);
-                None
-            }
+            grammar::Statement::Read(specs, iolist)
+            | grammar::Statement::Write(specs, iolist)
+            | grammar::Statement::Print(specs, iolist) => {
+                let mut other = HashMap::new();
 
-            grammar::Statement::Print(fmt, iolist) => {
-                if !matches!(fmt, grammar::SpecifierValue::Asterisk) {
-                    bail!("PRINT format identifiers not supported");
+                let unit = match specs.0.get("UNIT") {
+                    None => {
+                        if !matches!(line, grammar::Statement::Print(..)) {
+                            bail!("READ/WRITE statement must specify UNIT");
+                        }
+                        None
+                    }
+                    Some(grammar::SpecifierValue::Asterisk) => Some(Specifier::Asterisk),
+                    Some(grammar::SpecifierValue::Expression(e)) => {
+                        Some(Specifier::Expression(Expression::from(&self.symbols, e)?))
+                    }
+                };
+
+                let fmt = match specs.0.get("FMT") {
+                    None => None,
+                    Some(grammar::SpecifierValue::Asterisk) => Some(Specifier::Asterisk),
+
+                    Some(grammar::SpecifierValue::Expression(e)) => {
+                        Some(Specifier::Expression(Expression::from(&self.symbols, e)?))
+                    }
+                };
+
+                for (k, v) in &specs.0 {
+                    if k == "UNIT" || k == "FMT" {
+                        // Already handled
+                        continue;
+                    }
+                    match v {
+                        grammar::SpecifierValue::Asterisk => {
+                            bail!("asterisk specifier only allowed in UNIT=*")
+                        }
+                        grammar::SpecifierValue::Expression(e) => {
+                            other.insert(k.to_owned(), Expression::from(&self.symbols, e)?);
+                        }
+                    }
                 }
 
                 let iolist: Vec<_> = iolist
@@ -1545,9 +1619,80 @@ impl Parser {
                     .collect::<Result<_>>()?;
 
                 let mut visitor = DoVarVisitor::new(&self.do_vars, &mut self.symbols);
+                other.values().for_each(|e| e.walk(&mut visitor));
                 iolist.iter().for_each(|e| e.walk(&mut visitor));
 
-                Some(Statement::Print(None, iolist))
+                Some(match line {
+                    grammar::Statement::Read(..) => Statement::Read {
+                        unit: unit.unwrap(),
+                        fmt,
+                        other,
+                        iolist,
+                    },
+                    grammar::Statement::Write(..) => Statement::Write {
+                        unit: unit.unwrap(),
+                        fmt,
+                        other,
+                        iolist,
+                    },
+                    grammar::Statement::Print(..) => Statement::Print {
+                        fmt: fmt.unwrap(),
+                        iolist,
+                    },
+                    _ => panic!(),
+                })
+            }
+
+            grammar::Statement::Open(specs)
+            | grammar::Statement::Close(specs)
+            | grammar::Statement::Inquire(specs)
+            | grammar::Statement::Backspace(specs)
+            | grammar::Statement::Endfile(specs)
+            | grammar::Statement::Rewind(specs) => {
+                let mut ast_specs = HashMap::new();
+
+                let unit = specs.0.get("UNIT");
+                match unit {
+                    None => {
+                        if !matches!(line, grammar::Statement::Inquire(..)) {
+                            bail!("IO statement must specify UNIT");
+                        }
+                    }
+                    Some(grammar::SpecifierValue::Asterisk) => {
+                        bail!("UNIT=* only allowed in READ, WRITE");
+                    }
+                    Some(grammar::SpecifierValue::Expression(e)) => {
+                        ast_specs.insert("UNIT".to_owned(), Expression::from(&self.symbols, e)?);
+                    }
+                }
+
+                for (k, v) in &specs.0 {
+                    if k == "UNIT" {
+                        // Already handled
+                        continue;
+                    }
+                    match v {
+                        grammar::SpecifierValue::Asterisk => {
+                            bail!("asterisk specifier only allowed in UNIT=*")
+                        }
+                        grammar::SpecifierValue::Expression(e) => {
+                            ast_specs.insert(k.to_owned(), Expression::from(&self.symbols, e)?);
+                        }
+                    }
+                }
+
+                let mut visitor = DoVarVisitor::new(&self.do_vars, &mut self.symbols);
+                ast_specs.values().for_each(|e| e.walk(&mut visitor));
+
+                Some(match line {
+                    grammar::Statement::Open(..) => Statement::Open(ast_specs),
+                    grammar::Statement::Close(..) => Statement::Close(ast_specs),
+                    grammar::Statement::Inquire(..) => Statement::Inquire(ast_specs),
+                    grammar::Statement::Backspace(..) => Statement::Backspace(ast_specs),
+                    grammar::Statement::Endfile(..) => Statement::Endfile(ast_specs),
+                    grammar::Statement::Rewind(..) => Statement::Rewind(ast_specs),
+                    _ => panic!(),
+                })
             }
 
             grammar::Statement::Call(name, args) => {

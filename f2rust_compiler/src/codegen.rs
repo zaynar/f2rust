@@ -1229,7 +1229,7 @@ impl CodeGenUnit<'_> {
                     LenSpecification::IntConstantExpr(e) => {
                         let e = self.emit_expression(e)?;
                         let mut_label = if is_mut { "mut " } else { "" };
-                        code += &format!("let {name} = &{mut_label}{name}[..{e}];\n");
+                        code += &format!("let {name} = &{mut_label}{name}[..{e} as usize];\n");
                     }
                 }
             } else {
@@ -1242,7 +1242,7 @@ impl CodeGenUnit<'_> {
                     LenSpecification::Integer(n) => {
                         // TODO: maybe we should stack-allocate instead of Vec, for performance
                         let mut_label = if is_mut { "mut " } else { "" };
-                        code += &format!("let {mut_label}{name} = vec![b' '; {n} as usize];\n");
+                        code += &format!("let {mut_label}{name} = vec![b' '; {n}];\n");
                     }
                     LenSpecification::IntConstantExpr(e) => {
                         let e = self.emit_expression(e)?;
@@ -1476,10 +1476,26 @@ impl CodeGenUnit<'_> {
             Statement::Stop => {
                 code += "ctx.stop();\n";
             }
-            Statement::Print(fmt, iolist) => {
-                assert!(fmt.is_none());
-
+            Statement::Read {
+                unit,
+                fmt,
+                other,
+                iolist,
+            } => {
+                code += "todo!(); /* READ */\n";
+            }
+            Statement::Write {
+                unit,
+                fmt,
+                other,
+                iolist,
+            } => {
+                code += "todo!(); /* WRITE */\n";
+            }
+            Statement::Print { fmt, iolist } => {
                 // TODO: implement this properly. This is just a quick hack for tests
+
+                assert!(matches!(fmt, ast::Specifier::Asterisk));
 
                 let mut fmt = vec![];
                 let mut args = vec![];
@@ -1510,6 +1526,25 @@ impl CodeGenUnit<'_> {
                 code += "writeln!(";
                 code += &args.join(", ");
                 code += ").expect(\"PRINT\");\n";
+            }
+            Statement::Open(specs) => {
+                code += "todo!(); /* OPEN */\n";
+            }
+            Statement::Close(specs) => {
+                code += "todo!(); /* CLOSE */\n";
+            }
+            Statement::Inquire(specs) => {
+                code += "todo!(); /* INQUIRE */\n";
+            }
+            Statement::Backspace(specs) => {
+                code += "todo!(); /* BACKSPACE */\n";
+            }
+            Statement::Endfile(specs) => {
+                // Not used by SPICE
+                code += "todo!(); /* ENDFILE */\n";
+            }
+            Statement::Rewind(specs) => {
+                code += "todo!(); /* REWIND */\n";
             }
             Statement::Call(name, args) => {
                 code += &self

@@ -266,10 +266,21 @@ impl GlobalAnalysis {
                     .any(|(_name, sym)| sym.ast.save && sym.ast.used.contains(&entry.name));
 
                 // Whether this entry contains any IO statements (or STOP), which require Context
-                let uses_io = entry
-                    .body
-                    .iter()
-                    .any(|stmt| matches!(stmt, ast::Statement::Stop | ast::Statement::Print(..)));
+                let uses_io = entry.body.iter().any(|stmt| {
+                    matches!(
+                        stmt,
+                        ast::Statement::Stop
+                            | ast::Statement::Read { .. }
+                            | ast::Statement::Write { .. }
+                            | ast::Statement::Print { .. }
+                            | ast::Statement::Open(..)
+                            | ast::Statement::Close(..)
+                            | ast::Statement::Inquire(..)
+                            | ast::Statement::Backspace(..)
+                            | ast::Statement::Endfile(..)
+                            | ast::Statement::Rewind(..)
+                    )
+                });
 
                 let proc = Procedure {
                     name: name.clone(),

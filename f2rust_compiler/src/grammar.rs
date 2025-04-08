@@ -148,7 +148,7 @@ pub enum SpecifierValue {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Specifier(pub Option<String>, pub SpecifierValue);
+struct Specifier(Option<String>, SpecifierValue);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Specifiers(pub HashMap<String, SpecifierValue>);
@@ -210,7 +210,7 @@ pub enum Statement {
     // Pause: not supported
     Read(Specifiers, Vec<DataName>),
     Write(Specifiers, Vec<DataName>),
-    Print(SpecifierValue, Vec<DataName>),
+    Print(Specifiers, Vec<DataName>),
     Open(Specifiers),
     Close(Specifiers),
     Inquire(Specifiers),
@@ -568,7 +568,7 @@ peg::parser! {
         rule print_statement() -> Statement
             = "PRINT" "FMT="? fmt:specifier_value()
                 d:("," e:expression() { DataName::Expression(e) } / "," d:data_name() { d })* ![_]
-                { Statement::Print(fmt, d) }
+                { Statement::Print(Specifiers(HashMap::from([("FMT".to_owned(), fmt)])), d) }
 
         rule open_statement() -> Statement
             = "OPEN(" s:specifiers(&["UNIT"]) ")" ![_] { Statement::Open(s) }
