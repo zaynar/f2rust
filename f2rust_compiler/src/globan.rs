@@ -36,7 +36,7 @@ pub struct Procedure {
 
     /// Whether we need a Context object, for SAVE or IO, or for calling another
     /// procedure that needs it
-    pub requires_context: bool,
+    pub requires_ctx: bool,
 
     /// Index within GlobalAnalysis::programs
     pub program_idx: usize,
@@ -135,7 +135,9 @@ impl ProgramUnit {
 }
 
 /// Finds all symbols passed into subroutine/function calls
+#[derive(Default)]
 struct CallVisitor {
+    called: Vec<String>,
     passed: Vec<CallArg>,
 }
 
@@ -147,6 +149,7 @@ struct CallArg {
 
 impl ast::Visitor for CallVisitor {
     fn call(&mut self, name: &String, args: &[ast::Expression], _is_function: bool) {
+        self.called.push(name.clone());
         for (i, arg) in args.iter().enumerate() {
             match arg {
                 ast::Expression::Unary(..)
@@ -208,14 +211,14 @@ impl GlobalAnalysis {
                 return_type: proc.return_type.clone(),
                 dargs: proc.dargs.clone(),
                 codegen: codegen::CallSyntax::External(proc.name.clone()),
-                requires_context: proc.requires_context,
+                requires_ctx: proc.requires_ctx,
             })
         } else {
             let unified = self.unify_actuals(name, actual_procs)?;
 
-            let requires_context = actual_procs.iter().any(|actual| {
+            let requires_ctx = actual_procs.iter().any(|actual| {
                 let proc = self.procedures.get(actual).unwrap();
-                proc.requires_context
+                proc.requires_ctx
             });
 
             Ok(ProcedureArgs {
@@ -230,14 +233,14 @@ impl GlobalAnalysis {
                     })
                     .collect(),
                 codegen: codegen::CallSyntax::Unified,
-                requires_context,
+                requires_ctx,
             })
         }
     }
 
-    pub fn requires_context(&self, namespace: &str, entry_name: &str) -> Result<bool> {
+    pub fn requires_ctx(&self, namespace: &str, entry_name: &str) -> Result<bool> {
         if let Some(proc) = self.procedures.get(&Name::new(namespace, entry_name)) {
-            Ok(proc.requires_context)
+            Ok(proc.requires_ctx)
         } else {
             Ok(false)
         }
@@ -272,7 +275,7 @@ impl GlobalAnalysis {
                     name: name.clone(),
                     return_type,
                     dargs: Vec::new(),
-                    requires_context: uses_save || uses_io,
+                    requires_ctx: uses_save || uses_io,
                     program_idx,
                 };
 
@@ -373,7 +376,7 @@ impl GlobalAnalysis {
 
         for program in &self.programs {
             // Find all the call arguments
-            let mut visitor = CallVisitor { passed: Vec::new() };
+            let mut visitor = CallVisitor::default();
             for entry in &program.ast.entries {
                 for statement in &entry.body {
                     statement.walk(&mut visitor);
@@ -438,6 +441,43 @@ impl GlobalAnalysis {
         Ok(dirty)
     }
 
+    /// Set requires_ctx on procedures that call other procedures with requires_ctx.
+    fn update_ctx(&mut self) -> Result<bool> {
+        let mut dirty = false;
+
+        for program in &mut self.programs {
+            for entry in &program.ast.entries {
+                let name = Name::new(&program.namespace, &entry.name);
+                if self.procedures.get(&name).unwrap().requires_ctx {
+                    continue;
+                }
+
+                let mut visitor = CallVisitor::default();
+                for statement in &entry.body {
+                    statement.walk(&mut visitor);
+                }
+
+                for called in visitor.called {
+                    let actual_procs = program.symbols.get(&called)?.actual_procs.clone();
+
+                    if actual_procs.iter().any(|actual| {
+                        if actual.0 == "intrinsics" || actual.0 == "statement_function" {
+                            false
+                        } else {
+                            let proc = self.procedures.get(&actual).unwrap();
+                            proc.requires_ctx
+                        }
+                    }) {
+                        self.procedures.get_mut(&name).unwrap().requires_ctx = true;
+                        dirty = true;
+                    }
+                }
+            }
+        }
+
+        Ok(dirty)
+    }
+
     /// Set symbols to mutable, if they're passed to a procedure that requires a mutable argument.
     /// Needs to be used in combination with compute_dargs to propagate mutability from symbols
     /// back to the DummyArgs.
@@ -447,7 +487,7 @@ impl GlobalAnalysis {
         for program in &mut self.programs {
             for entry in &program.ast.entries {
                 // Find all the call arguments
-                let mut visitor = CallVisitor { passed: Vec::new() };
+                let mut visitor = CallVisitor::default();
                 for statement in &entry.body {
                     statement.walk(&mut visitor);
                 }
@@ -621,6 +661,9 @@ impl GlobalAnalysis {
             // Loop until there are no further changes
         }
 
+        // Propagate requires_ctx through procedure calls
+        while self.update_ctx()? {}
+
         // Propagate mutability through procedure calls. Iterate until it stops changing
         loop {
             let dirty = self.update_mut()?;
@@ -631,8 +674,6 @@ impl GlobalAnalysis {
                 break;
             }
         }
-
-        // TODO: propagate requires_context through calls
 
         loop {
             let dirty = self.update_fn_types()?;

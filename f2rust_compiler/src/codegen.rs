@@ -348,7 +348,7 @@ pub struct ProcedureArgs {
     pub return_type: DataType,
     pub dargs: Vec<globan::DummyArg>,
     pub codegen: CallSyntax,
-    pub requires_context: bool,
+    pub requires_ctx: bool,
 }
 
 impl CodeGenUnit<'_> {
@@ -1008,7 +1008,7 @@ impl CodeGenUnit<'_> {
                         })
                         .collect::<Result<_>>()?,
                     codegen,
-                    requires_context: false,
+                    requires_ctx: false,
                 });
             } else {
                 warn!(
@@ -1050,7 +1050,7 @@ impl CodeGenUnit<'_> {
         }
 
         let args_ex = self
-            .emit_args(&actual.dargs, args, actual.requires_context)
+            .emit_args(&actual.dargs, args, actual.requires_ctx)
             .with_context(|| format!("failed args in call to {name}"))?;
 
         if sym.ast.darg {
@@ -1704,7 +1704,7 @@ impl<'a> CodeGen<'a> {
             if entry
                 .codegen
                 .globan
-                .requires_context(&entry.codegen.program.namespace, entry_name)?
+                .requires_ctx(&entry.codegen.program.namespace, entry_name)?
             {
                 dargs.insert(0, "ctx: &mut Context".to_owned());
             }
