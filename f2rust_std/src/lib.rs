@@ -2,6 +2,7 @@ mod array;
 mod chararray;
 mod context;
 pub mod data;
+mod format;
 pub mod fstr;
 pub mod intrinsics;
 mod util;
