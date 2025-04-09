@@ -1608,7 +1608,20 @@ impl Parser {
                             bail!("asterisk specifier only allowed in UNIT=*")
                         }
                         grammar::SpecifierValue::Expression(e) => {
-                            other.insert(k.to_owned(), Expression::from(&self.symbols, e)?);
+                            let e = Expression::from(&self.symbols, e)?;
+
+                            if k == "IOSTAT" {
+                                match &e {
+                                    Expression::Symbol(name) |
+                                    Expression::ArrayElement(name, _) => {
+                                        self.symbols.set_assigned(name, &self.entry.as_ref().unwrap().name);
+                                    }
+                                    _ => bail!("IOSTAT must be an integer variable or array element"),
+                                }
+                            }
+
+                            other.insert(k.to_owned(), e);
+
                         }
                     }
                 }
@@ -1676,7 +1689,19 @@ impl Parser {
                             bail!("asterisk specifier only allowed in UNIT=*")
                         }
                         grammar::SpecifierValue::Expression(e) => {
-                            ast_specs.insert(k.to_owned(), Expression::from(&self.symbols, e)?);
+                            let e = Expression::from(&self.symbols, e)?;
+
+                            if k == "IOSTAT" {
+                                match &e {
+                                    Expression::Symbol(name) |
+                                    Expression::ArrayElement(name, _) => {
+                                        self.symbols.set_assigned(name, &self.entry.as_ref().unwrap().name);
+                                    }
+                                    _ => bail!("IOSTAT must be an integer variable or array element"),
+                                }
+                            }
+
+                            ast_specs.insert(k.to_owned(), e);
                         }
                     }
                 }

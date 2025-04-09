@@ -21,20 +21,25 @@ use std::{
     rc::Rc,
 };
 
+use crate::io::WriterBuilder;
+
 pub trait SaveInit {
     fn new() -> Self;
 }
 
 pub struct Context<'a> {
     data: HashMap<TypeId, Rc<dyn Any>>,
-    stdout: Box<dyn std::io::Write + 'a>,
+
+    // This is Rc<RefCell> because we lend it out to WriterBuilder, which might
+    // hold onto it across other calls into Context
+    stdout: Rc<RefCell<dyn std::io::Write + 'a>>,
 }
 
 impl<'a> Context<'a> {
     pub fn new() -> Self {
         Self {
             data: HashMap::new(),
-            stdout: Box::new(std::io::stdout()),
+            stdout: Rc::new(RefCell::new(std::io::stdout())),
         }
     }
 
@@ -48,12 +53,7 @@ impl<'a> Context<'a> {
     }
 
     pub fn set_stdout<W: std::io::Write + 'a>(&mut self, stdout: W) {
-        self.stdout = Box::new(stdout);
-    }
-
-    /// Used in the implementation of PRINT
-    pub fn stdout(&mut self) -> &mut dyn std::io::Write {
-        &mut self.stdout
+        self.stdout = Rc::new(RefCell::new(stdout));
     }
 
     /// STOP statement
@@ -67,24 +67,11 @@ impl<'a> Context<'a> {
         std::process::exit(*status.first().unwrap_or(&0));
     }
 
-    pub fn dtoa32(n: f32) -> String {
-        // TODO: try to match gfortran better, to help with testing
-        let width = 16;
-        let mut s = format!("{n:.8}    ");
-        while s.len() < width {
-            s.insert(0, ' ');
-        }
-        s
-    }
-
-    pub fn dtoa64(n: f64) -> String {
-        // TODO: try to match gfortran better, to help with testing
-        let width = 25;
-        let mut s = format!("{n:.16}     ");
-        while s.len() < width {
-            s.insert(0, ' ');
-        }
-        s
+    pub fn writer<'w>(&mut self) -> WriterBuilder<'w>
+    where
+        'a: 'w,
+    {
+        WriterBuilder::new(Rc::clone(&self.stdout))
     }
 }
 

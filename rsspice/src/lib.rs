@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
     use approx::assert_abs_diff_eq;
-    use std::f64;
 
     use f2rust_std::Context;
     use rsspice_gen::spicelib;
@@ -38,7 +37,7 @@ mod tests {
         spicelib::VROTV(
             &[1.0, 2.0, 3.0],
             &[0.0, 0.0, 1.0],
-            f64::consts::FRAC_PI_2,
+            std::f64::consts::FRAC_PI_2,
             &mut ret,
         );
         assert_abs_diff_eq!(ret.as_ref(), [-2.0, 1.0, 3.0].as_ref());
@@ -46,7 +45,7 @@ mod tests {
         spicelib::VROTV(
             &[1.0, 0.0, 0.0],
             &[0.0, 0.0, 1.0],
-            f64::consts::FRAC_PI_2,
+            std::f64::consts::FRAC_PI_2,
             &mut ret,
         );
         assert_abs_diff_eq!(ret.as_ref(), [0.0, 1.0, 0.0].as_ref());
@@ -54,7 +53,7 @@ mod tests {
         spicelib::VROTV(
             &[0.0, 1.0, 0.0],
             &[0.0, 0.0, 1.0],
-            f64::consts::FRAC_PI_2,
+            std::f64::consts::FRAC_PI_2,
             &mut ret,
         );
         assert_abs_diff_eq!(ret.as_ref(), [-1.0, 0.0, 0.0].as_ref());
@@ -135,10 +134,10 @@ mod tests {
     #[test]
     fn q2m() {
         let q = [
-            f64::consts::SQRT_2 / 2.0,
+            std::f64::consts::SQRT_2 / 2.0,
             0.0,
             0.0,
-            -f64::consts::SQRT_2 / 2.0,
+            -std::f64::consts::SQRT_2 / 2.0,
         ];
         let mut r = [0.0; 9];
         spicelib::Q2M(&q, &mut r);
@@ -183,12 +182,17 @@ mod tests {
 
     // #[test]
     // fn chk() {
+    //     let mut stdout = vec![];
     //     let mut ctx = Context::new();
+    //     ctx.set_stdout(&mut stdout);
 
     //     spicelib::CHKIN(&mut ctx, b"TEST");
     //     spicelib::SETMSG(&mut ctx, b"Test message.");
     //     spicelib::ERRINT(&mut ctx, b"#", 123);
     //     spicelib::SIGERR(&mut ctx, b"SPICE(NOTSUPPORTED)");
     //     spicelib::CHKOUT(&mut ctx, b"TEST");
+
+    //     drop(ctx);
+    //     std::io::stderr().write_all(&stdout).unwrap();
     // }
 }

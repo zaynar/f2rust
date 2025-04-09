@@ -30,39 +30,40 @@ type Result<T> = std::result::Result<T, FormatError>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Repeatable {
-    I { w: u32, m: Option<u32> },
-    F { w: u32, d: u32 },
-    E { w: u32, d: u32, e: Option<u32> },
-    D { w: u32, d: u32 },
-    G { w: u32, d: u32, e: Option<u32> },
-    L { w: u32 },
-    A { w: Option<u32> },
+    I { w: usize, m: Option<usize> },
+    F { w: usize, d: usize },
+    E { w: usize, d: usize, e: Option<usize> },
+    D { w: usize, d: usize },
+    G { w: usize, d: usize, e: Option<usize> },
+    L { w: usize },
+    A { w: Option<usize> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Nonrepeatable {
     Char { s: Vec<u8> },
     // H: not supported, deleted in later Fortran standards
-    T { c: u32 },
-    TL { c: u32 },
-    TR { c: u32 },
-    X { n: u32 },
+    T { c: usize },
+    TL { c: usize },
+    TR { c: usize },
+    X { n: usize },
     Slash,
     Colon,
     S,
     SP,
     SS,
-    P { k: i32 },
+    P { k: isize },
     BN,
     BZ,
     Dollar, // non-standard? see e.g. https://gcc.gnu.org/onlinedocs/gcc-3.4.3/g77/I_002fO.html
+    EndOfRecord, // inserted automatically
 }
 
 #[derive(Debug, PartialEq)]
 enum Descriptor {
-    Repeatable(i32, Repeatable),
+    Repeatable(isize, Repeatable),
     Nonrepeatable(Nonrepeatable),
-    ParenLeft(i32),
+    ParenLeft(isize),
     ParenRight,
 }
 
@@ -79,11 +80,11 @@ pub struct ParsedFormatSpec {
     revert_pos: Option<usize>,
 }
 
-pub struct ParsedFormatSpecIter<'a> {
-    spec: &'a ParsedFormatSpec,
-    pos: i32,
-    reps: u32,
-    groups: Vec<(i32, u32)>, // (pos, reps)
+pub struct ParsedFormatSpecIter {
+    spec: ParsedFormatSpec,
+    pos: isize,
+    reps: usize,
+    groups: Vec<(isize, usize)>, // (pos, reps)
 }
 
 impl ParsedFormatSpec {
@@ -94,7 +95,7 @@ impl ParsedFormatSpec {
         }
     }
 
-    pub fn iter(&self) -> ParsedFormatSpecIter {
+    pub fn into_iter(self) -> ParsedFormatSpecIter {
         ParsedFormatSpecIter {
             spec: self,
             pos: -1,
@@ -108,10 +109,9 @@ impl ParsedFormatSpec {
 pub enum EditDescriptor {
     Repeatable(Repeatable),
     Nonrepeatable(Nonrepeatable),
-    EndOfRecord,
 }
 
-impl Iterator for ParsedFormatSpecIter<'_> {
+impl Iterator for ParsedFormatSpecIter {
     type Item = EditDescriptor;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -132,25 +132,25 @@ impl Iterator for ParsedFormatSpecIter<'_> {
             self.pos += 1;
 
             // If we reach the end of the format specification, revert to an earlier position
-            if self.pos >= self.spec.descriptors.len() as i32 {
+            if self.pos >= self.spec.descriptors.len() as isize {
                 match self.spec.revert_pos {
-                    Some(n) => self.pos = n as i32 - 1,
+                    Some(n) => self.pos = n as isize - 1,
                     None => self.pos = -1,
                 }
-                return Some(EditDescriptor::EndOfRecord);
+                return Some(EditDescriptor::Nonrepeatable(Nonrepeatable::EndOfRecord));
             }
 
             // Handle the current descriptor, then loop around
             match &self.spec.descriptors[self.pos as usize] {
                 Descriptor::Repeatable(r, _) => {
-                    self.reps = *r as u32;
+                    self.reps = *r as usize;
                 }
                 Descriptor::Nonrepeatable(_) => {
                     self.reps = 1;
                 }
                 Descriptor::ParenLeft(r) => {
                     // Remember the start of this group
-                    self.groups.push((self.pos, *r as u32 - 1));
+                    self.groups.push((self.pos, *r as usize - 1));
                 }
                 Descriptor::ParenRight => {
                     // Revert to the start of the current group, if we're repeating it
@@ -186,7 +186,7 @@ impl<'a> FormatParser<'a> {
         }
     }
 
-    fn signed(&mut self) -> Result<Option<i32>> {
+    fn signed(&mut self) -> Result<Option<isize>> {
         if let Some(s) = self.sym {
             match s as char {
                 '+' | '-' | '0'..='9' => {
@@ -197,7 +197,7 @@ impl<'a> FormatParser<'a> {
                         self.next();
                         if let Some(s) = self.sym {
                             if !s.is_ascii_digit() {
-                                return Ok(Some(num.parse().expect("parsing format i32")));
+                                return Ok(Some(num.parse().expect("parsing format isize")));
                             }
                             num.push(s as char);
                         } else {
@@ -212,7 +212,7 @@ impl<'a> FormatParser<'a> {
         }
     }
 
-    fn unsigned(&mut self) -> Result<Option<u32>> {
+    fn unsigned(&mut self) -> Result<Option<usize>> {
         if let Some(s) = self.sym {
             match s as char {
                 '0'..='9' => {
@@ -223,7 +223,7 @@ impl<'a> FormatParser<'a> {
                         self.next();
                         if let Some(s) = self.sym {
                             if !s.is_ascii_digit() {
-                                return Ok(Some(num.parse().expect("parsing format u32")));
+                                return Ok(Some(num.parse().expect("parsing format usize")));
                             }
                             num.push(s as char);
                         } else {
@@ -252,7 +252,7 @@ impl<'a> FormatParser<'a> {
         }
     }
 
-    fn i_vals(&mut self) -> Result<(u32, Option<u32>)> {
+    fn i_vals(&mut self) -> Result<(usize, Option<usize>)> {
         if let Some(w) = self.unsigned()? {
             if self.sym == Some(b'.') {
                 self.next();
@@ -269,7 +269,7 @@ impl<'a> FormatParser<'a> {
         }
     }
 
-    fn fd_vals(&mut self) -> Result<(u32, u32)> {
+    fn fd_vals(&mut self) -> Result<(usize, usize)> {
         if let Some(w) = self.unsigned()? {
             if self.sym == Some(b'.') {
                 self.next();
@@ -286,7 +286,7 @@ impl<'a> FormatParser<'a> {
         }
     }
 
-    fn eg_vals(&mut self) -> Result<(u32, u32, Option<u32>)> {
+    fn eg_vals(&mut self) -> Result<(usize, usize, Option<usize>)> {
         let (w, d) = self.fd_vals()?;
         if matches!(self.sym, Some(b'E') | Some(b'e')) {
             self.next();
@@ -300,7 +300,7 @@ impl<'a> FormatParser<'a> {
         }
     }
 
-    fn descriptor_rep(&mut self, r: i32, letter: char) -> Result<Option<Descriptor>> {
+    fn descriptor_rep(&mut self, r: isize, letter: char) -> Result<Option<Descriptor>> {
         Ok(Some(match letter.to_ascii_uppercase() {
             'I' => {
                 let (w, m) = self.i_vals()?;
@@ -336,7 +336,7 @@ impl<'a> FormatParser<'a> {
             'X' => {
                 // Reinterpret 'r'
                 // TODO: check >0 before cast
-                Descriptor::Nonrepeatable(Nonrepeatable::X { n: r as u32 })
+                Descriptor::Nonrepeatable(Nonrepeatable::X { n: r as usize })
             }
             'P' => {
                 // Reinterpret 'r'
@@ -524,7 +524,7 @@ mod tests {
         );
 
         assert_eq!(
-            parsed.iter().take(28).collect::<Vec<_>>(),
+            parsed.into_iter().take(28).collect::<Vec<_>>(),
             vec![
                 EditDescriptor::Nonrepeatable(Nonrepeatable::Char { s: b"a".to_vec() }),
                 EditDescriptor::Repeatable(Repeatable::I { w: 2, m: None }),
@@ -544,7 +544,7 @@ mod tests {
                 EditDescriptor::Nonrepeatable(Nonrepeatable::SP),
                 EditDescriptor::Nonrepeatable(Nonrepeatable::Char { s: b"c".to_vec() }),
                 EditDescriptor::Repeatable(Repeatable::I { w: 3, m: None }),
-                EditDescriptor::EndOfRecord,
+                EditDescriptor::Nonrepeatable(Nonrepeatable::EndOfRecord),
                 EditDescriptor::Nonrepeatable(Nonrepeatable::Char {
                     s: b"bcd'efg".to_vec()
                 }),
@@ -561,7 +561,7 @@ mod tests {
                 EditDescriptor::Nonrepeatable(Nonrepeatable::SP),
                 EditDescriptor::Nonrepeatable(Nonrepeatable::Char { s: b"c".to_vec() }),
                 EditDescriptor::Repeatable(Repeatable::I { w: 3, m: None }),
-                EditDescriptor::EndOfRecord,
+                EditDescriptor::Nonrepeatable(Nonrepeatable::EndOfRecord),
             ]
         );
 
@@ -580,7 +580,7 @@ mod tests {
         for d in &parsed.descriptors {
             println!("{:?}", d);
         }
-        for x in parsed.iter().take(50) {
+        for x in parsed.into_iter().take(50) {
             println!("- {x:?}");
         }
 
