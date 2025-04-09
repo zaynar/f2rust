@@ -530,9 +530,12 @@ pub enum DataType {
     /// SUBROUTINE return type
     Void,
 
-    /// (return type, args...). This is used by globan once it knows the full type of
-    /// a procedure argument.
-    Procedure(Vec<ProcedureArgType>),
+    /// This is used by globan once it knows the full type of a procedure argument.
+    Procedure {
+        requires_ctx: bool,
+        returns_result: bool,
+        ret_args: Vec<ProcedureArgType>,
+    },
 }
 
 impl DataType {

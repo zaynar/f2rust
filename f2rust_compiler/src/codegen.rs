@@ -274,30 +274,61 @@ fn emit_datatype(ty: &DataType) -> String {
         DataType::Unknown => "INVALID_TYPE_UNKNOWN".to_owned(),
 
         // Procedures used as variables are Rust function pointers
-        DataType::Procedure(args) => {
-            if args.is_empty() {
+        DataType::Procedure {
+            requires_ctx,
+            returns_result,
+            ret_args,
+        } => {
+            if ret_args.is_empty() {
                 // TODO: why is this triggered sometimes?
                 return "ERROR cannot find procedure's return type".to_owned();
             }
 
-            let mut args = args.iter().map(|arg| {
-                let ty = emit_datatype(&arg.base_type);
-                if arg.is_array {
-                    if arg.mutated {
-                        format!("&mut [{ty}]")
+            let mut ret_args = ret_args.iter().map(|arg| {
+                // TODO: this is duplicating emit_symbol DummyArg, maybe refactor it
+                if arg.base_type == DataType::Character {
+                    if arg.is_array {
+                        if arg.mutated {
+                            "CharArrayMut".to_owned()
+                        } else {
+                            "CharArray".to_owned()
+                        }
                     } else {
-                        format!("&[{ty}]")
+                        if arg.mutated {
+                            "&mut [u8]".to_owned()
+                        } else {
+                            "&[u8]".to_owned()
+                        }
                     }
-                } else if arg.mutated {
-                    format!("&mut {ty}")
                 } else {
-                    ty
+                    let ty = emit_datatype(&arg.base_type);
+                    if arg.is_array {
+                        if arg.mutated {
+                            format!("&mut [{ty}]")
+                        } else {
+                            format!("&[{ty}]")
+                        }
+                    } else {
+                        if arg.mutated {
+                            format!("&mut {ty}")
+                        } else {
+                            ty
+                        }
+                    }
                 }
             });
 
-            let ret = args.next().unwrap();
-            let args = args.collect::<Vec<_>>().join(", ");
-            format!("fn({args}) -> {ret}")
+            let ret = ret_args.next().unwrap();
+            let mut args = ret_args.collect::<Vec<_>>();
+            if *requires_ctx {
+                args.insert(0, "&mut Context".to_owned());
+            }
+            let args = args.join(", ");
+            if *returns_result {
+                format!("fn({args}) -> Result<{ret}>")
+            } else {
+                format!("fn({args}) -> {ret}")
+            }
         }
     }
 }
@@ -796,7 +827,7 @@ impl CodeGenUnit<'_> {
         &self,
         dargs: &[globan::DummyArg],
         args: &[Expression],
-        requires_context: bool,
+        requires_ctx: bool,
     ) -> Result<String> {
         assert_eq!(dargs.len(), args.len());
 
@@ -848,7 +879,7 @@ impl CodeGenUnit<'_> {
         let mut exprs = vec![];
 
         // Context gets passed as the first argument
-        if requires_context {
+        if requires_ctx {
             exprs.push(Ok("ctx".to_owned()));
         }
 

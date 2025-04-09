@@ -694,7 +694,21 @@ impl GlobalAnalysis {
                         }
                     }
 
-                    let ty = ast::DataType::Procedure(unified);
+                    let requires_ctx = sym.actual_procs.iter().any(|actual| {
+                        let proc = self.procedures.get(actual).unwrap();
+                        proc.requires_ctx
+                    });
+
+                    let returns_result = sym.actual_procs.iter().any(|actual| {
+                        let proc = self.procedures.get(actual).unwrap();
+                        proc.returns_result
+                    });
+
+                    let ty = ast::DataType::Procedure {
+                        requires_ctx,
+                        returns_result,
+                        ret_args: unified,
+                    };
                     if sym.ast.base_type != ty {
                         changes_type.push((program_idx, name.clone(), ty));
                         dirty = true;
