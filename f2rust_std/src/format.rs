@@ -28,6 +28,7 @@ pub enum FormatError {
 
 type Result<T> = std::result::Result<T, FormatError>;
 
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Repeatable {
     I { w: usize, m: Option<usize> },

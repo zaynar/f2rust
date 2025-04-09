@@ -1,7 +1,10 @@
 use std::{cell::RefCell, iter::repeat_n, rc::Rc};
 
-use crate::format::{
-    self, EditDescriptor, Nonrepeatable, ParsedFormatSpec, ParsedFormatSpecIter, Repeatable,
+use crate::{
+    Result,
+    format::{
+        self, EditDescriptor, Nonrepeatable, ParsedFormatSpec, ParsedFormatSpecIter, Repeatable,
+    },
 };
 
 pub enum Format {
@@ -18,13 +21,13 @@ pub struct WriterBuilder<'a> {
 }
 
 pub trait Writer {
-    fn start(&mut self);
-    fn finish(&mut self);
-    fn write_i32(&mut self, n: i32);
-    fn write_f32(&mut self, n: f32);
-    fn write_f64(&mut self, n: f64);
-    fn write_bool(&mut self, n: bool);
-    fn write_str(&mut self, str: &[u8]);
+    fn start(&mut self) -> Result<()>;
+    fn finish(&mut self) -> Result<()>;
+    fn write_i32(&mut self, n: i32) -> Result<()>;
+    fn write_f32(&mut self, n: f32) -> Result<()>;
+    fn write_f64(&mut self, n: f64) -> Result<()>;
+    fn write_bool(&mut self, n: bool) -> Result<()>;
+    fn write_str(&mut self, str: &[u8]) -> Result<()>;
 }
 
 impl<'a> WriterBuilder<'a> {
@@ -44,16 +47,13 @@ impl<'a> WriterBuilder<'a> {
         }
     }
 
-    pub fn fmt(self, fmt: &[u8]) -> Self {
-        // TODO: better error handling
-        let fmt = format::FormatParser::new(fmt)
-            .parse()
-            .expect("invalid format string");
+    pub fn fmt(self, fmt: &[u8]) -> Result<Self> {
+        let fmt = format::FormatParser::new(fmt).parse()?;
 
-        Self {
+        Ok(Self {
             fmt: Format::Formatted(fmt),
             ..self
-        }
+        })
     }
 
     pub fn fmt_list(self) -> Self {
@@ -70,7 +70,7 @@ impl<'a> WriterBuilder<'a> {
         }
     }
 
-    pub fn build(self) -> Box<dyn Writer + 'a> {
+    pub fn build(self) -> Result<Box<dyn Writer + 'a>> {
         let file = match self.unit {
             None => self.stdout,
             Some(n) => panic!("unsupported UNIT={n}"),
@@ -82,8 +82,8 @@ impl<'a> WriterBuilder<'a> {
             Format::ListDirected => Box::new(ListDirectedWriter::new(file, self.iostat)),
         };
 
-        writer.start();
-        writer
+        writer.start()?;
+        Ok(writer)
     }
 }
 
@@ -127,8 +127,7 @@ fn format_i(n: i32, w: usize, m: Option<usize>, plus: Option<bool>) -> Vec<u8> {
 
 pub struct FormattedWriter<'a> {
     file: Rc<RefCell<dyn std::io::Write + 'a>>,
-    iostat: Option<&'a mut i32>,
-
+    // iostat: Option<&'a mut i32>,
     awaiting: Option<Repeatable>,
     iter: ParsedFormatSpecIter,
     // We should output '\n' on finish, unless we outputted one at EndOfRecord
@@ -142,12 +141,11 @@ impl<'a> FormattedWriter<'a> {
     pub fn new(
         file: Rc<RefCell<dyn std::io::Write + 'a>>,
         fmt: ParsedFormatSpec,
-        iostat: Option<&'a mut i32>,
+        _iostat: Option<&'a mut i32>,
     ) -> Self {
         Self {
             file,
-            iostat,
-
+            // iostat,
             awaiting: None,
             iter: fmt.into_iter(),
             end_of_record: false,
@@ -156,16 +154,16 @@ impl<'a> FormattedWriter<'a> {
         }
     }
 
-    fn continue_until_rep(&mut self) {
+    fn continue_until_rep(&mut self) -> Result<()> {
         self.end_of_record = false;
         loop {
             match self.iter.next().unwrap() {
                 EditDescriptor::Repeatable(d) => {
                     self.awaiting = Some(d);
-                    return;
+                    return Ok(());
                 }
                 EditDescriptor::Nonrepeatable(d) => {
-                    self.handle_nonrep(&d).expect("IO error");
+                    self.handle_nonrep(&d)?;
                 }
             }
         }
@@ -197,96 +195,100 @@ impl<'a> FormattedWriter<'a> {
 }
 
 impl Writer for FormattedWriter<'_> {
-    fn start(&mut self) {
-        self.continue_until_rep();
+    fn start(&mut self) -> Result<()> {
+        self.continue_until_rep()
     }
 
-    fn finish(&mut self) {
+    fn finish(&mut self) -> Result<()> {
         if !self.end_of_record {
-            self.file.borrow_mut().write_all(b"\n").expect("IO error");
+            self.file.borrow_mut().write_all(b"\n")?;
         }
+        Ok(())
     }
 
-    fn write_i32(&mut self, n: i32) {
+    fn write_i32(&mut self, n: i32) -> Result<()> {
         let str = match self.awaiting.take() {
             Some(Repeatable::I { w, m }) => format_i(n, w, m, self.plus),
             _ => panic!("write_i32: expecting {:?}", self.awaiting),
         };
-        self.file.borrow_mut().write_all(&str).expect("IO error");
+        self.file.borrow_mut().write_all(&str)?;
 
-        self.continue_until_rep();
+        self.continue_until_rep()
     }
 
-    fn write_f32(&mut self, _n: f32) {
+    fn write_f32(&mut self, _n: f32) -> Result<()> {
         todo!();
     }
 
-    fn write_f64(&mut self, _n: f64) {
+    fn write_f64(&mut self, _n: f64) -> Result<()> {
         todo!();
     }
 
-    fn write_bool(&mut self, _n: bool) {
+    fn write_bool(&mut self, _n: bool) -> Result<()> {
         todo!();
     }
 
-    fn write_str(&mut self, str: &[u8]) {
+    fn write_str(&mut self, str: &[u8]) -> Result<()> {
         let mut file = self.file.borrow_mut();
 
         match self.awaiting.take() {
             Some(Repeatable::A { w: Some(w) }) => {
                 if str.len() < w {
-                    file.write_all(&vec![b' '; w - str.len()])
-                        .expect("IO error");
-                    file.write_all(str).expect("IO error");
+                    file.write_all(&vec![b' '; w - str.len()])?;
+                    file.write_all(str)?;
                 } else {
-                    file.write_all(&str[0..w]).expect("IO error");
+                    file.write_all(&str[0..w])?;
                 }
             }
             Some(Repeatable::A { w: None }) => {
-                file.write_all(str).expect("IO error");
+                file.write_all(str)?;
             }
             _ => panic!("write_str: expecting {:?}", self.awaiting),
         };
 
         drop(file);
-        self.continue_until_rep();
+        self.continue_until_rep()
     }
 }
 
 pub struct ListDirectedWriter<'a> {
     file: Rc<RefCell<dyn std::io::Write + 'a>>,
-    iostat: Option<&'a mut i32>,
+    // iostat: Option<&'a mut i32>,
     prev_char: bool,
 }
 
 impl<'a> ListDirectedWriter<'a> {
-    pub fn new(file: Rc<RefCell<dyn std::io::Write + 'a>>, iostat: Option<&'a mut i32>) -> Self {
+    pub fn new(file: Rc<RefCell<dyn std::io::Write + 'a>>, _iostat: Option<&'a mut i32>) -> Self {
         Self {
             file,
-            iostat,
+            // iostat,
             prev_char: false,
         }
     }
 }
 
 impl Writer for ListDirectedWriter<'_> {
-    fn start(&mut self) {}
-
-    fn finish(&mut self) {
-        self.file.borrow_mut().write_all(b"\n").expect("IO error");
+    fn start(&mut self) -> Result<()> {
+        Ok(())
     }
 
-    fn write_i32(&mut self, n: i32) {
+    fn finish(&mut self) -> Result<()> {
+        self.file.borrow_mut().write_all(b"\n")?;
+        Ok(())
+    }
+
+    fn write_i32(&mut self, n: i32) -> Result<()> {
         self.prev_char = false;
-        self.file.borrow_mut().write_all(b" ").expect("IO error");
+        self.file.borrow_mut().write_all(b" ")?;
 
         let str = format_i(n, 11, None, None);
-        self.file.borrow_mut().write_all(&str).expect("IO error");
+        self.file.borrow_mut().write_all(&str)?;
+        Ok(())
     }
 
-    fn write_f32(&mut self, n: f32) {
+    fn write_f32(&mut self, n: f32) -> Result<()> {
         self.prev_char = false;
-        self.file.borrow_mut().write_all(b" ").expect("IO error");
+        self.file.borrow_mut().write_all(b" ")?;
 
         // XXX
         let width = 16;
@@ -294,15 +296,13 @@ impl Writer for ListDirectedWriter<'_> {
         while str.len() < width {
             str.insert(0, ' ');
         }
-        self.file
-            .borrow_mut()
-            .write_all(&str.into_bytes())
-            .expect("IO error");
+        self.file.borrow_mut().write_all(&str.into_bytes())?;
+        Ok(())
     }
 
-    fn write_f64(&mut self, n: f64) {
+    fn write_f64(&mut self, n: f64) -> Result<()> {
         self.prev_char = false;
-        self.file.borrow_mut().write_all(b" ").expect("IO error");
+        self.file.borrow_mut().write_all(b" ")?;
 
         // XXX
         let width = 25;
@@ -310,22 +310,21 @@ impl Writer for ListDirectedWriter<'_> {
         while str.len() < width {
             str.insert(0, ' ');
         }
-        self.file
-            .borrow_mut()
-            .write_all(&str.into_bytes())
-            .expect("IO error");
+        self.file.borrow_mut().write_all(&str.into_bytes())?;
+        Ok(())
     }
 
-    fn write_bool(&mut self, _n: bool) {
+    fn write_bool(&mut self, _n: bool) -> Result<()> {
         todo!();
     }
 
-    fn write_str(&mut self, str: &[u8]) {
+    fn write_str(&mut self, str: &[u8]) -> Result<()> {
         if !self.prev_char {
-            self.file.borrow_mut().write_all(b" ").expect("IO error");
+            self.file.borrow_mut().write_all(b" ")?;
             self.prev_char = true;
         }
 
-        self.file.borrow_mut().write_all(str).expect("IO error");
+        self.file.borrow_mut().write_all(str)?;
+        Ok(())
     }
 }

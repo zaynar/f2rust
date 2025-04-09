@@ -1604,7 +1604,7 @@ impl CodeGenUnit<'_> {
                 match fmt {
                     Some(ast::Specifier::Expression(e)) => {
                         let e = self.emit_expression(e)?;
-                        code += &format!("    .fmt({e})\n");
+                        code += &format!("    .fmt({e})?\n");
                     }
                     Some(ast::Specifier::Asterisk) => {
                         code += "    .fmt_list()\n";
@@ -1621,9 +1621,9 @@ impl CodeGenUnit<'_> {
                     let name = name.to_ascii_lowercase();
                     code += &format!("    .{name}({e})\n");
                 }
-                code += "    .build();\n";
+                code += "    .build()?;\n";
                 code += &self.emit_data_nlist(iolist, Ctx::Value, &mut NlistCallbackWrite {})?;
-                code += "  writer.finish();\n";
+                code += "  writer.finish()?;\n";
                 code += "}\n";
             }
             Statement::Print { fmt, iolist } => {
@@ -1640,9 +1640,9 @@ impl CodeGenUnit<'_> {
                         code += "    .fmt_list()\n";
                     }
                 }
-                code += "    .build();\n";
+                code += "    .build()?;\n";
                 code += &self.emit_data_nlist(iolist, Ctx::Value, &mut NlistCallbackWrite {})?;
-                code += "  writer.finish();\n";
+                code += "  writer.finish()?;\n";
                 code += "}\n";
             }
             Statement::Open(_) => {
@@ -1996,39 +1996,41 @@ struct NlistCallbackWrite {}
 impl NlistCallback for NlistCallbackWrite {
     fn array(&self, s: &str, vt: &DataType) -> Result<String> {
         if matches!(vt, DataType::Character) {
-            Ok(format!("{s}.iter().for_each(|n| writer.write_str(n));\n"))
+            Ok(format!("for n in {s}.iter() {{ writer.write_str(n)?; }}\n"))
         } else {
             let ty = emit_datatype(vt);
-            Ok(format!("{s}.iter().for_each(|n| writer.write_{ty}(*n));\n"))
+            Ok(format!(
+                "for n in {s}.iter() {{ writer.write_{ty}(*n)?; }}\n"
+            ))
         }
     }
 
     fn scalar(&self, s: &str, vt: &DataType) -> Result<String> {
         let ty = emit_datatype(vt);
-        Ok(format!("writer.write_{ty}({s});\n"))
+        Ok(format!("writer.write_{ty}({s})?;\n"))
     }
 
     fn value(&self, e: &str, vt: &DataType) -> Result<String> {
         let ty = emit_datatype(vt);
-        Ok(format!("writer.write_{ty}({e});\n"))
+        Ok(format!("writer.write_{ty}({e})?;\n"))
     }
 
     fn element(&self, s: &str, idx: &str, vt: &DataType) -> Result<String> {
         if matches!(vt, DataType::Character) {
-            Ok(format!("writer.write_str(&{s}[{idx}]);\n"))
+            Ok(format!("writer.write_str(&{s}[{idx}])?;\n"))
         } else {
             let ty = emit_datatype(vt);
-            Ok(format!("writer.write_{ty}({s}[{idx}]);\n"))
+            Ok(format!("writer.write_{ty}({s}[{idx}])?;\n"))
         }
     }
 
     fn substring(&self, s: &str, range: &str) -> Result<String> {
-        Ok(format!("writer.write_str(fstr::substr({s}, {range}));\n"))
+        Ok(format!("writer.write_str(fstr::substr({s}, {range}))?;\n"))
     }
 
     fn substring_element(&self, s: &str, idx: &str, range: &str) -> Result<String> {
         Ok(format!(
-            "writer.write_str(fstr::substr({s}.get_mut({idx}), {range}));\n"
+            "writer.write_str(fstr::substr({s}.get_mut({idx}), {range}))?;\n"
         ))
     }
 }

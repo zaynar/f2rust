@@ -1596,7 +1596,6 @@ impl Parser {
                 let fmt = match specs.0.get("FMT") {
                     None => None,
                     Some(grammar::SpecifierValue::Asterisk) => Some(Specifier::Asterisk),
-
                     Some(grammar::SpecifierValue::Expression(e)) => {
                         Some(Specifier::Expression(Expression::from(&self.symbols, e)?))
                     }
@@ -1616,16 +1615,18 @@ impl Parser {
 
                             if k == "IOSTAT" {
                                 match &e {
-                                    Expression::Symbol(name) |
-                                    Expression::ArrayElement(name, _) => {
-                                        self.symbols.set_assigned(name, &self.entry.as_ref().unwrap().name);
+                                    Expression::Symbol(name)
+                                    | Expression::ArrayElement(name, _) => {
+                                        self.symbols
+                                            .set_assigned(name, &self.entry.as_ref().unwrap().name);
                                     }
-                                    _ => bail!("IOSTAT must be an integer variable or array element"),
+                                    _ => {
+                                        bail!("IOSTAT must be an integer variable or array element")
+                                    }
                                 }
                             }
 
                             other.insert(k.to_owned(), e);
-
                         }
                     }
                 }
@@ -1697,11 +1698,14 @@ impl Parser {
 
                             if k == "IOSTAT" {
                                 match &e {
-                                    Expression::Symbol(name) |
-                                    Expression::ArrayElement(name, _) => {
-                                        self.symbols.set_assigned(name, &self.entry.as_ref().unwrap().name);
+                                    Expression::Symbol(name)
+                                    | Expression::ArrayElement(name, _) => {
+                                        self.symbols
+                                            .set_assigned(name, &self.entry.as_ref().unwrap().name);
                                     }
-                                    _ => bail!("IOSTAT must be an integer variable or array element"),
+                                    _ => {
+                                        bail!("IOSTAT must be an integer variable or array element")
+                                    }
                                 }
                             }
 

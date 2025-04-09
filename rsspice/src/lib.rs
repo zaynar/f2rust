@@ -1,7 +1,5 @@
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-
     use approx::assert_abs_diff_eq;
 
     use f2rust_std::{Context, Error, Result};
@@ -191,10 +189,10 @@ mod tests {
         spicelib::CHKIN(&mut ctx, b"TEST")?;
         spicelib::SETMSG(&mut ctx, b"Test message.");
         spicelib::ERRINT(&mut ctx, b"#", 123);
-        assert_eq!(
+        assert!(matches!(
             spicelib::SIGERR(&mut ctx, b"SPICE(NOTSUPPORTED)"),
             Err(Error::Terminated(1))
-        );
+        ));
 
         drop(ctx);
 
