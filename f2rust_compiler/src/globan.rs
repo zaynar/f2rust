@@ -662,7 +662,7 @@ impl GlobalAnalysis {
         Ok(unified)
     }
 
-    /// When a darg has some actual_procs, update its DataType to the correct function pointer type.
+    /// When a darg/external has some actual_procs, update its DataType to the correct function pointer type.
     /// Since this might depend on another function pointer, iterate until stable.
     fn update_fn_types(&mut self) -> Result<bool> {
         let mut dirty = false;
@@ -672,7 +672,7 @@ impl GlobalAnalysis {
 
         for (program_idx, program) in self.programs.iter().enumerate() {
             for (name, sym) in &program.symbols.0 {
-                if sym.ast.darg && !sym.actual_procs.is_empty() {
+                if (sym.ast.darg || sym.ast.external) && !sym.actual_procs.is_empty() {
                     let unified = self.unify_actuals(name, &sym.actual_procs)?;
 
                     // Some extra unifying:
