@@ -65,6 +65,12 @@ where
             bounds,
         }
     }
+}
+
+impl<T> ActualArray<T> {
+    fn offset(&self, s: i32) -> usize {
+        offset_1d(self.bounds, s)
+    }
 
     pub fn first(&self) -> &T {
         self.data.first().unwrap()
@@ -73,11 +79,15 @@ where
     pub fn first_mut(&mut self) -> &mut T {
         self.data.first_mut().unwrap()
     }
-}
 
-impl<T> ActualArray<T> {
-    fn offset(&self, s: i32) -> usize {
-        offset_1d(self.bounds, s)
+    pub fn slice(&self, index: i32) -> &[T] {
+        let offset = self.offset(index);
+        &self.data[offset..]
+    }
+
+    pub fn slice_mut(&mut self, index: i32) -> &mut [T] {
+        let offset = self.offset(index);
+        &mut self.data[offset..]
     }
 }
 
@@ -100,6 +110,12 @@ where
             bounds,
         }
     }
+}
+
+impl<T> ActualArray2D<T> {
+    fn offset(&self, s: [i32; 2]) -> usize {
+        offset_2d(self.bounds, s)
+    }
 
     pub fn first(&self) -> &T {
         self.data.first().unwrap()
@@ -108,12 +124,19 @@ where
     pub fn first_mut(&mut self) -> &mut T {
         self.data.first_mut().unwrap()
     }
+
+    pub fn slice(&self, index: [i32; 2]) -> &[T] {
+        let offset = self.offset(index);
+        &self.data[offset..]
+    }
+
+    pub fn slice_mut(&mut self, index: [i32; 2]) -> &mut [T] {
+        let offset = self.offset(index);
+        &mut self.data[offset..]
+    }
 }
 
-impl<'a, T> DummyArray<'a, T>
-where
-    T: Default + Copy,
-{
+impl<'a, T> DummyArray<'a, T> {
     pub fn new<B0: RangeBounds<i32>>(r: &'a [T], b0: B0) -> Self {
         let bounds = [parse_bounds(b0)];
         if bounds.last().unwrap().1 == i32::MAX {
@@ -129,22 +152,22 @@ where
             }
         }
     }
-}
-
-impl<T> DummyArray<'_, T> {
-    pub fn first(&self) -> &T {
-        self.data.first().unwrap()
-    }
 
     fn offset(&self, s: i32) -> usize {
         offset_1d(self.bounds, s)
     }
+
+    pub fn first(&self) -> &T {
+        self.data.first().unwrap()
+    }
+
+    pub fn slice(&self, index: i32) -> &[T] {
+        let offset = self.offset(index);
+        &self.data[offset..]
+    }
 }
 
-impl<'a, T> DummyArrayMut<'a, T>
-where
-    T: Default + Copy,
-{
+impl<'a, T> DummyArrayMut<'a, T> {
     pub fn new<B0: RangeBounds<i32>>(r: &'a mut [T], b0: B0) -> Self {
         let bounds = [parse_bounds(b0)];
         if bounds.last().unwrap().1 == i32::MAX {
@@ -161,6 +184,10 @@ where
         }
     }
 
+    fn offset(&self, s: i32) -> usize {
+        offset_1d(self.bounds, s)
+    }
+
     pub fn first(&self) -> &T {
         self.data.first().unwrap()
     }
@@ -168,11 +195,15 @@ where
     pub fn first_mut(&mut self) -> &mut T {
         self.data.first_mut().unwrap()
     }
-}
 
-impl<T> DummyArrayMut<'_, T> {
-    fn offset(&self, s: i32) -> usize {
-        offset_1d(self.bounds, s)
+    pub fn slice(&self, index: i32) -> &[T] {
+        let offset = self.offset(index);
+        &self.data[offset..]
+    }
+
+    pub fn slice_mut(&mut self, index: i32) -> &mut [T] {
+        let offset = self.offset(index);
+        &mut self.data[offset..]
     }
 }
 
@@ -200,10 +231,7 @@ fn bounded_data_mut<'a, T>(bounds: &[(i32, i32)], r: &'a mut [T]) -> &'a mut [T]
     }
 }
 
-impl<'a, T> DummyArray2D<'a, T>
-where
-    T: Default + Copy,
-{
+impl<'a, T> DummyArray2D<'a, T> {
     pub fn new<B0: RangeBounds<i32>, B1: RangeBounds<i32>>(r: &'a [T], b0: B0, b1: B1) -> Self {
         let bounds = [parse_bounds(b0), parse_bounds(b1)];
         Self {
@@ -212,15 +240,21 @@ where
         }
     }
 
+    fn offset(&self, s: [i32; 2]) -> usize {
+        offset_2d(self.bounds, s)
+    }
+
     pub fn first(&self) -> &T {
         self.data.first().unwrap()
     }
+
+    pub fn slice(&self, index: [i32; 2]) -> &[T] {
+        let offset = self.offset(index);
+        &self.data[offset..]
+    }
 }
 
-impl<'a, T> DummyArrayMut2D<'a, T>
-where
-    T: Default + Copy,
-{
+impl<'a, T> DummyArrayMut2D<'a, T> {
     pub fn new<B0: RangeBounds<i32>, B1: RangeBounds<i32>>(r: &'a mut [T], b0: B0, b1: B1) -> Self {
         let bounds = [parse_bounds(b0), parse_bounds(b1)];
         Self {
@@ -229,12 +263,26 @@ where
         }
     }
 
+    fn offset(&self, s: [i32; 2]) -> usize {
+        offset_2d(self.bounds, s)
+    }
+
     pub fn first(&self) -> &T {
         self.data.first().unwrap()
     }
 
     pub fn first_mut(&mut self) -> &mut T {
         self.data.first_mut().unwrap()
+    }
+
+    pub fn slice(&self, index: [i32; 2]) -> &[T] {
+        let offset = self.offset(index);
+        &self.data[offset..]
+    }
+
+    pub fn slice_mut(&mut self, index: [i32; 2]) -> &mut [T] {
+        let offset = self.offset(index);
+        &mut self.data[offset..]
     }
 }
 
@@ -355,7 +403,7 @@ impl<T> Index<[i32; 2]> for ActualArray2D<T> {
     type Output = T;
 
     fn index(&self, index: [i32; 2]) -> &Self::Output {
-        let offset = offset_2d(self.bounds, index);
+        let offset = self.offset(index);
         &self.data[offset]
     }
 }
@@ -364,7 +412,7 @@ impl<T> Index<[i32; 2]> for DummyArray2D<'_, T> {
     type Output = T;
 
     fn index(&self, index: [i32; 2]) -> &Self::Output {
-        let offset = offset_2d(self.bounds, index);
+        let offset = self.offset(index);
         &self.data[offset]
     }
 }
@@ -373,21 +421,21 @@ impl<T> Index<[i32; 2]> for DummyArrayMut2D<'_, T> {
     type Output = T;
 
     fn index(&self, index: [i32; 2]) -> &Self::Output {
-        let offset = offset_2d(self.bounds, index);
+        let offset = self.offset(index);
         &self.data[offset]
     }
 }
 
 impl<T> IndexMut<[i32; 2]> for ActualArray2D<T> {
     fn index_mut(&mut self, index: [i32; 2]) -> &mut Self::Output {
-        let offset = offset_2d(self.bounds, index);
+        let offset = self.offset(index);
         &mut self.data[offset]
     }
 }
 
 impl<T> IndexMut<[i32; 2]> for DummyArrayMut2D<'_, T> {
     fn index_mut(&mut self, index: [i32; 2]) -> &mut Self::Output {
-        let offset = offset_2d(self.bounds, index);
+        let offset = self.offset(index);
         &mut self.data[offset]
     }
 }

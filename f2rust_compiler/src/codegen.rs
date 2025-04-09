@@ -487,10 +487,12 @@ impl CodeGenUnit<'_> {
                 RustType::DummyArray | RustType::DummyArrayMut => format!("&{name}"),
                 RustType::DummyCharArray => format!("{name}.as_arg()"),
                 RustType::DummyCharArrayMut => format!("{name}.as_arg()"),
-                RustType::CharVec => format!("&[&{name}]"),
-                RustType::CharSliceRef | RustType::CharSliceMut => format!("&[{name}]"),
+                RustType::CharVec => format!("CharArray::from_ref(&{name})"),
+                RustType::CharSliceRef | RustType::CharSliceMut => {
+                    format!("CharArray::from_ref({name})")
+                }
                 RustType::SavePrimitive => format!("&[save.{name}]"),
-                RustType::SaveChar => format!("&[&save.{name}]"),
+                RustType::SaveChar => format!("CharArray::from_ref(&save.{name})"),
                 RustType::SaveActualArray => format!("&save.{name}"),
                 RustType::SaveActualCharArray => format!("save.{name}.as_arg()"),
                 RustType::Procedure => format!("&[{name}]"),
@@ -504,14 +506,12 @@ impl CodeGenUnit<'_> {
                 RustType::ActualCharArray => format!("{name}.as_arg_mut()"),
                 RustType::DummyArrayMut => format!("&mut {name}"),
                 RustType::DummyCharArrayMut => format!("{name}.as_arg_mut()"),
-                RustType::CharVec => format!("std::slice::from_mut(&mut {name})"),
-                RustType::CharSliceMut => format!("std::slice::from_mut({name})"),
+                RustType::CharVec => format!("CharArrayMut::from_mut(&mut {name})"),
+                RustType::CharSliceMut => format!("CharArrayMut::from_mut({name})"),
                 RustType::SavePrimitive => format!("std::slice::from_mut(&mut save.{name})"),
-                RustType::SaveChar => format!("std::slice::from_mut(&mut save.{name})"),
-                RustType::SaveActualArray => format!("std::slice::from_mut(&mut save.{name})"),
-                RustType::SaveActualCharArray => {
-                    format!("std::slice::from_mut(save.{name}.as_arg_mut())")
-                }
+                RustType::SaveChar => format!("CharArrayMut::from_mut(&mut save.{name})"),
+                RustType::SaveActualArray => format!("&mut save.{name}"),
+                RustType::SaveActualCharArray => format!("save.{name}.as_arg_mut()"),
                 RustType::Primitive
                 | RustType::DummyArray
                 | RustType::DummyCharArray
@@ -929,7 +929,7 @@ impl CodeGenUnit<'_> {
                         if sym.ast.base_type != darg.base_type {
                             bail!("cannot convert array types: actual argument {name}={:?}, dummy argument {}={:?}", sym.ast.base_type, darg.name, darg.base_type);
                         }
-                        let idx = self.emit_expressions(idx, Ctx::Value)?;
+                        let idx = self.emit_index(idx)?;
                         if darg.mutated {
                             format!("{s}.slice_mut({idx})")
                         } else {

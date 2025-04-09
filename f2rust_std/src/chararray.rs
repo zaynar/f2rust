@@ -21,10 +21,30 @@ pub struct CharArray<'a> {
     element_length: usize,
 }
 
+impl<'a> CharArray<'a> {
+    pub fn from_ref(data: &'a [u8]) -> Self {
+        let element_length = data.len();
+        Self {
+            data,
+            element_length,
+        }
+    }
+}
+
 /// Represents any mutable N-dimensional array of CHARACTER, in the Rust API.
 pub struct CharArrayMut<'a> {
     data: &'a mut [u8],
     element_length: usize,
+}
+
+impl<'a> CharArrayMut<'a> {
+    pub fn from_mut(data: &'a mut [u8]) -> Self {
+        let element_length = data.len();
+        Self {
+            data,
+            element_length,
+        }
+    }
 }
 
 /// Implementation of CHARACTER arrays used as actual arguments, which own their data.
@@ -67,6 +87,10 @@ impl ActualCharArray {
         }
     }
 
+    fn offset(&self, s: i32) -> usize {
+        offset_1d(self.bounds, s) * self.element_length
+    }
+
     pub fn first(&self) -> &u8 {
         self.data.first().unwrap()
     }
@@ -89,10 +113,6 @@ impl ActualCharArray {
         }
     }
 
-    fn offset(&self, s: i32) -> usize {
-        offset_1d(self.bounds, s) * self.element_length
-    }
-
     pub fn get(&self, index: i32) -> &[u8] {
         let offset = self.offset(index);
         &self.data[offset..offset + self.element_length]
@@ -105,6 +125,22 @@ impl ActualCharArray {
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut [u8]> {
         self.data.chunks_mut(self.element_length)
+    }
+
+    pub fn slice(&self, index: i32) -> CharArray {
+        let offset = self.offset(index);
+        CharArray {
+            data: &self.data[offset..],
+            element_length: self.element_length,
+        }
+    }
+
+    pub fn slice_mut(&mut self, index: i32) -> CharArrayMut {
+        let offset = self.offset(index);
+        CharArrayMut {
+            data: &mut self.data[offset..],
+            element_length: self.element_length,
+        }
     }
 }
 
@@ -141,6 +177,10 @@ impl<'a> DummyCharArray<'a> {
         }
     }
 
+    fn offset(&self, s: i32) -> usize {
+        offset_1d(self.bounds, s) * self.element_length
+    }
+
     pub fn first(&self) -> &[u8] {
         &self.data[0..self.element_length]
     }
@@ -152,16 +192,20 @@ impl<'a> DummyCharArray<'a> {
         }
     }
 
-    fn offset(&self, s: i32) -> usize {
-        offset_1d(self.bounds, s) * self.element_length
-    }
-
     // We can't always use Index for these, because `a[i]` is `*a.index(i)`
     // so it has type `[u8]`, and we want &[u8] for consistency with our other
     // character types. (TODO: or we could just improve the compiler?)
     pub fn get(&self, index: i32) -> &[u8] {
         let offset = self.offset(index);
         &self.data[offset..offset + self.element_length]
+    }
+
+    pub fn slice(&self, index: i32) -> CharArray {
+        let offset = self.offset(index);
+        CharArray {
+            data: &self.data[offset..],
+            element_length: self.element_length,
+        }
     }
 }
 
@@ -196,6 +240,10 @@ impl<'a> DummyCharArrayMut<'a> {
         }
     }
 
+    fn offset(&self, s: i32) -> usize {
+        offset_1d(self.bounds, s) * self.element_length
+    }
+
     pub fn first(&self) -> &[u8] {
         &self.data[0..self.element_length]
     }
@@ -214,10 +262,6 @@ impl<'a> DummyCharArrayMut<'a> {
         }
     }
 
-    fn offset(&self, s: i32) -> usize {
-        offset_1d(self.bounds, s) * self.element_length
-    }
-
     pub fn get(&self, index: i32) -> &[u8] {
         let offset = self.offset(index);
         &self.data[offset..offset + self.element_length]
@@ -226,6 +270,22 @@ impl<'a> DummyCharArrayMut<'a> {
     pub fn get_mut(&mut self, index: i32) -> &mut [u8] {
         let offset = self.offset(index);
         &mut self.data[offset..offset + self.element_length]
+    }
+
+    pub fn slice(&self, index: i32) -> CharArray {
+        let offset = self.offset(index);
+        CharArray {
+            data: &self.data[offset..],
+            element_length: self.element_length,
+        }
+    }
+
+    pub fn slice_mut(&mut self, index: i32) -> CharArrayMut {
+        let offset = self.offset(index);
+        CharArrayMut {
+            data: &mut self.data[offset..],
+            element_length: self.element_length,
+        }
     }
 }
 
