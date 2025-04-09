@@ -69,9 +69,9 @@ const INTRINSICS: &[IntrinsicDef] = &[
     ("ABS", "DABS", DataType::Double, DataType::Double, CallSyntax::Func("f64::abs")),
     // ("ABS", "CABS", DataType::Complex, DataType::Complex, ...),
 
-    ("MOD", "MOD", DataType::Integer, DataType::Integer, CallSyntax::Func("i32::rem")),
-    ("MOD", "AMOD", DataType::Real, DataType::Real, CallSyntax::Func("f32::rem")),
-    ("MOD", "DMOD", DataType::Double, DataType::Double, CallSyntax::Func("f64::rem")),
+    ("MOD", "MOD", DataType::Integer, DataType::Integer, CallSyntax::Func("intrinsics::MOD")),
+    ("MOD", "AMOD", DataType::Real, DataType::Real, CallSyntax::Func("intrinsics::AMOD")),
+    ("MOD", "DMOD", DataType::Double, DataType::Double, CallSyntax::Func("intrinsics::DMOD")),
 
     ("SIGN", "ISIGN", DataType::Integer, DataType::Integer, CallSyntax::Func("i32::copysign")),
     ("SIGN", "SIGN", DataType::Real, DataType::Real, CallSyntax::Func("f32::copysign")),
