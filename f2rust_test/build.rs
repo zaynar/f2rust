@@ -46,7 +46,7 @@ fn main() -> Result<()> {
         for (dst, _filename) in &generated {
             file.write_all(format!("include!(r\"{}\");\n", dst.display()).as_bytes())?;
         }
-        file.write_all(b"fn get_generated_files() -> Vec<(&'static str, fn(&mut Context))> {\n")?;
+        file.write_all(b"fn get_generated_files() -> Vec<(&'static str, fn(&mut Context) -> f2rust_std::Result<()>)> {\n")?;
         file.write_all(b"  vec![\n")?;
         for (_dst, filename) in &generated {
             file.write_all(format!("    (\"{filename}\", {filename}::TEST),\n").as_bytes())?;

@@ -349,6 +349,7 @@ pub struct ProcedureArgs {
     pub dargs: Vec<globan::DummyArg>,
     pub codegen: CallSyntax,
     pub requires_ctx: bool,
+    pub returns_result: bool,
 }
 
 impl CodeGenUnit<'_> {
@@ -1012,6 +1013,7 @@ impl CodeGenUnit<'_> {
                         .collect::<Result<_>>()?,
                     codegen,
                     requires_ctx: false,
+                    returns_result: intrinsics::returns_result(name),
                 });
             } else {
                 warn!(
@@ -1052,6 +1054,8 @@ impl CodeGenUnit<'_> {
             );
         }
 
+        let q = if actual.returns_result { "?" } else { "" };
+
         let args_ex = self
             .emit_args(&actual.dargs, args, actual.requires_ctx)
             .with_context(|| format!("failed args in call to {name}"))?;
@@ -1060,7 +1064,7 @@ impl CodeGenUnit<'_> {
             // Ok(format!(
             // "{name}({args_ex}) /* possible actual procedures: {actual_procs:?} */\n"
             // ))
-            Ok(format!("{name}({args_ex})"))
+            Ok(format!("{name}({args_ex}){q}"))
         } else {
             match actual.codegen {
                 CallSyntax::Unified => bail!("unexpected unified proc"),
@@ -1071,11 +1075,11 @@ impl CodeGenUnit<'_> {
                         format!("{}::{}", name.0, name.1)
                     };
                     // Ok(format!("{ns_name}({args_ex}) /* possible actual procedures: {actual_procs:?} */\n"))
-                    Ok(format!("{ns_name}({args_ex})"))
+                    Ok(format!("{ns_name}({args_ex}){q}"))
                 }
-                CallSyntax::Cast(ty) => Ok(format!("({args_ex} as {ty})")),
-                CallSyntax::Func(name) => Ok(format!("{name}({args_ex})")),
-                CallSyntax::VarFunc(name) => Ok(format!("{name}(&[{args_ex}])")),
+                CallSyntax::Cast(ty) => Ok(format!("({args_ex} as {ty}){q}")),
+                CallSyntax::Func(name) => Ok(format!("{name}({args_ex}){q}")),
+                CallSyntax::VarFunc(name) => Ok(format!("{name}(&[{args_ex}]){q}")),
             }
         }
     }
@@ -1667,15 +1671,25 @@ impl CodeGenUnit<'_> {
                 code += ";\n";
             }
             Statement::Return => {
-                // Functions return the value assigned to their own name
-                // (except CHARACTER functions which return via a hidden parameter)
+                let returns_result = self
+                    .globan
+                    .returns_result(&self.program.namespace, &entry.name)?;
+
                 if matches!(self.program.ast.ty, ast::ProgramUnitType::Function)
                     && self.syms.get(&entry.name)?.ast.base_type != DataType::Character
                 {
                     let name = self.emit_symbol(&entry.name, Ctx::Value)?;
-                    code += &format!("return {name};\n");
+                    if returns_result {
+                        code += &format!("return Ok({name});\n");
+                    } else {
+                        code += &format!("return {name};\n");
+                    }
                 } else {
-                    code += "return;\n";
+                    if returns_result {
+                        code += "return Ok(());\n";
+                    } else {
+                        code += "return;\n";
+                    }
                 };
             }
         }
@@ -1844,13 +1858,25 @@ impl<'a> CodeGen<'a> {
                 &DataType::Void
             };
 
-            let ret = if !matches!(ret_type, DataType::Void | DataType::Character) {
-                format!("-> {}", emit_datatype(ret_type))
-            } else {
-                "".to_owned()
-            };
-
             let entry_name = &entry.ast.name;
+            let returns_result = entry
+                .codegen
+                .globan
+                .returns_result(&entry.codegen.program.namespace, entry_name)?;
+
+            let ret = if !matches!(ret_type, DataType::Void | DataType::Character) {
+                if returns_result {
+                    format!("-> Result<{}>", emit_datatype(ret_type))
+                } else {
+                    format!("-> {}", emit_datatype(ret_type))
+                }
+            } else {
+                if returns_result {
+                    "-> Result<()>".to_owned()
+                } else {
+                    "".to_owned()
+                }
+            };
 
             let mut dargs = dargs.collect::<Result<Vec<_>>>()?;
             if entry
@@ -1865,9 +1891,17 @@ impl<'a> CodeGen<'a> {
             code += &entry.codegen.emit_save_borrow(entry_name)?;
             code += &entry.codegen.emit_locals(entry_name)?;
             code += &entry.codegen.emit_statements(entry.ast, &entry.ast.body)?;
-            if !matches!(ret_type, DataType::Void | DataType::Character) {
+            if matches!(ret_type, DataType::Void | DataType::Character) {
+                if returns_result {
+                    code += "Ok(())\n";
+                }
+            } else {
                 let name = entry.codegen.emit_symbol(entry_name, Ctx::Value)?;
-                code += &format!("return {name};\n");
+                if returns_result {
+                    code += &format!("Ok({name})\n");
+                } else {
+                    code += &format!("{name}\n");
+                }
             };
             code += "}\n\n";
         }

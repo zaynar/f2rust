@@ -1,8 +1,10 @@
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+
     use approx::assert_abs_diff_eq;
 
-    use f2rust_std::Context;
+    use f2rust_std::{Context, Error, Result};
     use rsspice_gen::spicelib;
 
     #[test]
@@ -180,19 +182,26 @@ mod tests {
         assert_eq!(out.trim_ascii_end(), b"a");
     }
 
-    // #[test]
-    // fn chk() {
-    //     let mut stdout = vec![];
-    //     let mut ctx = Context::new();
-    //     ctx.set_stdout(&mut stdout);
+    #[test]
+    fn chk() -> Result<()> {
+        let mut stdout = vec![];
+        let mut ctx = Context::new();
+        ctx.set_stdout(&mut stdout);
 
-    //     spicelib::CHKIN(&mut ctx, b"TEST");
-    //     spicelib::SETMSG(&mut ctx, b"Test message.");
-    //     spicelib::ERRINT(&mut ctx, b"#", 123);
-    //     spicelib::SIGERR(&mut ctx, b"SPICE(NOTSUPPORTED)");
-    //     spicelib::CHKOUT(&mut ctx, b"TEST");
+        spicelib::CHKIN(&mut ctx, b"TEST")?;
+        spicelib::SETMSG(&mut ctx, b"Test message.");
+        spicelib::ERRINT(&mut ctx, b"#", 123);
+        assert_eq!(
+            spicelib::SIGERR(&mut ctx, b"SPICE(NOTSUPPORTED)"),
+            Err(Error::Terminated(1))
+        );
 
-    //     drop(ctx);
-    //     std::io::stderr().write_all(&stdout).unwrap();
-    // }
+        drop(ctx);
+
+        let str = String::from_utf8_lossy(&stdout);
+        println!("{str}");
+        assert!(str.contains("SPICE(NOTSUPPORTED) --\n \nTest message."));
+
+        Ok(())
+    }
 }

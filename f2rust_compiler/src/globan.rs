@@ -39,6 +39,9 @@ pub struct Procedure {
     /// procedure that needs it
     pub requires_ctx: bool,
 
+    /// Whether we return Result<>, for IO/STOP/EXIT/etc
+    pub returns_result: bool,
+
     /// Index within GlobalAnalysis::programs
     pub program_idx: usize,
 }
@@ -213,6 +216,7 @@ impl GlobalAnalysis {
                 dargs: proc.dargs.clone(),
                 codegen: codegen::CallSyntax::External(proc.name.clone()),
                 requires_ctx: proc.requires_ctx,
+                returns_result: proc.returns_result,
             })
         } else {
             let unified = self.unify_actuals(name, actual_procs)?;
@@ -220,6 +224,11 @@ impl GlobalAnalysis {
             let requires_ctx = actual_procs.iter().any(|actual| {
                 let proc = self.procedures.get(actual).unwrap();
                 proc.requires_ctx
+            });
+
+            let returns_result = actual_procs.iter().any(|actual| {
+                let proc = self.procedures.get(actual).unwrap();
+                proc.returns_result
             });
 
             Ok(ProcedureArgs {
@@ -235,6 +244,7 @@ impl GlobalAnalysis {
                     .collect(),
                 codegen: codegen::CallSyntax::Unified,
                 requires_ctx,
+                returns_result,
             })
         }
     }
@@ -242,6 +252,14 @@ impl GlobalAnalysis {
     pub fn requires_ctx(&self, namespace: &str, entry_name: &str) -> Result<bool> {
         if let Some(proc) = self.procedures.get(&Name::new(namespace, entry_name)) {
             Ok(proc.requires_ctx)
+        } else {
+            Ok(false)
+        }
+    }
+
+    pub fn returns_result(&self, namespace: &str, entry_name: &str) -> Result<bool> {
+        if let Some(proc) = self.procedures.get(&Name::new(namespace, entry_name)) {
+            Ok(proc.returns_result)
         } else {
             Ok(false)
         }
@@ -266,12 +284,18 @@ impl GlobalAnalysis {
                     .iter()
                     .any(|(_name, sym)| sym.ast.save && sym.ast.used.contains(&entry.name));
 
-                // Whether this entry contains any IO statements (or STOP), which require Context
-                let uses_io = entry.body.iter().any(|stmt| {
-                    matches!(
-                        stmt,
-                        ast::Statement::Stop
-                            | ast::Statement::Read { .. }
+                struct StatementVisitor {
+                    // Whether this entry contains any IO statements, which require Context
+                    uses_io: bool,
+                    // STOP requires us to return Result (to avoid affecting global process state)
+                    uses_stop: bool,
+                }
+
+                impl ast::Visitor for StatementVisitor {
+                    fn statement(&mut self, statement: &ast::Statement) {
+                        match statement {
+                            ast::Statement::Stop => self.uses_stop = true,
+                            ast::Statement::Read { .. }
                             | ast::Statement::Write { .. }
                             | ast::Statement::Print { .. }
                             | ast::Statement::Open(..)
@@ -279,16 +303,25 @@ impl GlobalAnalysis {
                             | ast::Statement::Inquire(..)
                             | ast::Statement::Backspace(..)
                             | ast::Statement::Endfile(..)
-                            | ast::Statement::Rewind(..)
-                    )
-                });
+                            | ast::Statement::Rewind(..) => self.uses_io = true,
+                            _ => (),
+                        }
+                    }
+                }
+
+                let mut visitor = StatementVisitor {
+                    uses_io: false,
+                    uses_stop: false,
+                };
+                entry.body.iter().for_each(|s| s.walk(&mut visitor));
 
                 let proc = Procedure {
                     source: (program.namespace.clone(), program.filename.clone()),
                     name: name.clone(),
                     return_type,
                     dargs: Vec::new(),
-                    requires_ctx: uses_save || uses_io,
+                    requires_ctx: visitor.uses_io || uses_save,
+                    returns_result: visitor.uses_io || visitor.uses_stop,
                     program_idx,
                 };
 
@@ -454,16 +487,13 @@ impl GlobalAnalysis {
         Ok(dirty)
     }
 
-    /// Set requires_ctx on procedures that call other procedures with requires_ctx.
+    /// Set requires_ctx/returns_result on procedures that call other procedures with the same flag.
     fn update_ctx(&mut self) -> Result<bool> {
         let mut dirty = false;
 
         for program in &mut self.programs {
             for entry in &program.ast.entries {
                 let name = Name::new(&program.namespace, &entry.name);
-                if self.procedures.get(&name).unwrap().requires_ctx {
-                    continue;
-                }
 
                 let mut visitor = CallVisitor::default();
                 for statement in &entry.body {
@@ -483,8 +513,28 @@ impl GlobalAnalysis {
                             proc.requires_ctx
                         }
                     }) {
-                        self.procedures.get_mut(&name).unwrap().requires_ctx = true;
-                        dirty = true;
+                        let proc = self.procedures.get_mut(&name).unwrap();
+                        if !proc.requires_ctx {
+                            proc.requires_ctx = true;
+                            dirty = true;
+                        }
+                    }
+
+                    if actual_procs.iter().any(|actual| {
+                        if actual.0 == "intrinsics" {
+                            intrinsics::returns_result(&actual.1)
+                        } else if actual.0 == "statement_function" {
+                            false
+                        } else {
+                            let proc = self.procedures.get(actual).unwrap();
+                            proc.returns_result
+                        }
+                    }) {
+                        let proc = self.procedures.get_mut(&name).unwrap();
+                        if !proc.returns_result {
+                            proc.returns_result = true;
+                            dirty = true;
+                        }
                     }
                 }
             }

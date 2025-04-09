@@ -21,7 +21,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::io::WriterBuilder;
+use crate::{Error, Result, io::WriterBuilder};
 
 pub trait SaveInit {
     fn new() -> Self;
@@ -57,14 +57,13 @@ impl<'a> Context<'a> {
     }
 
     /// STOP statement
-    pub fn stop(&self) {
-        // TODO: provide a way for tests etc to override this
-        std::process::exit(0);
+    pub fn stop(&self) -> Result<()> {
+        Err(Error::Terminated(0))
     }
 
     /// EXIT intrinsic
-    pub fn exit(&self, status: &[i32]) {
-        std::process::exit(*status.first().unwrap_or(&0));
+    pub fn exit(&self, status: &[i32]) -> Result<()> {
+        Err(Error::Terminated(*status.first().unwrap_or(&0)))
     }
 
     pub fn writer<'w>(&mut self) -> WriterBuilder<'w>

@@ -210,3 +210,7 @@ pub fn requires_ctx(name: &str) -> bool {
         "DATE_AND_TIME" | "EXIT" | "GETARG" | "GETENV" | "IARGC" | "SYSTEM"
     )
 }
+
+pub fn returns_result(name: &str) -> bool {
+    matches!(name, "EXIT" | "SYSTEM")
+}

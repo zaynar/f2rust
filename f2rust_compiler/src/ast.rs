@@ -287,6 +287,9 @@ impl Expression {
 
 /// Used for walking the Statement/Expression tree
 pub trait Visitor {
+    fn statement(&mut self, statement: &Statement) {
+        let _ = statement;
+    }
     fn symbol(&mut self, name: &String) {
         let _ = name;
     }
@@ -369,6 +372,7 @@ impl Expression {
 
 impl Statement {
     pub fn walk<V: Visitor>(&self, v: &mut V) {
+        v.statement(self);
         match self {
             Statement::Assignment(e1, e2) => {
                 e1.walk(v);
