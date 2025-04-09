@@ -562,6 +562,7 @@ fn main() -> Result<()> {
         file.write_all(b"#![allow(unused_mut, unused_assignments)]\n")?;
         file.write_all(b"#![allow(unused_imports)]\n")?;
         file.write_all(b"#![allow(unused_variables)]\n")?;
+        file.write_all(b"#![allow(unreachable_code)]\n")?;
         file.write_all(b"#![allow(clippy::while_immutable_condition)]\n")?;
         file.write_all(b"#![allow(clippy::assign_op_pattern)]\n")?;
         file.write_all(b"#![allow(clippy::needless_return)]\n")?;

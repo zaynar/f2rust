@@ -256,6 +256,25 @@ impl Expression {
             // (Don't support REAL implied-DO-vars, that'd just be silly)
         })
     }
+
+    fn uses_symbol(&self, s: &str) -> bool {
+        struct SymVisitor<'a> {
+            s: &'a str,
+            found: bool,
+        }
+
+        impl ast::Visitor for SymVisitor<'_> {
+            fn symbol(&mut self, name: &String) {
+                if name == self.s {
+                    self.found = true;
+                }
+            }
+        }
+
+        let mut visitor = SymVisitor { s, found: false };
+        self.walk(&mut visitor);
+        visitor.found
+    }
 }
 
 /// Convert to Rust type, for use in various contexts
@@ -486,7 +505,7 @@ impl CodeGenUnit<'_> {
                 RustType::DummyArrayMut => format!("&mut {name}"),
                 RustType::DummyCharArrayMut => format!("{name}.as_arg_mut()"),
                 RustType::CharVec => format!("std::slice::from_mut(&mut {name})"),
-                RustType::CharSliceMut => format!("std::slice::from_mut(&mut {name})"),
+                RustType::CharSliceMut => format!("std::slice::from_mut({name})"),
                 RustType::SavePrimitive => format!("std::slice::from_mut(&mut save.{name})"),
                 RustType::SaveChar => format!("std::slice::from_mut(&mut save.{name})"),
                 RustType::SaveActualArray => format!("std::slice::from_mut(&mut save.{name})"),
@@ -935,7 +954,9 @@ impl CodeGenUnit<'_> {
                     Expression::Binary(..) |
                     Expression::Constant(..) => {
                         if darg.mutated {
-                            bail!("cannot pass expression or constant to mutable dummy argument");
+                            warn!("Passing expression or constant to mutable dummy argument - will be cloned");
+                            let e = self.emit_expression(arg)?;
+                            format!("&mut {e}.clone()")
                         } else {
                             self.emit_expression(arg)?
                         }
@@ -991,13 +1012,14 @@ impl CodeGenUnit<'_> {
                         }
                     }
                     Expression::Substring(name, e1, e2) => {
-                        let s = self.emit_symbol(name, Ctx::Value)?;
                         let range = self.emit_range(e1, e2)?;
 
                         // TODO: handle aliasing
                         if darg.mutated {
+                            let s = self.emit_symbol(name, Ctx::ArgScalarMut)?;
                             format!("fstr::substr_mut({s}, {range})")
                         } else {
+                            let s = self.emit_symbol(name, Ctx::ArgScalar)?;
                             format!("fstr::substr({s}, {range})")
                         }
                     }
@@ -1485,19 +1507,25 @@ impl CodeGenUnit<'_> {
         Ok(code)
     }
 
-    fn emit_assignment(&self, v: &Expression, e: &Expression, ctx: Ctx) -> Result<String> {
+    fn emit_assignment(&self, target: &Expression, value: &Expression, ctx: Ctx) -> Result<String> {
         let mut code = String::new();
 
         // TODO: we should do arithmetic conversions to the target type
         // (equivalent to calling INT, REAL, DBLE)
 
-        let vt = v.resolve_type(&self.syms)?;
-        let e = self.emit_expression(e)?;
-        match v {
+        let tt = target.resolve_type(&self.syms)?;
+        let e = self.emit_expression(value)?;
+        match target {
             Expression::Symbol(name) => {
                 let s = self.emit_symbol(name, ctx)?;
-                if matches!(vt, DataType::Character) {
-                    code += &format!("fstr::assign({s}, {e});\n");
+                if matches!(tt, DataType::Character) {
+                    let aliased = value.uses_symbol(name);
+                    if aliased {
+                        code += &format!("let val = {e}.to_vec();\n");
+                        code += &format!("fstr::assign({s}, &val);\n");
+                    } else {
+                        code += &format!("fstr::assign({s}, {e});\n");
+                    }
                 } else {
                     code += &format!("{s} = {e};\n");
                 }
@@ -1505,8 +1533,14 @@ impl CodeGenUnit<'_> {
             Expression::ArrayElement(name, idx) => {
                 let s = self.emit_symbol(name, ctx)?;
                 let idx_ex = self.emit_index(idx)?;
-                if matches!(vt, DataType::Character) {
-                    code += &format!("fstr::assign({s}.get_mut({idx_ex}), {e});\n");
+                if matches!(tt, DataType::Character) {
+                    let aliased = value.uses_symbol(name);
+                    if aliased {
+                        code += &format!("let val = {e}.to_vec();\n");
+                        code += &format!("fstr::assign({s}.get_mut({idx_ex}), &val);\n");
+                    } else {
+                        code += &format!("fstr::assign({s}.get_mut({idx_ex}), {e});\n");
+                    }
                 } else {
                     code += &format!("{s}[{idx_ex}] = {e};\n");
                 }
@@ -1515,16 +1549,31 @@ impl CodeGenUnit<'_> {
                 let s = self.emit_symbol(name, ctx)?;
                 let range = self.emit_range(e1, e2)?;
 
-                code += &format!("fstr::assign(fstr::substr_mut({s}, {range}), {e});\n");
+                let aliased = value.uses_symbol(name);
+                if aliased {
+                    code += &format!("let val = {e}.to_vec();\n");
+                    code += &format!("fstr::assign(fstr::substr_mut({s}, {range}), &val);\n");
+                } else {
+                    code += &format!("fstr::assign(fstr::substr_mut({s}, {range}), {e});\n");
+                }
             }
             Expression::SubstringArrayElement(name, idx, e1, e2) => {
                 let s = self.emit_symbol(name, ctx)?;
                 let idx_ex = self.emit_expressions(idx, Ctx::Value)?;
                 let range = self.emit_range(e1, e2)?;
 
-                code += &format!(
-                    "fstr::assign(fstr::substr_mut({s}.get_mut({idx_ex}), {range}), {e});\n"
-                );
+                let aliased = value.uses_symbol(name);
+
+                if aliased {
+                    code += &format!("let val = {e}.to_vec();\n");
+                    code += &format!(
+                        "fstr::assign(fstr::substr_mut({s}.get_mut({idx_ex}), {range}), &val);\n"
+                    );
+                } else {
+                    code += &format!(
+                        "fstr::assign(fstr::substr_mut({s}.get_mut({idx_ex}), {range}), {e});\n"
+                    );
+                }
             }
             _ => bail!("invalid assignment LHS"),
         }

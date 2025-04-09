@@ -34,7 +34,7 @@ fn main() -> Result<ExitCode, Box<dyn Error>> {
             let mut ctx = Context::new();
             ctx.set_stdout(&mut stdout);
 
-            func(&mut ctx);
+            func(&mut ctx)?;
 
             drop(ctx);
 

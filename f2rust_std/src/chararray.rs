@@ -248,11 +248,11 @@ impl Index<i32> for DummyCharArray<'_> {
 }
 
 impl Index<i32> for DummyCharArrayMut<'_> {
-    type Output = u8;
+    type Output = [u8];
 
     fn index(&self, index: i32) -> &Self::Output {
         let offset = self.offset(index);
-        &self.data[offset]
+        &self.data[offset..offset + self.element_length]
     }
 }
 
@@ -266,6 +266,6 @@ impl IndexMut<i32> for ActualCharArray {
 impl IndexMut<i32> for DummyCharArrayMut<'_> {
     fn index_mut(&mut self, index: i32) -> &mut Self::Output {
         let offset = self.offset(index);
-        &mut self.data[offset]
+        &mut self.data[offset..offset + self.element_length]
     }
 }
