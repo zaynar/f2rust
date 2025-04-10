@@ -1516,11 +1516,29 @@ impl CodeGenUnit<'_> {
         Ok(code)
     }
 
+    fn emit_arith_conversion(
+        &self,
+        target: DataType,
+        value: DataType,
+        e: String,
+    ) -> Result<String> {
+        Ok(match (&target, &value) {
+            (DataType::Integer, DataType::Integer)
+            | (DataType::Real, DataType::Real)
+            | (DataType::Double, DataType::Double)
+            | (DataType::Logical, DataType::Logical) => e,
+            (DataType::Integer, DataType::Real) => format!("{e} as i32"),
+            (DataType::Integer, DataType::Double) => format!("{e} as i32"),
+            (DataType::Real, DataType::Integer) => format!("{e} as f32"),
+            (DataType::Real, DataType::Double) => format!("{e} as f32"),
+            (DataType::Double, DataType::Integer) => format!("{e} as f64"),
+            (DataType::Double, DataType::Real) => format!("{e} as f64"),
+            _ => bail!("invalid arithmetic conversion from {target:?} to {value:?}"),
+        })
+    }
+
     fn emit_assignment(&self, target: &Expression, value: &Expression, ctx: Ctx) -> Result<String> {
         let mut code = String::new();
-
-        // TODO: we should do arithmetic conversions to the target type
-        // (equivalent to calling INT, REAL, DBLE)
 
         let tt = target.resolve_type(&self.syms)?;
         let e = self.emit_expression(value)?;
@@ -1536,6 +1554,7 @@ impl CodeGenUnit<'_> {
                         code += &format!("fstr::assign({s}, {e});\n");
                     }
                 } else {
+                    let e = self.emit_arith_conversion(tt, value.resolve_type(&self.syms)?, e)?;
                     code += &format!("{s} = {e};\n");
                 }
             }
@@ -1551,6 +1570,7 @@ impl CodeGenUnit<'_> {
                         code += &format!("fstr::assign({s}.get_mut({idx_ex}), {e});\n");
                     }
                 } else {
+                    let e = self.emit_arith_conversion(tt, value.resolve_type(&self.syms)?, e)?;
                     code += &format!("{s}[{idx_ex}] = {e};\n");
                 }
             }
