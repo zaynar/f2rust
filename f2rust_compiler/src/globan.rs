@@ -375,7 +375,7 @@ impl GlobalAnalysis {
         for program in &mut self.programs {
             for (name, sym) in &mut program.symbols.0 {
                 if sym.ast.statement_function.is_some() {
-                    // TODO: implement statement functions
+                    // Statement functions are scoped to a single file
                     sym.actual_procs
                         .push(Name::new(&program.namespace, &program.filename, name));
                 } else if (sym.ast.external || sym.ast.called) && !sym.ast.darg {
@@ -714,7 +714,7 @@ impl GlobalAnalysis {
 
         for (program_idx, program) in self.programs.iter().enumerate() {
             for (name, sym) in &program.symbols.0 {
-                if (sym.ast.darg || sym.ast.external) && !sym.actual_procs.is_empty() {
+                if (sym.ast.darg || sym.ast.used_as_arg) && !sym.actual_procs.is_empty() {
                     let unified = self.unify_actuals(name, &sym.actual_procs)?;
 
                     // Some extra unifying:

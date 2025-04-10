@@ -588,6 +588,9 @@ pub struct Symbol {
     /// Called as a subroutine or function
     pub called: bool,
 
+    /// Used as an actual argument in any call
+    pub used_as_arg: bool,
+
     /// Target of an assignment statement, in the given ENTRY names.
     /// (This is hacky, but we need per-ENTRY mutability state, while most symbol state
     /// can be (and some must be) shared between entries)
@@ -669,6 +672,7 @@ impl Default for Symbol {
             external: false,
             darg: false,
             called: false,
+            used_as_arg: false,
             assigned: HashSet::new(),
             used: HashSet::new(),
             do_var: false,
@@ -780,6 +784,10 @@ impl SymbolTable {
 
     fn set_called(&mut self, name: &str) {
         self.entry(name).called = true;
+    }
+
+    fn set_used_as_arg(&mut self, name: &str) {
+        self.entry(name).used_as_arg = true;
     }
 
     fn set_do_var(&mut self, name: &str) {
@@ -997,8 +1005,14 @@ impl Parser {
                 self.symbols.set_used(name, self.entry_name);
             }
 
-            fn call(&mut self, name: &String, _args: &[Expression], _is_function: bool) {
+            fn call(&mut self, name: &String, args: &[Expression], _is_function: bool) {
                 self.symbols.set_called(name);
+
+                for arg in args {
+                    if let Expression::Symbol(s) = arg {
+                        self.symbols.set_used_as_arg(s);
+                    }
+                }
             }
         }
 
