@@ -1,6 +1,7 @@
 use crate::{
     ast::DataType,
     codegen::{self, CallSyntax},
+    globan::{self, DummyArg},
 };
 
 // Save some typing for intrinsics following the pattern "XYZ" = f32::xyz, "DXYZ" = f64::xyz
@@ -216,4 +217,38 @@ pub fn requires_ctx(name: &str) -> bool {
 
 pub fn returns_result(name: &str) -> bool {
     matches!(name, "EXIT" | "SYSTEM")
+}
+
+pub fn dummy_args(name: &str) -> Option<Vec<DummyArg>> {
+    // TODO: implement all of these
+
+    Some(match name {
+        "DATE_AND_TIME" => vec![
+            DummyArg {
+                name: "DATE".to_owned(),
+                base_type: DataType::Character,
+                is_array: false,
+                mutated: true,
+            },
+            DummyArg {
+                name: "TIME".to_owned(),
+                base_type: DataType::Character,
+                is_array: false,
+                mutated: true,
+            },
+            DummyArg {
+                name: "ZONE".to_owned(),
+                base_type: DataType::Character,
+                is_array: false,
+                mutated: true,
+            },
+            DummyArg {
+                name: "VALUES".to_owned(),
+                base_type: DataType::Integer,
+                is_array: true,
+                mutated: true,
+            },
+        ],
+        _ => return None,
+    })
 }

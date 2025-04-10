@@ -1068,17 +1068,23 @@ impl CodeGenUnit<'_> {
             if let Some((return_type, codegen)) = intrinsics::call_info(name, first_arg) {
                 return Ok(ProcedureArgs {
                     return_type,
-                    dargs: args
-                        .iter()
-                        .map(|arg| {
-                            Ok(globan::DummyArg {
-                                name: "_".to_owned(),
-                                base_type: arg.resolve_type(&self.syms)?,
-                                is_array: false,
-                                mutated: false,
-                            })
-                        })
-                        .collect::<Result<_>>()?,
+                    dargs: intrinsics::dummy_args(name).map_or_else(
+                        || {
+                            // TODO: handle everything in intrinsics::dummy_args, instead
+                            // of guessing based on the actual args
+                            args.iter()
+                                .map(|arg| {
+                                    Ok(globan::DummyArg {
+                                        name: "_".to_owned(),
+                                        base_type: arg.resolve_type(&self.syms)?,
+                                        is_array: false,
+                                        mutated: false,
+                                    })
+                                })
+                                .collect::<Result<_>>()
+                        },
+                        Ok,
+                    )?,
                     codegen,
                     requires_ctx: false,
                     returns_result: intrinsics::returns_result(name),

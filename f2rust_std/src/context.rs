@@ -21,7 +21,9 @@ use std::{
     rc::Rc,
 };
 
-use crate::{Error, Result, io::WriterBuilder};
+use chrono::{Datelike, Timelike};
+
+use crate::{Error, Result, fstr, io::WriterBuilder};
 
 pub trait SaveInit {
     fn new() -> Self;
@@ -64,6 +66,34 @@ impl<'a> Context<'a> {
     /// EXIT intrinsic
     pub fn exit(&self, status: &[i32]) -> Result<()> {
         Err(Error::Terminated(*status.first().unwrap_or(&0)))
+    }
+
+    /// DATE_AND_TIME intrinsic
+    pub fn date_and_time(
+        &self,
+        date: &mut [u8],
+        time: &mut [u8],
+        zone: &mut [u8],
+        values: &mut [i32],
+    ) {
+        let now = chrono::Utc::now();
+        let mut date_str = String::new();
+        let mut time_str = String::new();
+        let mut zone_str = String::new();
+        now.format("%Y%m%d").write_to(&mut date_str).unwrap();
+        now.format("%H%M%S%.3f").write_to(&mut time_str).unwrap();
+        now.format("%z").write_to(&mut zone_str).unwrap();
+        fstr::assign(date, date_str.as_bytes());
+        fstr::assign(time, time_str.as_bytes());
+        fstr::assign(zone, zone_str.as_bytes());
+        values[0] = now.year();
+        values[1] = now.month() as i32;
+        values[2] = now.day() as i32;
+        values[3] = 0;
+        values[4] = now.hour() as i32;
+        values[5] = now.minute() as i32;
+        values[6] = now.second() as i32;
+        values[7] = (now.nanosecond() / 1_000_000) as i32;
     }
 
     pub fn writer<'w>(&mut self) -> WriterBuilder<'w>
