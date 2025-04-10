@@ -17,6 +17,7 @@ pub struct WriterBuilder<'a> {
     stdout: Rc<RefCell<dyn std::io::Write + 'a>>,
     unit: Option<i32>,
     fmt: Format,
+    rec: Option<i32>,
     iostat: Option<&'a mut i32>,
 }
 
@@ -36,6 +37,7 @@ impl<'a> WriterBuilder<'a> {
             stdout,
             unit: None,
             fmt: Format::Unformatted,
+            rec: None,
             iostat: None,
         }
     }
@@ -59,6 +61,13 @@ impl<'a> WriterBuilder<'a> {
     pub fn fmt_list(self) -> Self {
         Self {
             fmt: Format::ListDirected,
+            ..self
+        }
+    }
+
+    pub fn rec(self, rec: i32) -> Self {
+        Self {
+            rec: Some(rec),
             ..self
         }
     }

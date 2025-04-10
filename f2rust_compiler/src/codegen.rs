@@ -779,7 +779,7 @@ impl CodeGenUnit<'_> {
                     BinaryOp::Pow => self.emit_binop_pow(e1, e2)?,
                     BinaryOp::Concat => self.emit_binop_concat(e1, e2)?,
                     BinaryOp::Lt => self.emit_binop_rel(e1, e2, "<", "lt")?,
-                    BinaryOp::Le => self.emit_binop_rel(e1, e2, "<=", "lte")?,
+                    BinaryOp::Le => self.emit_binop_rel(e1, e2, "<=", "le")?,
                     BinaryOp::Eq => self.emit_binop_rel(e1, e2, "==", "eq")?,
                     BinaryOp::Ne => self.emit_binop_rel(e1, e2, "!=", "ne")?,
                     BinaryOp::Gt => self.emit_binop_rel(e1, e2, ">", "gt")?,
@@ -919,7 +919,7 @@ impl CodeGenUnit<'_> {
                         // Some code expects this to behave like an array of size 1
                         warn!("passing expression to dummy argument expecting an array");
                         let e = self.emit_expression(arg)?;
-                        format!("&[{e}])")
+                        format!("&[{e}]")
                     }
                     Expression::Symbol(name) => {
                         let sym = self.syms.get(name)?;
@@ -1327,23 +1327,17 @@ impl CodeGenUnit<'_> {
 
             let ty = emit_datatype(&sym.ast.base_type);
 
+            let zero =
+                emit_zero(&sym.ast.base_type).with_context(|| format!("initialising {name}"))?;
             if is_mut {
                 // Zero-initialise because rustc can't always tell it's initialised on every code path
                 // (TODO: if we can detect it's safe, we could remove this. If it's assigned exactly
                 // once, get rid of the 'mut' too.)
-                let zero = emit_zero(&sym.ast.base_type)
-                    .with_context(|| format!("initialising {name}"))?;
                 code += &format!("let mut {name}: {ty} = {zero};\n");
             } else {
-                // TODO: why bother emitting this, if we never assign to it?
-                let actual = &sym.actual_procs;
-                if actual.is_empty() {
-                    code += &format!("let {name}: {ty};\n");
-                } else {
-                    code += &format!(
-                        "let {name}: {ty}; /* possible actual procedures: {actual:?} */\n"
-                    );
-                }
+                // Zero-initialise because e.g. ZZPLTCHK doesn't write to its 'output' variable,
+                // so ZZDDHOPN passes an uninitialised value
+                code += &format!("let {name}: {ty} = {zero};\n");
             }
         }
 

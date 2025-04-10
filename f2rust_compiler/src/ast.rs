@@ -1775,7 +1775,11 @@ impl Parser {
                         grammar::SpecifierValue::Expression(e) => {
                             let e = Expression::from(&self.symbols, e)?;
 
-                            if k == "IOSTAT" {
+                            // IOSTAT is an output for every statement.
+                            // FILE/UNIT are the only inputs for INQUIRE.
+                            if k == "IOSTAT"
+                                || (matches!(line, grammar::Statement::Inquire(..)) && k != "FILE")
+                            {
                                 match &e {
                                     Expression::Symbol(name)
                                     | Expression::ArrayElement(name, _) => {
@@ -1783,7 +1787,7 @@ impl Parser {
                                             .set_assigned(name, &self.entry.as_ref().unwrap().name);
                                     }
                                     _ => {
-                                        bail!("IOSTAT must be an integer variable or array element")
+                                        bail!("{k} must be a variable or array element")
                                     }
                                 }
                             }

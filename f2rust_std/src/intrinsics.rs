@@ -95,7 +95,7 @@ pub fn INDEX(a1: &[u8], a2: &[u8]) -> i32 {
 // TODO: IBSET, IBCLR
 
 /// Implement the `**` operator for (possibly negative) integers
-pub fn pow(i1: i32, i2: i32) -> i32 {
+pub const fn pow(i1: i32, i2: i32) -> i32 {
     if i2 < 0 {
         1 / i1.pow(i2.unsigned_abs())
     } else {
