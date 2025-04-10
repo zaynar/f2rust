@@ -890,10 +890,10 @@ impl CodeGenUnit<'_> {
         let mut aliased = HashSet::new();
         for (sym, count) in sym_counts {
             if count.0 >= 2 && count.1 >= 1 {
-                warn!(
-                    "{}: Possible aliasing violation: symbol {sym} used twice in procedure call",
-                    self.program.filename
-                );
+                // warn!(
+                //     "{}: Possible aliasing violation: symbol {sym} used twice in procedure call",
+                //     self.program.filename
+                // );
                 aliased.insert(sym);
             }
             if count.1 >= 2 {
@@ -913,7 +913,14 @@ impl CodeGenUnit<'_> {
                 // Function is expecting an array
                 match arg {
                     Expression::Unary(..) |
-                    Expression::Binary(..) => bail!("cannot pass expression to dummy argument expecting an array"),
+                    Expression::Binary(..) |
+                    Expression::Function(..) |
+                    Expression::Constant(..) => {
+                        // Some code expects this to behave like an array of size 1
+                        warn!("passing expression to dummy argument expecting an array");
+                        let e = self.emit_expression(arg)?;
+                        format!("&[{e}])")
+                    }
                     Expression::Symbol(name) => {
                         let sym = self.syms.get(name)?;
                         if sym.ast.base_type != darg.base_type {
@@ -942,15 +949,13 @@ impl CodeGenUnit<'_> {
                             format!("{s}.slice({idx})")
                         }
                     }
-                    Expression::Function(..) => bail!("cannot pass function expression to dummy argument expecting an array"),
                     Expression::Substring(..) => {
                         warn!("TODO: emit_args Substring as array");
                         "todo!()".to_owned()
                     }
                     Expression::SubstringArrayElement(..) => todo!(),
-                    Expression::Constant(..) => bail!("cannot pass constant to dummy argument expecting an array"),
-                    Expression::ImpliedDo { .. } => bail!("cannot use implied-DO as argument"),
-                    Expression::ImpliedDoVar(..) => bail!("cannot use implied-DO-variable as argument"),
+                    Expression::ImpliedDo { .. } => bail!("cannot use implied-DO as array argument"),
+                    Expression::ImpliedDoVar(..) => bail!("cannot use implied-DO-variable as array argument"),
                 }
 
             } else {
@@ -1020,10 +1025,12 @@ impl CodeGenUnit<'_> {
                     Expression::Substring(name, e1, e2) => {
                         let range = self.emit_range(e1, e2)?;
 
-                        // TODO: handle aliasing
                         if darg.mutated {
                             let s = self.emit_symbol(name, Ctx::ArgScalarMut)?;
                             format!("fstr::substr_mut({s}, {range})")
+                        } else if aliased.contains(name.as_str()) {
+                            let s = self.emit_symbol(name, Ctx::ArgScalar)?;
+                            format!("&fstr::substr({s}, {range}).to_vec()")
                         } else {
                             let s = self.emit_symbol(name, Ctx::ArgScalar)?;
                             format!("fstr::substr({s}, {range})")
