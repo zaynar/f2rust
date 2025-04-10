@@ -113,6 +113,8 @@ pub struct ProgramUnit {
     /// and 0+ additional ENTRY
     pub entries: Vec<Entry>,
 
+    pub statement_functions: Vec<StatementFunction>,
+
     /// DATA declarations
     pub datas: Vec<DataStatement>,
 }
@@ -129,8 +131,16 @@ pub enum ProgramUnitType {
 #[derive(Debug)]
 pub struct Entry {
     pub name: String,
-    pub dargs: Vec<DummyArg>,
+    pub dargs: Vec<String>,
     pub body: Vec<Statement>,
+}
+
+#[derive(Debug)]
+pub struct StatementFunction {
+    pub name: String,
+    pub dargs: Vec<String>,
+    pub captured: Vec<String>,
+    pub body: Expression,
 }
 
 #[derive(Debug)]
@@ -140,23 +150,6 @@ pub struct DataStatement {
 
     /// List of reps*constval
     pub clist: Vec<(Option<Expression>, Expression)>,
-}
-
-/// Dummy argument (i.e. function parameter) for an Entry
-#[derive(Debug, Clone)]
-pub struct DummyArg {
-    pub name: String,
-}
-
-impl DummyArg {
-    fn new(name: &String) -> Result<Self> {
-        if name == "*" {
-            bail!("alternate returns are not supported");
-        }
-        Ok(DummyArg {
-            name: name.to_owned(),
-        })
-    }
 }
 
 // Construct Expression from grammar
@@ -187,7 +180,15 @@ impl Expression {
                 if syms.is_array(s) {
                     Expression::ArrayElement(s.clone(), es)
                 } else {
-                    Expression::Function(s.clone(), es)
+                    let mut dargs = es.clone();
+
+                    // If this is a statement function call, we need to pass the captured variables too
+                    if let Some(captures) = syms.get(s).and_then(|s| s.statement_function.as_ref())
+                    {
+                        dargs.extend(captures.iter().map(|c| Expression::Symbol(c.clone())));
+                    }
+
+                    Expression::Function(s.clone(), dargs)
                 }
             }
             grammar::Expression::Substring(s, e1, e2) => {
@@ -603,8 +604,8 @@ pub struct Symbol {
     /// Accessed outside of a DO where it's a DO-variable
     pub outside_do: bool,
 
-    /// Declared as a statement function
-    pub statement_function: bool,
+    /// Declared as a statement function, with captured variables
+    pub statement_function: Option<Vec<String>>,
 
     /// PARAMETER constant value
     pub parameter: Option<Expression>,
@@ -621,7 +622,7 @@ impl Symbol {
                 bail!("cannot assign to EXTERNAL");
             }
 
-            if self.statement_function {
+            if self.statement_function.is_some() {
                 bail!("cannot assign to statement function");
             }
 
@@ -672,7 +673,7 @@ impl Default for Symbol {
             used: HashSet::new(),
             do_var: false,
             outside_do: false,
-            statement_function: false,
+            statement_function: None,
             parameter: None,
             save: false,
         }
@@ -761,12 +762,12 @@ impl SymbolTable {
         }
     }
 
-    fn set_statement_function(&mut self, name: &str) {
+    fn set_statement_function(&mut self, name: &str, captured: &[String]) {
         let sym = self.entry(name);
-        if sym.statement_function {
+        if sym.statement_function.is_some() {
             error!("must only declare statement function once: {name}");
         }
-        sym.statement_function = true;
+        sym.statement_function = Some(captured.to_vec());
     }
 
     fn set_assigned(&mut self, name: &str, entry: &str) {
@@ -836,6 +837,8 @@ pub struct Parser {
     /// Completed entries
     entries: Vec<Entry>,
 
+    statement_functions: Vec<StatementFunction>,
+
     state: ParseState,
 
     symbols: SymbolTable,
@@ -873,6 +876,7 @@ impl Parser {
             statements: vec![vec![]],
             depth: 0,
             entries: vec![],
+            statement_functions: vec![],
             do_vars: vec![],
             datas: vec![],
             save_all: false,
@@ -938,7 +942,7 @@ impl Parser {
 
                     self.entry = Some(Entry {
                         name,
-                        dargs: dargs.iter().map(DummyArg::new).collect::<Result<_>>()?,
+                        dargs,
                         body: Vec::new(),
                     });
 
@@ -946,10 +950,15 @@ impl Parser {
                 }
                 grammar::Statement::Subroutine(name, dargs) => {
                     pu_ty = Some(ProgramUnitType::Subroutine);
+
+                    if dargs.iter().any(|d| d == "*") {
+                        bail!("alternate returns are not supported");
+                    }
+
                     dargs.iter().for_each(|d| self.symbols.set_darg(d));
                     self.entry = Some(Entry {
                         name,
-                        dargs: dargs.iter().map(DummyArg::new).collect::<Result<_>>()?,
+                        dargs,
                         body: Vec::new(),
                     });
                     break 'LINES;
@@ -1054,13 +1063,14 @@ impl Parser {
             ty: pu_ty.unwrap(),
             symbols: self.symbols,
             entries: self.entries,
+            statement_functions: self.statement_functions,
             datas: self.datas,
         };
 
         for e in &pu.entries {
             for d in &e.dargs {
-                if !pu.symbols.contains_key(&d.name) {
-                    bail!("dummy argument {} must have explicit type", d.name)
+                if !pu.symbols.contains_key(d) {
+                    bail!("dummy argument {d} must have explicit type")
                 }
             }
         }
@@ -1099,7 +1109,7 @@ impl Parser {
                 dargs.iter().for_each(|d| self.symbols.set_darg(d));
                 self.entry = Some(Entry {
                     name: name.clone(),
-                    dargs: dargs.iter().map(DummyArg::new).collect::<Result<_>>()?,
+                    dargs: dargs.clone(),
                     body: Vec::new(),
                 });
 
@@ -1275,7 +1285,7 @@ impl Parser {
 
             // Statement function statements. Ambiguously parsed as Assignment; check if we're
             // in the appropriate state and it wasn't declared as an array
-            grammar::Statement::Assignment(grammar::DataName::ArrayElement(name, _), e)
+            grammar::Statement::Assignment(grammar::DataName::ArrayElement(name, dargs), body)
                 if matches!(
                     self.state,
                     ParseState::Implicit | ParseState::OtherSpec | ParseState::StatementFunction
@@ -1285,18 +1295,70 @@ impl Parser {
                 // DOUBLE PRECISION after a statement function, so allow that
                 self.state = ParseState::OtherSpec;
 
-                // warn!("Unsupported statement function {name}: {e:?}");
-
                 // TODO: implement this properly
                 // (Maybe just expand it out, so codegen doesn't have to care? Otherwise
                 // turn into a function/macro)
 
-                self.symbols.set_statement_function(name);
+                let dargs: Vec<_> = dargs
+                    .iter()
+                    .map(|d| match d {
+                        grammar::Expression::Symbol(s) => s.clone(),
+                        _ => panic!("non-symbol in statement function dargs"),
+                    })
+                    .collect();
 
-                let e = Expression::from(&self.symbols, e)?;
+                let body = Expression::from(&self.symbols, body)?;
 
                 let mut visitor = DoVarVisitor::new(&self.do_vars, &mut self.symbols);
-                e.walk(&mut visitor);
+                body.walk(&mut visitor);
+
+                // Find all the variables used in the statement function, that are captured from
+                // the environment and need to be explicitly passed in
+
+                struct SymVisitor<'a> {
+                    symbols: &'a mut SymbolTable,
+                    found: Vec<String>,
+                }
+
+                impl Visitor for SymVisitor<'_> {
+                    fn symbol(&mut self, name: &String) {
+                        if !self.found.contains(name) {
+                            self.found.push(name.clone());
+                        }
+                    }
+
+                    // We also need to mark them called here, because UsedVisitor won't mark them
+                    // until after we needed to determine if they were captured
+                    fn call(&mut self, name: &String, _args: &[Expression], _is_function: bool) {
+                        self.symbols.set_called(name);
+                    }
+                }
+
+                let mut visitor = SymVisitor {
+                    found: Vec::new(),
+                    symbols: &mut self.symbols,
+                };
+                body.walk(&mut visitor);
+
+                // Capture any necessary local variables (i.e. not external functions or constants)
+                let captured: Vec<_> = visitor
+                    .found
+                    .iter()
+                    .filter(|s| {
+                        let sym = self.symbols.get(s).unwrap();
+                        !(dargs.contains(s) || (sym.called && !sym.darg) || sym.parameter.is_some())
+                    })
+                    .cloned()
+                    .collect();
+
+                self.symbols.set_statement_function(name, &captured);
+
+                self.statement_functions.push(StatementFunction {
+                    name: name.clone(),
+                    dargs,
+                    captured,
+                    body,
+                });
             }
 
             // Executable statements

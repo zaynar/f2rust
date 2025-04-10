@@ -55,17 +55,29 @@ pub struct DummyArg {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Name(pub String, pub String);
+pub struct Name {
+    pub module: String,
+    pub program: String,
+    pub local: String,
+}
 
 impl Name {
-    fn new(namespace: &str, local_name: &str) -> Self {
-        Self(namespace.to_owned(), local_name.to_owned())
+    pub fn new(module: &str, program: &str, local: &str) -> Self {
+        Self {
+            module: module.to_owned(),
+            program: program.to_owned(),
+            local: local.to_owned(),
+        }
     }
 }
 
 impl std::fmt::Display for Name {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}::{}", self.0, self.1)
+        if self.program.is_empty() {
+            write!(f, "{}::{}", self.module, self.local)
+        } else {
+            write!(f, "{}::{}::{}", self.module, self.program, self.local)
+        }
     }
 }
 
@@ -249,16 +261,16 @@ impl GlobalAnalysis {
         }
     }
 
-    pub fn requires_ctx(&self, namespace: &str, entry_name: &str) -> Result<bool> {
-        if let Some(proc) = self.procedures.get(&Name::new(namespace, entry_name)) {
+    pub fn requires_ctx(&self, module: &str, local: &str) -> Result<bool> {
+        if let Some(proc) = self.procedures.get(&Name::new(module, "", local)) {
             Ok(proc.requires_ctx)
         } else {
             Ok(false)
         }
     }
 
-    pub fn returns_result(&self, namespace: &str, entry_name: &str) -> Result<bool> {
-        if let Some(proc) = self.procedures.get(&Name::new(namespace, entry_name)) {
+    pub fn returns_result(&self, module: &str, local: &str) -> Result<bool> {
+        if let Some(proc) = self.procedures.get(&Name::new(module, "", local)) {
             Ok(proc.returns_result)
         } else {
             Ok(false)
@@ -269,7 +281,7 @@ impl GlobalAnalysis {
     fn export_procs(&mut self) -> Result<()> {
         for (program_idx, program) in self.programs.iter().enumerate() {
             for entry in &program.ast.entries {
-                let name = Name::new(&program.namespace, &entry.name);
+                let name = Name::new(&program.namespace, "", &entry.name);
 
                 let return_type = match program.ast.ty {
                     ast::ProgramUnitType::Function => {
@@ -329,6 +341,26 @@ impl GlobalAnalysis {
                     bail!("duplicate procedure definition {name}");
                 }
             }
+
+            for function in &program.ast.statement_functions {
+                let name = Name::new(&program.namespace, &program.filename, &function.name);
+
+                let return_type = program.symbols.get(&function.name)?.ast.base_type.clone();
+
+                let proc = Procedure {
+                    source: (program.namespace.clone(), program.filename.clone()),
+                    name: name.clone(),
+                    return_type,
+                    dargs: Vec::new(),
+                    requires_ctx: false,
+                    returns_result: false,
+                    program_idx,
+                };
+
+                if self.procedures.insert(name.clone(), proc).is_some() {
+                    bail!("duplicate procedure definition {name}");
+                }
+            }
         }
 
         Ok(())
@@ -342,27 +374,31 @@ impl GlobalAnalysis {
 
         for program in &mut self.programs {
             for (name, sym) in &mut program.symbols.0 {
-                if sym.ast.statement_function {
+                if sym.ast.statement_function.is_some() {
                     // TODO: implement statement functions
-                    sym.actual_procs.push(Name::new("statement_function", name));
+                    sym.actual_procs
+                        .push(Name::new(&program.namespace, &program.filename, name));
                 } else if (sym.ast.external || sym.ast.called) && !sym.ast.darg {
-                    // Search in the current namespace first, then in shared_libs
-                    let ns_name = [program.namespace.clone()]
-                        .iter()
-                        .chain(self.shared_libs.iter())
-                        .find_map(|ns| {
-                            let ns_name = Name::new(ns, name);
-                            if self.procedures.contains_key(&ns_name) {
-                                Some(ns_name)
-                            } else {
-                                None
-                            }
-                        });
+                    // Search in the current file and namespace first, then in shared_libs
+                    let ns_name = [
+                        (&program.namespace, program.filename.as_str()),
+                        (&program.namespace, ""),
+                    ]
+                    .into_iter()
+                    .chain(self.shared_libs.iter().map(|ns| (ns, "")))
+                    .find_map(|(ns, file)| {
+                        let ns_name = Name::new(ns, file, name);
+                        if self.procedures.contains_key(&ns_name) {
+                            Some(ns_name)
+                        } else {
+                            None
+                        }
+                    });
 
                     if let Some(ns_name) = ns_name {
                         sym.actual_procs.push(ns_name);
                     } else if intrinsics::exists(name) {
-                        sym.actual_procs.push(Name::new("intrinsics", name));
+                        sym.actual_procs.push(Name::new("intrinsics", "", name));
                     } else {
                         unresolved.push((
                             name,
@@ -396,9 +432,9 @@ impl GlobalAnalysis {
                     .dargs
                     .iter()
                     .map(|darg| {
-                        let sym = program.symbols.get(&darg.name)?;
+                        let sym = program.symbols.get(darg)?;
                         Ok(DummyArg {
-                            name: darg.name.clone(),
+                            name: darg.clone(),
                             base_type: sym.ast.base_type.clone(),
                             is_array: !sym.ast.dims.is_empty(),
                             mutated: sym.mutated.contains(&entry.name),
@@ -406,7 +442,27 @@ impl GlobalAnalysis {
                     })
                     .collect::<Result<_>>()?;
 
-                let name = Name::new(&program.namespace, &entry.name);
+                let name = Name::new(&program.namespace, "", &entry.name);
+                self.procedures.get_mut(&name).unwrap().dargs = dargs;
+            }
+
+            for function in &program.ast.statement_functions {
+                let dargs = function
+                    .dargs
+                    .iter()
+                    .chain(&function.captured)
+                    .map(|darg| {
+                        let sym = program.symbols.get(darg)?;
+                        Ok(DummyArg {
+                            name: darg.clone(),
+                            base_type: sym.ast.base_type.clone(),
+                            is_array: !sym.ast.dims.is_empty(),
+                            mutated: false,
+                        })
+                    })
+                    .collect::<Result<_>>()?;
+
+                let name = Name::new(&program.namespace, &program.filename, &function.name);
                 self.procedures.get_mut(&name).unwrap().dargs = dargs;
             }
         }
@@ -442,13 +498,8 @@ impl GlobalAnalysis {
                 }
 
                 for actual in actual_procs {
-                    if actual.0 == "intrinsics" {
+                    if actual.module == "intrinsics" {
                         // No intrinsics take procedure arguments
-                        continue;
-                    }
-
-                    if actual.0 == "statement_function" {
-                        // TODO
                         continue;
                     }
 
@@ -493,7 +544,7 @@ impl GlobalAnalysis {
 
         for program in &mut self.programs {
             for entry in &program.ast.entries {
-                let name = Name::new(&program.namespace, &entry.name);
+                let name = Name::new(&program.namespace, "", &entry.name);
 
                 let mut visitor = CallVisitor::default();
                 for statement in &entry.body {
@@ -504,10 +555,8 @@ impl GlobalAnalysis {
                     let actual_procs = program.symbols.get(&called)?.actual_procs.clone();
 
                     if actual_procs.iter().any(|actual| {
-                        if actual.0 == "intrinsics" {
-                            intrinsics::requires_ctx(&actual.1)
-                        } else if actual.0 == "statement_function" {
-                            false
+                        if actual.module == "intrinsics" {
+                            intrinsics::requires_ctx(&actual.local)
                         } else {
                             let proc = self.procedures.get(actual).unwrap();
                             proc.requires_ctx
@@ -521,10 +570,8 @@ impl GlobalAnalysis {
                     }
 
                     if actual_procs.iter().any(|actual| {
-                        if actual.0 == "intrinsics" {
-                            intrinsics::returns_result(&actual.1)
-                        } else if actual.0 == "statement_function" {
-                            false
+                        if actual.module == "intrinsics" {
+                            intrinsics::returns_result(&actual.local)
                         } else {
                             let proc = self.procedures.get(actual).unwrap();
                             proc.returns_result
@@ -571,16 +618,11 @@ impl GlobalAnalysis {
 
                     // Check every procedure this might be passed to
                     for actual in actual_procs {
-                        if actual.0 == "intrinsics" {
-                            if intrinsics::arg_is_mutated(&actual.1, p.idx) {
+                        if actual.module == "intrinsics" {
+                            if intrinsics::arg_is_mutated(&actual.local, p.idx) {
                                 sym.mutated.insert(entry.name.clone());
                                 dirty = true;
                             }
-                            continue;
-                        }
-
-                        if actual.0 == "statement_function" {
-                            // TODO
                             continue;
                         }
 
@@ -685,7 +727,7 @@ impl GlobalAnalysis {
                                 if !proc.dargs[i].mutated {
                                     changes_mut.push((
                                         proc.program_idx,
-                                        proc.name.1.clone(),
+                                        proc.name.local.clone(),
                                         proc.dargs[i].name.clone(),
                                     ));
                                     dirty = true;

@@ -369,6 +369,7 @@ pub struct CodeGen<'a> {
     shared: CodeGenUnit<'a>,
 
     entries: Vec<Entry<'a>>,
+    statement_functions: Vec<StatementFunction<'a>>,
 }
 
 /// Represents a procedure/ENTRY, or the global SAVE/PARAMETER state
@@ -381,6 +382,11 @@ struct CodeGenUnit<'a> {
 struct Entry<'a> {
     codegen: CodeGenUnit<'a>,
     ast: &'a ast::Entry,
+}
+
+struct StatementFunction<'a> {
+    codegen: CodeGenUnit<'a>,
+    ast: &'a ast::StatementFunction,
 }
 
 /// The various ways of calling a procedure or intrinsic
@@ -1086,9 +1092,6 @@ impl CodeGenUnit<'_> {
             // We need at least one, so we can figure out the argument conversions
             bail!("call to symbol {name} with no known actual procedures");
         }
-        if sym.ast.statement_function {
-            bail!("TODO: statement functions not supported");
-        }
         let actual = self.procedure_args(name, actual_procs, args)?;
 
         if matches!(actual.return_type, DataType::Unknown | DataType::Void) {
@@ -1122,10 +1125,10 @@ impl CodeGenUnit<'_> {
             match actual.codegen {
                 CallSyntax::Unified => bail!("unexpected unified proc"),
                 CallSyntax::External(name) => {
-                    let ns_name = if name.0 == self.program.namespace {
-                        name.1
+                    let ns_name = if name.module == self.program.namespace {
+                        name.local
                     } else {
-                        format!("{}::{}", name.0, name.1)
+                        format!("{}::{}", name.module, name.local)
                     };
                     // Ok(format!("{ns_name}({args_ex}) /* possible actual procedures: {actual_procs:?} */\n"))
                     Ok(format!("{ns_name}({args_ex}){q}"))
@@ -1428,11 +1431,7 @@ impl CodeGenUnit<'_> {
     }
 
     // Used for DATA, READ, WRITE. Recursively handles implied-DO loops
-    fn emit_data_nlist<C: NlistCallback>(
-        &self,
-        nlist: &[Expression],
-        ctx: Ctx,
-    ) -> Result<String> {
+    fn emit_data_nlist<C: NlistCallback>(&self, nlist: &[Expression], ctx: Ctx) -> Result<String> {
         let mut code = String::new();
 
         for v in nlist {
@@ -1894,6 +1893,45 @@ impl<'a> CodeGen<'a> {
             })
             .collect();
 
+        let statement_functions = program
+            .ast
+            .statement_functions
+            .iter()
+            .map(|statement_function| {
+                let syms = IndexMap::from_iter(program.symbols.iter().map(|(name, sym)| {
+                    if statement_function.dargs.contains(name)
+                        || statement_function.captured.contains(name)
+                    {
+                        // The original symbol might be SAVE etc, and we need to treat it
+                        // as a darg when compiling this function
+                        let darg_ast = ast::Symbol {
+                            darg: true,
+                            do_var: false,
+                            save: false,
+                            ..sym.ast.clone()
+                        };
+                        let darg_sym = globan::Symbol {
+                            ast: darg_ast,
+                            actual_procs: sym.actual_procs.clone(),
+                            mutated: sym.mutated.clone(),
+                        };
+                        (name.clone(), Symbol::new(&darg_sym, false))
+                    } else {
+                        (name.clone(), Symbol::new(sym, false))
+                    }
+                }));
+
+                StatementFunction {
+                    codegen: CodeGenUnit {
+                        globan,
+                        program,
+                        syms: SymbolTable(syms),
+                    },
+                    ast: statement_function,
+                }
+            })
+            .collect();
+
         // SAVE and PARAMETER constants are shared by all entries, and will need to be emitted
         // before any entries, so gather them now
         let shared_syms = IndexMap::from_iter(program.symbols.iter().filter_map(|(name, sym)| {
@@ -1911,6 +1949,7 @@ impl<'a> CodeGen<'a> {
                 syms: SymbolTable(shared_syms),
             },
             entries,
+            statement_functions,
         }
     }
 
@@ -1923,21 +1962,50 @@ impl<'a> CodeGen<'a> {
         code += &self.shared.emit_constants()?;
         code += &self.shared.emit_save_struct()?;
 
+        for statement_function in &self.statement_functions {
+            let dargs = statement_function
+                .ast
+                .dargs
+                .iter()
+                .chain(&statement_function.ast.captured)
+                .map(|darg| statement_function.codegen.emit_symbol(darg, Ctx::DummyArg));
+
+            let func_name = &statement_function.ast.name;
+
+            let ret_type = &statement_function
+                .codegen
+                .syms
+                .get(func_name)?
+                .ast
+                .base_type;
+
+            let ret = format!("-> {}", emit_datatype(ret_type));
+
+            let dargs = dargs.collect::<Result<Vec<_>>>()?;
+            let dargs = dargs.join(", ");
+            code += &format!("fn {func_name}({dargs}) {ret} {{\n");
+            code += &statement_function
+                .codegen
+                .emit_expression(&statement_function.ast.body)?;
+            code += "\n}\n\n";
+        }
+
         for entry in &self.entries {
             let dargs = entry
                 .ast
                 .dargs
                 .iter()
-                .map(|darg| entry.codegen.emit_symbol(&darg.name, Ctx::DummyArg));
+                .map(|darg| entry.codegen.emit_symbol(darg, Ctx::DummyArg));
+
+            let entry_name = &entry.ast.name;
 
             let is_function = matches!(self.shared.program.ast.ty, ast::ProgramUnitType::Function);
             let ret_type = if is_function {
-                &entry.codegen.syms.get(&entry.ast.name)?.ast.base_type
+                &entry.codegen.syms.get(entry_name)?.ast.base_type
             } else {
                 &DataType::Void
             };
 
-            let entry_name = &entry.ast.name;
             let returns_result = entry
                 .codegen
                 .globan
