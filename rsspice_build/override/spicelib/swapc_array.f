@@ -1,18 +1,13 @@
 C     See GrammarPatcher::patch_swap
 
-      SUBROUTINE SWAPC_ARRAY ()
+      SUBROUTINE SWAPC_ARRAY (A, B, ARRAY)
 
       IMPLICIT NONE
 
       CHARACTER*(*) ARRAY (*)
       CHARACTER*1 TEMP
-      INTEGER A
-      INTEGER B
+      INTEGER A, B
       INTEGER I, M
-
-      RETURN
-
-      ENTRY SWAPC_ARRAY_1 (ARRAY, A, B)
 
       M = MIN(LEN(ARRAY(A)), LEN(ARRAY(B)))
 
@@ -31,5 +26,4 @@ C     See GrammarPatcher::patch_swap
       END IF
 
       RETURN
-
       END

@@ -1,26 +1,15 @@
 C     See GrammarPatcher::patch_swap
 
-      SUBROUTINE SWAPI_ARRAY ()
+      SUBROUTINE SWAPI_ARRAY (A, B, ARRAY)
 
       IMPLICIT NONE
 
       INTEGER ARRAY (*)
       INTEGER TEMP
-      INTEGER A1, A2
-      INTEGER B1, B2
+      INTEGER A, B
 
+      TEMP = ARRAY(A)
+      ARRAY(A) = ARRAY(B)
+      ARRAY(B) = TEMP
       RETURN
-
-      ENTRY SWAPI_ARRAY_1 (ARRAY, A1, B1)
-      TEMP = ARRAY(A1)
-      ARRAY(A1) = ARRAY(B1)
-      ARRAY(B1) = TEMP
-      RETURN
-
-      ENTRY SWAPI_ARRAY_2 (ARRAY, A1, A2, B1, B2)
-      TEMP = ARRAY(A1,A2)
-      ARRAY(A1,A2) = ARRAY(B1,B2)
-      ARRAY(B1,B2) = TEMP
-      RETURN
-
       END

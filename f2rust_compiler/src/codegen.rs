@@ -397,6 +397,7 @@ pub enum CallSyntax {
     Cast(&'static str),     // x as a
     Func(&'static str),     // a(x)
     VarFunc(&'static str),  // a(&[x])  (used for variadic intrinsics)
+    ArraySubscriptValue,    // special intrinsic
 }
 
 #[derive(Debug, Clone)]
@@ -480,7 +481,7 @@ impl CodeGenUnit<'_> {
                 // a mutable argument. If not pass-by-value, clone it
                 RustType::CharVec => format!("&{name}.clone()"),
                 RustType::CharSliceRef => format!("&{name}.to_vec()"),
-                RustType::CharSliceMut => format!("&mut {name}.to_vec()"),
+                RustType::CharSliceMut => format!("&{name}.to_vec()"),
                 RustType::SaveChar => format!("&save.{name}.to_vec()"),
                 _ => self.emit_symbol(name, Ctx::ArgScalar)?,
             },
@@ -938,6 +939,8 @@ impl CodeGenUnit<'_> {
                         let idx = self.emit_index(idx)?;
                         if darg.mutated {
                             format!("{s}.slice_mut({idx})")
+                        } else if aliased.contains(name.as_str()) {
+                            format!("&{s}.slice({idx}).to_vec()")
                         } else {
                             format!("{s}.slice({idx})")
                         }
@@ -996,9 +999,9 @@ impl CodeGenUnit<'_> {
                             // Pass by reference
                             format!("&mut {get}")
                         } else if matches!(sym.ast.base_type, DataType::Character) {
-                            if aliased.contains(s.as_str()) {
+                            if aliased.contains(name.as_str()) {
                                 // Try to resolve aliasing violation
-                                format!("&{get}.clone()")
+                                format!("&{get}.to_vec()")
                             } else {
                                 // Pass by reference
                                 format!("&{get}")
@@ -1128,7 +1131,7 @@ impl CodeGenUnit<'_> {
             // ))
             Ok(format!("{name}({args_ex}){q}"))
         } else {
-            match actual.codegen {
+            Ok(match actual.codegen {
                 CallSyntax::Unified => bail!("unexpected unified proc"),
                 CallSyntax::External(name) => {
                     let ns_name = if name.module == self.program.namespace {
@@ -1136,13 +1139,21 @@ impl CodeGenUnit<'_> {
                     } else {
                         format!("{}::{}", name.module, name.local)
                     };
-                    // Ok(format!("{ns_name}({args_ex}) /* possible actual procedures: {actual_procs:?} */\n"))
-                    Ok(format!("{ns_name}({args_ex}){q}"))
+                    // format!("{ns_name}({args_ex}) /* possible actual procedures: {actual_procs:?} */\n")
+                    format!("{ns_name}({args_ex}){q}")
                 }
-                CallSyntax::Cast(ty) => Ok(format!("({args_ex} as {ty}){q}")),
-                CallSyntax::Func(name) => Ok(format!("{name}({args_ex}){q}")),
-                CallSyntax::VarFunc(name) => Ok(format!("{name}(&[{args_ex}]){q}")),
-            }
+                CallSyntax::Cast(ty) => format!("({args_ex} as {ty}){q}"),
+                CallSyntax::Func(name) => format!("{name}({args_ex}){q}"),
+                CallSyntax::VarFunc(name) => format!("{name}(&[{args_ex}]){q}"),
+                CallSyntax::ArraySubscriptValue => match args.first() {
+                    Some(Expression::ArrayElement(name, idx)) => {
+                        let s = self.emit_symbol(name, Ctx::Value)?;
+                        let idx_ex = self.emit_index(idx)?;
+                        format!("{s}.subscript({idx_ex})")
+                    }
+                    _ => bail!("ArraySubscriptValue invalid args {args:?}"),
+                },
+            })
         }
     }
 

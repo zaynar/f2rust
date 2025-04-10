@@ -163,6 +163,9 @@ const INTRINSICS: &[IntrinsicDef] = &[
     ("GETENV", "", DataType::Character, DataType::Void, CallSyntax::Func("ctx.getenv")),
     ("IARGC", "", DataType::Unknown, DataType::Integer, CallSyntax::Func("ctx.iargc")),
     ("SYSTEM", "", DataType::Character, DataType::Void, CallSyntax::Func("ctx.system")),
+
+    // Hacks:
+    ("", "ARRAY_SUBSCRIPT_VALUE", DataType::Unknown, DataType::Integer, CallSyntax::ArraySubscriptValue),
 ];
 
 fn find_intrinsic(name: &str, first_arg: Option<DataType>) -> Option<&'static IntrinsicDef> {

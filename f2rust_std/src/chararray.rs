@@ -93,8 +93,8 @@ impl ActualCharArray {
         }
     }
 
-    fn offset(&self, s: i32) -> usize {
-        offset_1d(self.bounds, s) * self.element_length
+    fn offset(&self, index: i32) -> usize {
+        offset_1d(self.bounds, index) * self.element_length
     }
 
     pub fn first(&self) -> &[u8] {
@@ -148,6 +148,10 @@ impl ActualCharArray {
             element_length: self.element_length,
         }
     }
+
+    pub fn subscript(&self, index: i32) -> i32 {
+        offset_1d(self.bounds, index) as i32 + 1
+    }
 }
 
 impl ActualCharArray2D {
@@ -174,8 +178,8 @@ impl ActualCharArray2D {
         }
     }
 
-    fn offset(&self, s: [i32; 2]) -> usize {
-        offset_2d(self.bounds, s) * self.element_length
+    fn offset(&self, index: [i32; 2]) -> usize {
+        offset_2d(self.bounds, index) * self.element_length
     }
 
     pub fn first(&self) -> &[u8] {
@@ -229,6 +233,10 @@ impl ActualCharArray2D {
             element_length: self.element_length,
         }
     }
+
+    pub fn subscript(&self, index: [i32; 2]) -> i32 {
+        offset_2d(self.bounds, index) as i32 + 1
+    }
 }
 
 impl<'a> DummyCharArray<'a> {
@@ -264,8 +272,8 @@ impl<'a> DummyCharArray<'a> {
         }
     }
 
-    fn offset(&self, s: i32) -> usize {
-        offset_1d(self.bounds, s) * self.element_length
+    fn offset(&self, index: i32) -> usize {
+        offset_1d(self.bounds, index) * self.element_length
     }
 
     pub fn first(&self) -> &[u8] {
@@ -293,6 +301,10 @@ impl<'a> DummyCharArray<'a> {
             data: &self.data[offset..],
             element_length: self.element_length,
         }
+    }
+
+    pub fn subscript(&self, index: i32) -> i32 {
+        offset_1d(self.bounds, index) as i32 + 1
     }
 }
 
@@ -373,6 +385,10 @@ impl<'a> DummyCharArrayMut<'a> {
             data: &mut self.data[offset..],
             element_length: self.element_length,
         }
+    }
+
+    pub fn subscript(&self, index: i32) -> i32 {
+        offset_1d(self.bounds, index) as i32 + 1
     }
 }
 

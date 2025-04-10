@@ -68,8 +68,8 @@ where
 }
 
 impl<T> ActualArray<T> {
-    fn offset(&self, s: i32) -> usize {
-        offset_1d(self.bounds, s)
+    fn offset(&self, index: i32) -> usize {
+        offset_1d(self.bounds, index)
     }
 
     pub fn first(&self) -> &T {
@@ -88,6 +88,10 @@ impl<T> ActualArray<T> {
     pub fn slice_mut(&mut self, index: i32) -> &mut [T] {
         let offset = self.offset(index);
         &mut self.data[offset..]
+    }
+
+    pub fn subscript(&self, index: i32) -> i32 {
+        self.offset(index) as i32 + 1
     }
 }
 
@@ -113,8 +117,8 @@ where
 }
 
 impl<T> ActualArray2D<T> {
-    fn offset(&self, s: [i32; 2]) -> usize {
-        offset_2d(self.bounds, s)
+    fn offset(&self, index: [i32; 2]) -> usize {
+        offset_2d(self.bounds, index)
     }
 
     pub fn first(&self) -> &T {
@@ -133,6 +137,10 @@ impl<T> ActualArray2D<T> {
     pub fn slice_mut(&mut self, index: [i32; 2]) -> &mut [T] {
         let offset = self.offset(index);
         &mut self.data[offset..]
+    }
+
+    pub fn subscript(&self, index: [i32; 2]) -> i32 {
+        self.offset(index) as i32 + 1
     }
 }
 
@@ -153,8 +161,8 @@ impl<'a, T> DummyArray<'a, T> {
         }
     }
 
-    fn offset(&self, s: i32) -> usize {
-        offset_1d(self.bounds, s)
+    fn offset(&self, index: i32) -> usize {
+        offset_1d(self.bounds, index)
     }
 
     pub fn first(&self) -> &T {
@@ -164,6 +172,10 @@ impl<'a, T> DummyArray<'a, T> {
     pub fn slice(&self, index: i32) -> &[T] {
         let offset = self.offset(index);
         &self.data[offset..]
+    }
+
+    pub fn subscript(&self, index: i32) -> i32 {
+        self.offset(index) as i32 + 1
     }
 }
 
@@ -184,8 +196,8 @@ impl<'a, T> DummyArrayMut<'a, T> {
         }
     }
 
-    fn offset(&self, s: i32) -> usize {
-        offset_1d(self.bounds, s)
+    fn offset(&self, index: i32) -> usize {
+        offset_1d(self.bounds, index)
     }
 
     pub fn first(&self) -> &T {
@@ -204,6 +216,10 @@ impl<'a, T> DummyArrayMut<'a, T> {
     pub fn slice_mut(&mut self, index: i32) -> &mut [T] {
         let offset = self.offset(index);
         &mut self.data[offset..]
+    }
+
+    pub fn subscript(&self, index: i32) -> i32 {
+        self.offset(index) as i32 + 1
     }
 }
 
@@ -240,8 +256,8 @@ impl<'a, T> DummyArray2D<'a, T> {
         }
     }
 
-    fn offset(&self, s: [i32; 2]) -> usize {
-        offset_2d(self.bounds, s)
+    fn offset(&self, index: [i32; 2]) -> usize {
+        offset_2d(self.bounds, index)
     }
 
     pub fn first(&self) -> &T {
@@ -251,6 +267,10 @@ impl<'a, T> DummyArray2D<'a, T> {
     pub fn slice(&self, index: [i32; 2]) -> &[T] {
         let offset = self.offset(index);
         &self.data[offset..]
+    }
+
+    pub fn subscript(&self, index: [i32; 2]) -> i32 {
+        self.offset(index) as i32 + 1
     }
 }
 
@@ -263,8 +283,8 @@ impl<'a, T> DummyArrayMut2D<'a, T> {
         }
     }
 
-    fn offset(&self, s: [i32; 2]) -> usize {
-        offset_2d(self.bounds, s)
+    fn offset(&self, index: [i32; 2]) -> usize {
+        offset_2d(self.bounds, index)
     }
 
     pub fn first(&self) -> &T {
@@ -283,6 +303,10 @@ impl<'a, T> DummyArrayMut2D<'a, T> {
     pub fn slice_mut(&mut self, index: [i32; 2]) -> &mut [T] {
         let offset = self.offset(index);
         &mut self.data[offset..]
+    }
+
+    pub fn subscript(&self, index: [i32; 2]) -> i32 {
+        self.offset(index) as i32 + 1
     }
 }
 

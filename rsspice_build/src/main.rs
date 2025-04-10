@@ -252,13 +252,18 @@ impl GrammarPatcher {
                     return None;
                 }
 
-                let mut args = vec![grammar::Expression::Symbol(s0.to_owned())];
-                args.extend(idx0.clone());
-                args.extend(idx1.clone());
-                return Some(grammar::Statement::Call(
-                    format!("{name}_ARRAY_{}", idx0.len()),
-                    args,
-                ));
+                let mut new_args = vec![
+                    grammar::Expression::ArrayElementOrFunction(
+                        "ARRAY_SUBSCRIPT_VALUE".to_owned(),
+                        vec![args[0].clone()],
+                    ),
+                    grammar::Expression::ArrayElementOrFunction(
+                        "ARRAY_SUBSCRIPT_VALUE".to_owned(),
+                        vec![args[1].clone()],
+                    ),
+                    grammar::Expression::Symbol(s0.to_owned()),
+                ];
+                return Some(grammar::Statement::Call(format!("{name}_ARRAY"), new_args));
             }
         }
 
