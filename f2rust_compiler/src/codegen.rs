@@ -340,7 +340,7 @@ fn emit_datatype(ty: &DataType) -> String {
             let ret = ret_args.next().unwrap();
             let mut args = ret_args.collect::<Vec<_>>();
             if *requires_ctx {
-                args.insert(0, "&mut Context".to_owned());
+                args.push("&mut Context".to_owned());
             }
             let args = args.join(", ");
             if *returns_result {
@@ -901,14 +901,7 @@ impl CodeGenUnit<'_> {
             }
         }
 
-        let mut exprs = vec![];
-
-        // Context gets passed as the first argument
-        if requires_ctx {
-            exprs.push(Ok("ctx".to_owned()));
-        }
-
-        exprs.extend(dargs.iter().zip(args.iter()).map(|(darg, arg)| {
+        let mut exprs = dargs.iter().zip(args.iter()).map(|(darg, arg)| {
             let conversion = if darg.is_array {
                 // Function is expecting an array
                 match arg {
@@ -1045,7 +1038,13 @@ impl CodeGenUnit<'_> {
                 }
             };
             Ok(conversion)
-        }));
+        }).collect::<Vec<_>>();
+
+        // Context gets passed as the final argument (which means it has the shortest
+        // lifetime, reducing borrowing errors when other arguments use ctx too)
+        if requires_ctx {
+            exprs.push(Ok("ctx".to_owned()));
+        }
 
         Ok(exprs.into_iter().collect::<Result<Vec<_>>>()?.join(", "))
     }
@@ -2032,7 +2031,7 @@ impl<'a> CodeGen<'a> {
                 .globan
                 .requires_ctx(&entry.codegen.program.namespace, entry_name)?
             {
-                dargs.insert(0, "ctx: &mut Context".to_owned());
+                dargs.push("ctx: &mut Context".to_owned());
             }
             let dargs = dargs.join(", ");
             code += &format!("pub fn {entry_name}({dargs}) {ret} {{\n");
