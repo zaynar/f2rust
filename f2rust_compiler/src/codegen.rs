@@ -1419,7 +1419,7 @@ impl CodeGenUnit<'_> {
         } else {
             code += "  ]);\n\n";
         }
-        code += &self.emit_data_nlist(&data.nlist, Ctx::SaveInit, &mut NlistCallbackData {})?;
+        code += &self.emit_data_nlist::<NlistCallbackData>(&data.nlist, Ctx::SaveInit)?;
         code += "\n";
         code += "  debug_assert!(clist.next().is_none(), \"DATA not fully initialised\");\n";
         code += "}\n";
@@ -1432,7 +1432,6 @@ impl CodeGenUnit<'_> {
         &self,
         nlist: &[Expression],
         ctx: Ctx,
-        callback: &mut C,
     ) -> Result<String> {
         let mut code = String::new();
 
@@ -1444,27 +1443,27 @@ impl CodeGenUnit<'_> {
                     let s = self.emit_symbol(name, ctx)?;
 
                     if !sym.ast.dims.is_empty() {
-                        code += &callback.array(&s, &vt)?;
+                        code += &C::array(&s, &vt)?;
                     } else {
-                        code += &callback.scalar(&s, &vt)?;
+                        code += &C::scalar(&s, &vt)?;
                     }
                 }
                 Expression::ArrayElement(name, idx) => {
                     let vt = v.resolve_type(&self.syms)?;
                     let s = self.emit_symbol(name, ctx)?;
                     let idx_ex = self.emit_index(idx)?;
-                    code += &callback.element(&s, &idx_ex, &vt)?;
+                    code += &C::element(&s, &idx_ex, &vt)?;
                 }
                 Expression::Substring(name, e1, e2) => {
                     let s = self.emit_symbol(name, ctx)?;
                     let range = self.emit_range(e1, e2)?;
-                    code += &callback.substring(&s, &range)?;
+                    code += &C::substring(&s, &range)?;
                 }
                 Expression::SubstringArrayElement(name, idx, e1, e2) => {
                     let s = self.emit_symbol(name, ctx)?;
                     let idx_ex = self.emit_expressions(idx, Ctx::Value)?;
                     let range = self.emit_range(e1, e2)?;
-                    code += &callback.substring_element(&s, &idx_ex, &range)?;
+                    code += &C::substring_element(&s, &idx_ex, &range)?;
                 }
                 Expression::ImpliedDo {
                     data,
@@ -1480,7 +1479,7 @@ impl CodeGenUnit<'_> {
                         .map_or_else(|| Ok("1".to_owned()), |e| self.emit_expression(&e))?;
 
                     code += &format!("for {do_var} in intrinsics::range({m1}, {m2}, {m3}) {{\n");
-                    code += &self.emit_data_nlist(data, ctx, callback)?;
+                    code += &self.emit_data_nlist::<C>(data, ctx)?;
                     code += "}\n";
                 }
 
@@ -1490,7 +1489,7 @@ impl CodeGenUnit<'_> {
                 | Expression::Constant(..) => {
                     let vt = v.resolve_type(&self.syms)?;
                     let e = self.emit_expression(v)?;
-                    code += &callback.value(&e, &vt)?;
+                    code += &C::value(&e, &vt)?;
                 }
                 Expression::ImpliedDoVar(_) => bail!("invalid expression in nlist"),
             }
@@ -1702,7 +1701,7 @@ impl CodeGenUnit<'_> {
                     code += &format!("    .{name}({e})\n");
                 }
                 code += "    .build()?;\n";
-                code += &self.emit_data_nlist(iolist, Ctx::Value, &mut NlistCallbackWrite {})?;
+                code += &self.emit_data_nlist::<NlistCallbackWrite>(iolist, Ctx::Value)?;
                 code += "  writer.finish()?;\n";
                 code += "}\n";
             }
@@ -1721,7 +1720,7 @@ impl CodeGenUnit<'_> {
                     }
                 }
                 code += "    .build()?;\n";
-                code += &self.emit_data_nlist(iolist, Ctx::Value, &mut NlistCallbackWrite {})?;
+                code += &self.emit_data_nlist::<NlistCallbackWrite>(iolist, Ctx::Value)?;
                 code += "  writer.finish()?;\n";
                 code += "}\n";
             }
@@ -2012,17 +2011,17 @@ pub fn pretty_print(code: String) -> Result<String> {
 }
 
 trait NlistCallback {
-    fn array(&self, s: &str, vt: &DataType) -> Result<String>;
-    fn scalar(&self, s: &str, vt: &DataType) -> Result<String>;
-    fn value(&self, e: &str, vt: &DataType) -> Result<String>;
-    fn element(&self, s: &str, idx: &str, vt: &DataType) -> Result<String>;
-    fn substring(&self, s: &str, range: &str) -> Result<String>;
-    fn substring_element(&self, s: &str, idx: &str, range: &str) -> Result<String>;
+    fn array(s: &str, vt: &DataType) -> Result<String>;
+    fn scalar(s: &str, vt: &DataType) -> Result<String>;
+    fn value(e: &str, vt: &DataType) -> Result<String>;
+    fn element(s: &str, idx: &str, vt: &DataType) -> Result<String>;
+    fn substring(s: &str, range: &str) -> Result<String>;
+    fn substring_element(s: &str, idx: &str, range: &str) -> Result<String>;
 }
 
 struct NlistCallbackData {}
 impl NlistCallback for NlistCallbackData {
-    fn array(&self, s: &str, vt: &DataType) -> Result<String> {
+    fn array(s: &str, vt: &DataType) -> Result<String> {
         if matches!(vt, DataType::Character) {
             Ok(format!(
                 "{s}.iter_mut().for_each(|n| fstr::assign(n, clist.next().unwrap().into_str()));\n"
@@ -2035,7 +2034,7 @@ impl NlistCallback for NlistCallbackData {
         }
     }
 
-    fn scalar(&self, s: &str, vt: &DataType) -> Result<String> {
+    fn scalar(s: &str, vt: &DataType) -> Result<String> {
         if matches!(vt, DataType::Character) {
             Ok(format!(
                 "fstr::assign({s}, clist.next().unwrap().into_str());\n"
@@ -2046,11 +2045,11 @@ impl NlistCallback for NlistCallbackData {
         }
     }
 
-    fn value(&self, _e: &str, _vt: &DataType) -> Result<String> {
+    fn value(_e: &str, _vt: &DataType) -> Result<String> {
         bail!("invalid expression in DATA nlist");
     }
 
-    fn element(&self, s: &str, idx: &str, vt: &DataType) -> Result<String> {
+    fn element(s: &str, idx: &str, vt: &DataType) -> Result<String> {
         if matches!(vt, DataType::Character) {
             Ok(format!(
                 "fstr::assign({s}.get_mut({idx}), clist.next().unwrap().into_str());\n"
@@ -2060,12 +2059,12 @@ impl NlistCallback for NlistCallbackData {
             Ok(format!("{s}[{idx}] = clist.next().unwrap().into_{ty}();\n"))
         }
     }
-    fn substring(&self, s: &str, range: &str) -> Result<String> {
+    fn substring(s: &str, range: &str) -> Result<String> {
         Ok(format!(
             "fstr::assign(fstr::substr_mut({s}, {range}), clist.next().unwrap().into_str());\n"
         ))
     }
-    fn substring_element(&self, s: &str, idx: &str, range: &str) -> Result<String> {
+    fn substring_element(s: &str, idx: &str, range: &str) -> Result<String> {
         Ok(format!(
             "fstr::assign(fstr::substr_mut({s}.get_mut({idx}), {range}), clist.next().unwrap().into_str());\n"
         ))
@@ -2074,7 +2073,7 @@ impl NlistCallback for NlistCallbackData {
 
 struct NlistCallbackWrite {}
 impl NlistCallback for NlistCallbackWrite {
-    fn array(&self, s: &str, vt: &DataType) -> Result<String> {
+    fn array(s: &str, vt: &DataType) -> Result<String> {
         if matches!(vt, DataType::Character) {
             Ok(format!("for n in {s}.iter() {{ writer.write_str(n)?; }}\n"))
         } else {
@@ -2085,17 +2084,17 @@ impl NlistCallback for NlistCallbackWrite {
         }
     }
 
-    fn scalar(&self, s: &str, vt: &DataType) -> Result<String> {
+    fn scalar(s: &str, vt: &DataType) -> Result<String> {
         let ty = emit_datatype(vt);
         Ok(format!("writer.write_{ty}({s})?;\n"))
     }
 
-    fn value(&self, e: &str, vt: &DataType) -> Result<String> {
+    fn value(e: &str, vt: &DataType) -> Result<String> {
         let ty = emit_datatype(vt);
         Ok(format!("writer.write_{ty}({e})?;\n"))
     }
 
-    fn element(&self, s: &str, idx: &str, vt: &DataType) -> Result<String> {
+    fn element(s: &str, idx: &str, vt: &DataType) -> Result<String> {
         if matches!(vt, DataType::Character) {
             Ok(format!("writer.write_str(&{s}[{idx}])?;\n"))
         } else {
@@ -2104,11 +2103,11 @@ impl NlistCallback for NlistCallbackWrite {
         }
     }
 
-    fn substring(&self, s: &str, range: &str) -> Result<String> {
+    fn substring(s: &str, range: &str) -> Result<String> {
         Ok(format!("writer.write_str(fstr::substr({s}, {range}))?;\n"))
     }
 
-    fn substring_element(&self, s: &str, idx: &str, range: &str) -> Result<String> {
+    fn substring_element(s: &str, idx: &str, range: &str) -> Result<String> {
         Ok(format!(
             "writer.write_str(fstr::substr({s}.get_mut({idx}), {range}))?;\n"
         ))
