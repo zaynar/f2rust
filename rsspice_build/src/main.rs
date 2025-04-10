@@ -362,6 +362,17 @@ fn main() -> Result<()> {
     // of roughly <200 files, each depending only on earlier chunks. We should do something
     // much cleaner and more sensible.
 
+    // deps.assign_crate_trans(
+    //     "test",
+    //     &deps.files(
+    //         "tspice",
+    //         &[],
+    //         &[
+    //             "f_vector3.f",
+    //         ],
+    //     ),
+    // );
+    deps.assign_crate_trans("test", &deps.files("testutil", &[], &["tcase.f"]));
     deps.assign_crate(
         "early",
         &deps.files(
@@ -476,8 +487,10 @@ fn main() -> Result<()> {
     deps.dump();
     println!("Unassigned: {}", deps.trans.len() - deps.assigned.len());
 
-    let mut sources = deps.crates["early"].clone();
-    sources.extend_from_slice(&deps.crates["trace"]);
+    let sources = deps.crates["test"].clone();
+
+    // let mut sources = deps.crates["early"].clone();
+    // sources.extend_from_slice(&deps.crates["trace"]);
     // sources.extend_from_slice(&deps.crates["base"]);
     // sources.extend_from_slice(&deps.crates["array"]);
     // sources.extend_from_slice(&deps.crates["math"]);
@@ -548,6 +561,18 @@ fn main() -> Result<()> {
         for (name, _code) in &filenames {
             let name_id = safe_identifier(name);
             file.write_all(format!("pub use {name_id}::*;\n").as_bytes())?;
+        }
+
+        file.write_all(b"\n")?;
+
+        if !matches!(modname.as_str(), "spicelib") {
+            file.write_all(b"pub use crate::generated::spicelib;\n")?;
+        }
+        if !matches!(modname.as_str(), "spicelib" | "support") {
+            file.write_all(b"pub use crate::generated::support;\n")?;
+        }
+        if matches!(modname.as_str(), "tspice") {
+            file.write_all(b"pub use crate::generated::testutil;\n")?;
         }
     }
 
