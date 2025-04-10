@@ -10,6 +10,29 @@ pub fn CHAR(a: i32) -> [u8; 1] {
     [a as u8]
 }
 
+pub fn NINT(a: f32) -> i32 {
+    a.round() as i32
+}
+
+pub fn IDNINT(a: f64) -> i32 {
+    a.round() as i32
+}
+
+pub fn MOD(a1: i32, a2: i32) -> i32 {
+    a1 % a2
+}
+
+pub fn AMOD(a1: f32, a2: f32) -> f32 {
+    a1 % a2
+}
+
+pub fn DMOD(a1: f64, a2: f64) -> f64 {
+    a1 % a2
+}
+
+// TODO: IDIM, DIM, DDIM
+// TODO: DPROD
+
 pub fn MAX0(n: &[i32]) -> i32 {
     n.iter().copied().reduce(i32::max).unwrap()
 }
@@ -54,14 +77,6 @@ pub fn LEN(a: &[u8]) -> i32 {
     a.len() as i32
 }
 
-pub fn NINT(a: f32) -> i32 {
-    a.round() as i32
-}
-
-pub fn IDNINT(a: f64) -> i32 {
-    a.round() as i32
-}
-
 pub fn INDEX(a1: &[u8], a2: &[u8]) -> i32 {
     if a1.len() >= a2.len() {
         for i in 0..=a1.len() - a2.len() {
@@ -72,6 +87,12 @@ pub fn INDEX(a1: &[u8], a2: &[u8]) -> i32 {
     }
     0
 }
+
+// TODO: ISHFT, ISHFTC
+// TODO: IBITS
+// TODO: MVBITS
+// TODO: BTEST
+// TODO: IBSET, IBCLR
 
 /// Implement the `**` operator for (possibly negative) integers
 pub fn pow(i1: i32, i2: i32) -> i32 {
