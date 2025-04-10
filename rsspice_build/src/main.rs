@@ -20,8 +20,9 @@ use walkdir::WalkDir;
 
 use f2rust_compiler::{
     ast,
-    file::parse_fixed,
+    file::{SourceLoc, parse_fixed},
     globan::{self, GlobalAnalysis},
+    grammar,
 };
 
 fn safe_identifier(s: &str) -> String {
@@ -221,6 +222,62 @@ fn read_keywords(path: &PathBuf) -> Result<Vec<String>> {
     Ok(keywords)
 }
 
+struct GrammarPatcher {}
+
+impl GrammarPatcher {
+    fn new() -> Self {
+        Self {}
+    }
+
+    // SWAPI/SWAPD/SWAPC are typically used to swap two elements of the same array.
+    // There's no static guarantee that the elements are distinct (and maybe not even
+    // a dynamic guarantee, so get_disjoint_mut etc might not even work, and would be
+    // quite complicated to implement in codegen).
+    //
+    // So we patch the code, to replace them with something simpler.
+    fn patch_swap(&mut self, stmt: &grammar::Statement) -> Option<grammar::Statement> {
+        if let grammar::Statement::Call(name, args) = stmt {
+            if !matches!(name.as_str(), "SWAPI" | "SWAPD" | "SWAPC") {
+                return None;
+            }
+            if args.len() != 2 {
+                return None;
+            }
+            if let (
+                grammar::Expression::ArrayElementOrFunction(s0, idx0),
+                grammar::Expression::ArrayElementOrFunction(s1, idx1),
+            ) = (&args[0], &args[1])
+            {
+                if s0 != s1 || idx0.len() != idx1.len() {
+                    return None;
+                }
+
+                let mut args = vec![grammar::Expression::Symbol(s0.to_owned())];
+                args.extend(idx0.clone());
+                args.extend(idx1.clone());
+                return Some(grammar::Statement::Call(
+                    format!("{name}_ARRAY_{}", idx0.len()),
+                    args,
+                ));
+            }
+        }
+
+        None
+    }
+
+    fn patch(
+        &mut self,
+        code: Vec<(SourceLoc, grammar::Statement)>,
+    ) -> Vec<(SourceLoc, grammar::Statement)> {
+        code.into_iter()
+            .map(|(loc, stmt)| {
+                let stmt = self.patch_swap(&stmt).unwrap_or(stmt);
+                (loc, stmt)
+            })
+            .collect()
+    }
+}
+
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .without_time()
@@ -239,9 +296,18 @@ fn main() -> Result<()> {
         .into_iter()
         .collect::<walkdir::Result<Vec<_>>>()?;
 
+    let patches = [
+        ("spicelib", "swapi_array.f"),
+        ("spicelib", "swapd_array.f"),
+        ("spicelib", "swapc_array.f"),
+    ];
+    let patches: Vec<_> = patches
+        .iter()
+        .map(|(namespace, filename)| src_root.join(namespace).join(filename))
+        .collect();
+
     let program_units = paths
-        // .iter()
-        .par_iter()
+        .iter()
         .filter(|entry| {
             matches!(
                 entry.path().extension().and_then(|s| s.to_str()),
@@ -287,9 +353,10 @@ fn main() -> Result<()> {
             ]
             .contains(&entry.path().file_name().unwrap().to_str().unwrap())
         })
-        .map(|entry| {
-            let path = entry.path();
-
+        .map(|entry| entry.path())
+        .chain(patches.iter().map(|p| p.as_path()))
+        .par_bridge()
+        .map(|path| {
             let namespace = path
                 .parent()
                 .unwrap()
@@ -315,6 +382,10 @@ fn main() -> Result<()> {
             };
 
             let parsed = parse_fixed(&path).context(format!("parsing {path:?}"))?;
+
+            let mut patcher = GrammarPatcher::new();
+            let parsed = patcher.patch(parsed);
+
             let ast = ast::Parser::new()
                 .parse(parsed)
                 .context(format!("parsing {path:?}"))?;

@@ -2,7 +2,7 @@
 mod tests {
     use approx::assert_abs_diff_eq;
 
-    use f2rust_std::{Context, Error, Result};
+    use f2rust_std::{ActualCharArray, Context, Error, Result, fstr};
     use rsspice_gen::spicelib;
 
     #[test]
@@ -201,5 +201,26 @@ mod tests {
         assert!(str.contains("SPICE(NOTSUPPORTED) --\n \nTest message."));
 
         Ok(())
+    }
+
+    #[test]
+    fn shellc() {
+        let mut input = ActualCharArray::new(10, 0..8);
+        fstr::assign(&mut input[0], b"Hello");
+        fstr::assign(&mut input[1], b"world");
+        fstr::assign(&mut input[2], b"abc");
+        fstr::assign(&mut input[3], b"defg");
+        fstr::assign(&mut input[4], b"v");
+        fstr::assign(&mut input[5], b"lmnopqrstu");
+        fstr::assign(&mut input[6], b"wxyz");
+        fstr::assign(&mut input[7], b"hijk");
+
+        spicelib::SHELLC(8, input.as_arg_mut());
+
+        for line in input.iter_mut() {
+            println!("{:?}", String::from_utf8_lossy(line));
+        }
+
+        assert!(input.iter_mut().is_sorted());
     }
 }
