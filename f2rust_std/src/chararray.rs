@@ -11,7 +11,7 @@
 
 use std::ops::{Index, IndexMut, RangeBounds};
 
-use crate::util::{offset_1d, parse_bounds};
+use crate::util::{offset_1d, offset_2d, parse_bounds};
 
 // TODO: N-dimensional arrays for N>1
 
@@ -54,6 +54,12 @@ pub struct ActualCharArray {
     element_length: usize,
 }
 
+pub struct ActualCharArray2D {
+    data: Vec<u8>,
+    bounds: [(i32, i32); 2],
+    element_length: usize,
+}
+
 /// Implementation of CHARACTER arrays used as dummy arguments, which own their data.
 pub struct DummyCharArray<'a> {
     data: &'a [u8],
@@ -91,12 +97,12 @@ impl ActualCharArray {
         offset_1d(self.bounds, s) * self.element_length
     }
 
-    pub fn first(&self) -> &u8 {
-        self.data.first().unwrap()
+    pub fn first(&self) -> &[u8] {
+        &self.data[0..self.element_length]
     }
 
-    pub fn first_mut(&mut self) -> &mut u8 {
-        self.data.first_mut().unwrap()
+    pub fn first_mut(&mut self) -> &mut [u8] {
+        &mut self.data[0..self.element_length]
     }
 
     pub fn as_arg(&self) -> CharArray {
@@ -136,6 +142,87 @@ impl ActualCharArray {
     }
 
     pub fn slice_mut(&mut self, index: i32) -> CharArrayMut {
+        let offset = self.offset(index);
+        CharArrayMut {
+            data: &mut self.data[offset..],
+            element_length: self.element_length,
+        }
+    }
+}
+
+impl ActualCharArray2D {
+    pub fn new<B0: RangeBounds<i32>, B1: RangeBounds<i32>>(
+        element_length: i32,
+        b0: B0,
+        b1: B1,
+    ) -> Self {
+        let bounds = [parse_bounds(b0), parse_bounds(b1)];
+        bounds
+            .iter()
+            .for_each(|b| debug_assert!(b.1 != i32::MAX, "actual array must have upper bound"));
+        let size = bounds
+            .iter()
+            .map(|(lower, upper)| upper - lower + 1)
+            .product::<i32>();
+
+        let len = element_length as usize;
+
+        Self {
+            data: vec![b' '; len * size as usize],
+            bounds,
+            element_length: len,
+        }
+    }
+
+    fn offset(&self, s: [i32; 2]) -> usize {
+        offset_2d(self.bounds, s) * self.element_length
+    }
+
+    pub fn first(&self) -> &[u8] {
+        &self.data[0..self.element_length]
+    }
+
+    pub fn first_mut(&mut self) -> &mut [u8] {
+        &mut self.data[0..self.element_length]
+    }
+
+    pub fn as_arg(&self) -> CharArray {
+        CharArray {
+            data: &self.data,
+            element_length: self.element_length,
+        }
+    }
+
+    pub fn as_arg_mut(&mut self) -> CharArrayMut {
+        CharArrayMut {
+            data: &mut self.data,
+            element_length: self.element_length,
+        }
+    }
+
+    pub fn get(&self, index: [i32; 2]) -> &[u8] {
+        let offset = self.offset(index);
+        &self.data[offset..offset + self.element_length]
+    }
+
+    pub fn get_mut(&mut self, index: [i32; 2]) -> &mut [u8] {
+        let offset = self.offset(index);
+        &mut self.data[offset..offset + self.element_length]
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut [u8]> {
+        self.data.chunks_mut(self.element_length)
+    }
+
+    pub fn slice(&self, index: [i32; 2]) -> CharArray {
+        let offset = self.offset(index);
+        CharArray {
+            data: &self.data[offset..],
+            element_length: self.element_length,
+        }
+    }
+
+    pub fn slice_mut(&mut self, index: [i32; 2]) -> CharArrayMut {
         let offset = self.offset(index);
         CharArrayMut {
             data: &mut self.data[offset..],
@@ -293,6 +380,15 @@ impl Index<i32> for ActualCharArray {
     type Output = [u8];
 
     fn index(&self, index: i32) -> &Self::Output {
+        let offset = self.offset(index);
+        &self.data[offset..offset + self.element_length]
+    }
+}
+
+impl Index<[i32; 2]> for ActualCharArray2D {
+    type Output = [u8];
+
+    fn index(&self, index: [i32; 2]) -> &Self::Output {
         let offset = self.offset(index);
         &self.data[offset..offset + self.element_length]
     }
