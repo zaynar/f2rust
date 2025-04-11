@@ -1032,9 +1032,28 @@ impl CodeGenUnit<'_> {
                             format!("fstr::substr({s}, {range})")
                         }
                     }
-                    Expression::SubstringArrayElement(..) => {
-                        warn!("TODO: emit_args SubstringArrayElement");
-                        "todo!()".to_owned()
+                    Expression::SubstringArrayElement(name, idx, e1, e2) => {
+                        let s = self.emit_symbol(name, Ctx::Value)?;
+                        let sym = self.syms.get(name)?;
+                        if sym.ast.dims.is_empty() {
+                            bail!("cannot access element of non-array");
+                        }
+                        if sym.ast.base_type != darg.base_type {
+                            bail!("cannot convert types: actual argument {name}={:?}, dummy argument {}={:?}", sym.ast.base_type, darg.name, darg.base_type);
+                        }
+                        let idx_ex = self.emit_index(idx)?;
+
+                        let get = format!("{s}[{idx_ex}]");
+
+                        let range = self.emit_range(e1, e2)?;
+
+                        if darg.mutated {
+                            format!("fstr::substr_mut(&mut {get}, {range})")
+                        } else if aliased.contains(name.as_str()) {
+                            format!("&fstr::substr(&{get}, {range}).to_vec()")
+                        } else {
+                            format!("fstr::substr(&{get}, {range})")
+                        }
                     }
                     Expression::ImpliedDo { .. } => bail!("cannot use implied-DO as argument"),
                     Expression::ImpliedDoVar(..) => bail!("cannot use implied-DO-variable as argument"),
