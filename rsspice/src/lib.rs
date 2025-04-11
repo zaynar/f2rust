@@ -151,10 +151,10 @@ mod tests {
 
         let mut out = vec![0; 256];
 
-        spicelib::UCASE(&mut ctx, b"Hello World 1234 @ [] ` {}", &mut out);
+        spicelib::UCASE(b"Hello World 1234 @ [] ` {}", &mut out, &mut ctx);
         assert_eq!(out.trim_ascii_end(), b"HELLO WORLD 1234 @ [] ` {}");
 
-        spicelib::UCASE(&mut ctx, b"test 2", &mut out);
+        spicelib::UCASE(b"test 2", &mut out, &mut ctx);
         assert_eq!(out.trim_ascii_end(), b"TEST 2");
     }
 
@@ -164,19 +164,19 @@ mod tests {
 
         let mut out = vec![0; 256];
 
-        spicelib::ANA(&mut ctx, b"new", b"L", &mut out);
+        spicelib::ANA(b"new", b"L", &mut out, &mut ctx);
         assert_eq!(out.trim_ascii_end(), b"a");
 
-        spicelib::ANA(&mut ctx, b"new", b"U", &mut out);
+        spicelib::ANA(b"new", b"U", &mut out, &mut ctx);
         assert_eq!(out.trim_ascii_end(), b"A");
 
-        spicelib::ANA(&mut ctx, b"existing", b"L", &mut out);
+        spicelib::ANA(b"existing", b"L", &mut out, &mut ctx);
         assert_eq!(out.trim_ascii_end(), b"an");
 
-        spicelib::ANA(&mut ctx, b"hour", b"L", &mut out);
+        spicelib::ANA(b"hour", b"L", &mut out, &mut ctx);
         assert_eq!(out.trim_ascii_end(), b"an");
 
-        spicelib::ANA(&mut ctx, b"once", b"L", &mut out);
+        spicelib::ANA(b"once", b"L", &mut out, &mut ctx);
         assert_eq!(out.trim_ascii_end(), b"a");
     }
 
@@ -186,18 +186,18 @@ mod tests {
         let mut ctx = Context::new();
         ctx.set_stdout(&mut stdout);
 
-        spicelib::CHKIN(&mut ctx, b"TEST")?;
-        spicelib::SETMSG(&mut ctx, b"Test message.");
-        spicelib::ERRINT(&mut ctx, b"#", 123);
+        spicelib::CHKIN(b"TEST", &mut ctx)?;
+        spicelib::SETMSG(b"Test message.", &mut ctx);
+        spicelib::ERRINT(b"#", 123, &mut ctx);
         assert!(matches!(
-            spicelib::SIGERR(&mut ctx, b"SPICE(NOTSUPPORTED)"),
+            spicelib::SIGERR(b"SPICE(NOTSUPPORTED)", &mut ctx),
             Err(Error::Terminated(1))
         ));
 
         drop(ctx);
 
         let str = String::from_utf8_lossy(&stdout);
-        println!("{str}");
+        // println!("{str}");
         assert!(str.contains("SPICE(NOTSUPPORTED) --\n \nTest message."));
 
         Ok(())
@@ -217,10 +217,48 @@ mod tests {
 
         spicelib::SHELLC(8, input.as_arg_mut());
 
-        for line in input.iter_mut() {
-            println!("{:?}", String::from_utf8_lossy(line));
-        }
-
         assert!(input.iter_mut().is_sorted());
+        assert_eq!(
+            input.iter_mut().collect::<Vec<_>>(),
+            [
+                b"Hello     ",
+                b"abc       ",
+                b"defg      ",
+                b"hijk      ",
+                b"lmnopqrstu",
+                b"v         ",
+                b"world     ",
+                b"wxyz      "
+            ]
+        )
+    }
+
+    #[test]
+    fn f_vector3() -> Result<()> {
+        let mut stdout = vec![];
+        let mut ctx = Context::new();
+        ctx.set_stdout(&mut stdout);
+
+        let mut cmline = b"-v".to_vec();
+        rsspice_gen::testutil::TSETUP(
+            &mut cmline,
+            b"logs/spice{0-9}{0-9}.log",
+            b"RSSPICE 0.01",
+            &mut ctx,
+        )?;
+
+        let mut ok = false;
+        rsspice_gen::tspice::F_VECTOR3(&mut ok, &mut ctx)?;
+        assert!(ok);
+        rsspice_gen::tspice::F_VECTORG(&mut ok, &mut ctx)?;
+        assert!(ok);
+        rsspice_gen::tspice::F_M2Q(&mut ok, &mut ctx)?;
+        assert!(ok);
+        rsspice_gen::tspice::F_Q2M(&mut ok, &mut ctx)?;
+        assert!(ok);
+
+        rsspice_gen::testutil::TCLOSE(&mut ctx)?;
+
+        Ok(())
     }
 }

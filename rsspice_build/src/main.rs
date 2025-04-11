@@ -438,17 +438,20 @@ fn main() -> Result<()> {
     // of roughly <200 files, each depending only on earlier chunks. We should do something
     // much cleaner and more sensible.
 
-    // deps.assign_crate_trans(
-    //     "test",
-    //     &deps.files(
-    //         "tspice",
-    //         &[],
-    //         &[
-    //             "f_vector3.f",
-    //         ],
-    //     ),
-    // );
-    deps.assign_crate_trans("test", &deps.files("testutil", &[], &["tcase.f"]));
+    deps.assign_crate_trans(
+        "test",
+        &deps.files(
+            "tspice",
+            &[],
+            &["f_vector3.f", "f_vectorg.f", "f_q2m.f", "f_m2q.f"],
+        ),
+    );
+    deps.assign_crate_trans(
+        "test",
+        &deps.files("testutil", &[], &["tsetup.f", "tclose.f"]),
+    );
+    deps.assign_crate_trans("test", &deps.files("spicelib", &[], &["ana.f", "benum.f"]));
+
     deps.assign_crate(
         "early",
         &deps.files(
@@ -491,8 +494,6 @@ fn main() -> Result<()> {
             &[],
         ),
     );
-
-    deps.assign_crate_trans("test", &deps.files("tspice", &[], &["f_vector3.f"]));
 
     deps.assign_crate("array", &deps.files("spicelib", &["ARRAY"], &[]));
 
