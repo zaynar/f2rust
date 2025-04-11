@@ -1,314 +1,298 @@
-use std::{cell::RefCell, iter::repeat_n, rc::Rc};
+mod writer;
+pub use writer::*;
 
-use crate::{
-    Context, Error, Result,
-    format::{self, EditDescriptor, Nonrepeatable, ParsedFormatSpecIter, Repeatable},
-};
+use crate::{Error, Result, fstr};
+use std::collections::HashMap;
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::PathBuf;
+use std::{cell::RefCell, rc::Rc};
 
 pub fn capture_iostat<F: FnOnce() -> Result<()>>(f: F) -> Result<i32> {
     match f() {
         Ok(()) => Ok(0),
-        Err(Error::IO(_)) => Ok(-1),
-        // TODO: return positive value for EOF
+        Err(Error::IO(err)) => Ok(err.raw_os_error().unwrap_or(i32::MAX)),
+        // TODO: return negative value for EOF
         Err(e) => Err(e),
     }
 }
 
-pub trait Writer {
-    fn start(&mut self) -> Result<()>;
-    fn finish(&mut self) -> Result<()>;
-    fn write_i32(&mut self, n: i32) -> Result<()>;
-    fn write_f32(&mut self, n: f32) -> Result<()>;
-    fn write_f64(&mut self, n: f64) -> Result<()>;
-    fn write_bool(&mut self, n: bool) -> Result<()>;
-    fn write_str(&mut self, str: &[u8]) -> Result<()>;
+#[derive(Default)]
+pub struct InquireSpecs<'a> {
+    pub unit: Option<i32>,
+    pub file: Option<&'a [u8]>,
+    pub exist: Option<&'a mut bool>,
+    pub opened: Option<&'a mut bool>,
+    pub number: Option<&'a mut i32>,
+    pub named: Option<&'a mut bool>,
+    pub name: Option<&'a mut [u8]>,
+    // pub access: Option<&'a mut [u8]>,
+    // pub sequential: Option<&'a mut [u8]>,
+    // pub direct: Option<&'a mut [u8]>,
+    // pub form: Option<&'a mut [u8]>,
+    // pub formatted: Option<&'a mut [u8]>,
+    // pub unformatted: Option<&'a mut [u8]>,
+    // pub recl: Option<&'a mut i32>,
+    // pub nextrec: Option<&'a mut i32>,
+    // pub blank: Option<&'a mut [u8]>,
 }
 
-fn overflow(w: usize) -> Vec<u8> {
-    vec![b'*'; w]
+#[derive(Default)]
+pub struct OpenSpecs<'a> {
+    pub unit: Option<i32>,
+    pub file: Option<&'a [u8]>,
+    pub status: Option<&'a [u8]>,
+    pub access: Option<&'a [u8]>,
+    pub form: Option<&'a [u8]>,
+    pub recl: Option<i32>,
+    // pub blank: Option<&'a [u8]>,
 }
 
-fn format_i(n: i32, w: usize, m: Option<usize>, plus: Option<bool>) -> Vec<u8> {
-    if n == 0 && m == Some(0) {
-        vec![b' '; w]
-    } else {
-        let unsigned = n.abs().to_string().into_bytes();
+#[derive(Default)]
+pub struct CloseSpecs<'a> {
+    pub unit: Option<i32>,
+    pub status: Option<&'a [u8]>,
+}
 
-        let sign: &[u8] = if n < 0 {
-            b"-"
-        } else if plus == Some(true) {
-            b"+"
-        } else {
-            b""
-        };
+pub trait ReadWriteSeek: Read + Write + Seek {
+    // fn as_read(&mut self) -> &mut dyn Read;
+    // fn as_write(&mut self) -> &mut dyn Write;
+    // fn as_seek(&mut self) -> &mut dyn Seek;
+}
+impl<T> ReadWriteSeek for T
+where
+    T: Read + Write + Seek,
+{
+    // fn as_read(&mut self) -> &mut dyn Read {
+    //     self
+    // }
+    // fn as_write(&mut self) -> &mut dyn Write {
+    //     self
+    //     }
+    // fn as_seek(&mut self) -> &mut dyn Seek {
+    //     self
+    // }
+}
 
-        let leading_zeroes = if let Some(m) = m {
-            m.saturating_sub(unsigned.len())
-        } else {
-            0
-        };
+struct StdoutUnit<'a> {
+    writer: Box<dyn Write + 'a>,
+}
 
-        let len = sign.len() + leading_zeroes + unsigned.len();
-        if len > w {
-            overflow(w)
-        } else {
-            let mut v: Vec<u8> = Vec::with_capacity(w);
-            v.extend(repeat_n(b' ', w - len));
-            v.extend(sign);
-            v.extend(repeat_n(b'0', leading_zeroes));
-            v.extend(unsigned);
-            v
+impl Read for StdoutUnit<'_> {
+    fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+        panic!("cannot read from stdout");
+    }
+}
+
+impl Write for StdoutUnit<'_> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.writer.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.writer.flush()
+    }
+}
+
+impl Seek for StdoutUnit<'_> {
+    fn seek(&mut self, _pos: SeekFrom) -> std::io::Result<u64> {
+        panic!("cannot seek in stdout");
+    }
+}
+
+struct Unit<'a> {
+    stream: Rc<RefCell<dyn ReadWriteSeek + 'a>>,
+}
+
+impl<'a> Unit<'a> {
+    fn new<S: ReadWriteSeek + 'a>(stream: S) -> Self {
+        Self {
+            stream: Rc::new(RefCell::new(stream)),
         }
     }
 }
 
-pub struct FormattedWriter<'a> {
-    file: Rc<RefCell<dyn std::io::Write + 'a>>,
-    iter: ParsedFormatSpecIter,
-
-    awaiting: Option<Repeatable>,
-
-    // We should output '\n' on finish, unless we outputted one at EndOfRecord
-    // and haven't output any entries for the next record
-    end_of_record: bool,
-
-    plus: Option<bool>,
+pub struct FileManager<'a> {
+    units: HashMap<i32, Unit<'a>>,
 }
 
-impl<'a> FormattedWriter<'a> {
-    pub fn new(
-        ctx: &'a mut Context,
-        unit: Option<i32>,
-        _rec: Option<i32>,
-        fmt: &[u8],
-    ) -> Result<Self> {
-        let file = ctx.io_unit(unit)?;
-        let fmt = format::FormatParser::new(fmt).parse()?;
-
-        Ok(Self {
-            file,
-            iter: fmt.into_iter(),
-            awaiting: None,
-            end_of_record: false,
-            plus: None,
-        })
+impl<'a> FileManager<'a> {
+    pub fn new() -> Self {
+        Self {
+            units: HashMap::from([
+                // (5, StdinUnit {}),
+                (
+                    6,
+                    Unit::new(StdoutUnit {
+                        writer: Box::new(std::io::stdout()),
+                    }),
+                ),
+            ]),
+        }
     }
 
-    fn continue_until_rep(&mut self) -> Result<()> {
-        self.end_of_record = false;
-        loop {
-            match self.iter.next().unwrap() {
-                EditDescriptor::Repeatable(d) => {
-                    self.awaiting = Some(d);
-                    return Ok(());
+    fn io_unit(&mut self, unit: i32) -> Result<Rc<RefCell<dyn ReadWriteSeek + 'a>>> {
+        match self.units.get(&unit) {
+            None => panic!("TODO: report missing unit"),
+            Some(u) => Ok(Rc::clone(&u.stream)),
+        }
+    }
+
+    pub fn read_unit(&mut self, unit: Option<i32>) -> Result<Rc<RefCell<dyn ReadWriteSeek + 'a>>> {
+        self.io_unit(unit.unwrap_or(5))
+    }
+
+    pub fn write_unit(&mut self, unit: Option<i32>) -> Result<Rc<RefCell<dyn ReadWriteSeek + 'a>>> {
+        self.io_unit(unit.unwrap_or(6))
+    }
+
+    pub fn set_stdout<W: Write + 'a>(&mut self, stdout: W) {
+        self.units.insert(
+            6,
+            Unit::new(StdoutUnit {
+                writer: Box::new(stdout),
+            }),
+        );
+    }
+
+    pub fn inquire(&mut self, specs: InquireSpecs) -> Result<()> {
+        if let Some(file) = specs.file {
+            let path = PathBuf::from(
+                std::str::from_utf8(file.trim_ascii_end()).map_err(|_| Error::NonUnicodePath)?,
+            );
+            if path.try_exists()? {
+                if let Some(v) = specs.exist {
+                    *v = true;
                 }
-                EditDescriptor::Nonrepeatable(d) => {
-                    self.handle_nonrep(&d)?;
+
+                if let Some(v) = specs.named {
+                    *v = true;
+                }
+                if let Some(v) = specs.name {
+                    fstr::assign(
+                        v,
+                        path.as_os_str()
+                            .to_str()
+                            .ok_or(Error::NonUnicodePath)?
+                            .as_bytes(),
+                    );
+                }
+
+                // TODO: sequential, direct, formatted, unformatted
+
+                let opened = false; // TODO
+                if let Some(v) = specs.opened {
+                    *v = opened;
+                }
+                if opened {
+                    if let Some(v) = specs.number {
+                        *v = 0;
+                    }
+                    // TODO: access, form, recl, nextrec, blank
+                }
+            } else {
+                if let Some(v) = specs.exist {
+                    *v = false;
                 }
             }
-        }
-    }
-
-    fn handle_nonrep(&mut self, d: &Nonrepeatable) -> std::io::Result<()> {
-        match d {
-            Nonrepeatable::Char { s } => self.file.borrow_mut().write_all(s)?,
-            Nonrepeatable::T { c: _ } => todo!(),
-            Nonrepeatable::TL { c: _ } => todo!(),
-            Nonrepeatable::TR { c: _ } => todo!(),
-            Nonrepeatable::X { n: _ } => todo!(),
-            Nonrepeatable::Slash => todo!(),
-            Nonrepeatable::Colon => todo!(),
-            Nonrepeatable::S => self.plus = None,
-            Nonrepeatable::SP => self.plus = Some(true),
-            Nonrepeatable::SS => self.plus = Some(false),
-            Nonrepeatable::P { k: _ } => todo!(),
-            Nonrepeatable::BN => todo!(),
-            Nonrepeatable::BZ => todo!(),
-            Nonrepeatable::Dollar => todo!(),
-            Nonrepeatable::EndOfRecord => {
-                self.end_of_record = true;
-                self.file.borrow_mut().write_all(b"\n")?;
+        } else if let Some(unit) = specs.unit {
+            if let Some(v) = specs.exist {
+                // We support unlimited units, so any valid number exists
+                *v = unit >= 0;
             }
-        }
-        Ok(())
-    }
-}
 
-impl Writer for FormattedWriter<'_> {
-    fn start(&mut self) -> Result<()> {
-        self.continue_until_rep()
-    }
-
-    fn finish(&mut self) -> Result<()> {
-        if !self.end_of_record {
-            self.file.borrow_mut().write_all(b"\n")?;
+            let opened = false;
+            if let Some(v) = specs.opened {
+                *v = opened;
+            }
+            if opened {
+                // TODO: number, named, name, access, sequential, direct, form,
+                // formatted unformatted, recl, nextrec, blank
+            }
+        } else {
+            // codegen should prevent this case
+            panic!("INQUIRE must have either FILE or UNIT");
         }
+
         Ok(())
     }
 
-    fn write_i32(&mut self, n: i32) -> Result<()> {
-        let str = match self.awaiting.take() {
-            Some(Repeatable::I { w, m }) => format_i(n, w, m, self.plus),
-            _ => panic!("write_i32: expecting {:?}", self.awaiting),
-        };
-        self.file.borrow_mut().write_all(&str)?;
+    pub fn open(&mut self, specs: OpenSpecs) -> Result<()> {
+        let unit = specs.unit.expect("OPEN must have UNIT");
 
-        self.continue_until_rep()
-    }
+        // println!(
+        //     "OPEN {unit} file={:?} status={:?} access={:?} form={:?} recl={:?}",
+        //     specs.file.map(|f| std::str::from_utf8(f)),
+        //     specs.status.map(|f| std::str::from_utf8(f)),
+        //     specs.access.map(|f| std::str::from_utf8(f)),
+        //     specs.form.map(|f| std::str::from_utf8(f)),
+        //     specs.recl,
+        // );
 
-    fn write_f32(&mut self, _n: f32) -> Result<()> {
-        todo!();
-    }
+        if self.units.contains_key(&unit) {
+            panic!("TODO: OPEN of already-open unit");
+        }
 
-    fn write_f64(&mut self, _n: f64) -> Result<()> {
-        todo!();
-    }
+        enum Status {
+            Old,
+            New,
+        }
 
-    fn write_bool(&mut self, _n: bool) -> Result<()> {
-        todo!();
-    }
-
-    fn write_str(&mut self, str: &[u8]) -> Result<()> {
-        let mut file = self.file.borrow_mut();
-
-        match self.awaiting.take() {
-            Some(Repeatable::A { w: Some(w) }) => {
-                if str.len() < w {
-                    file.write_all(&vec![b' '; w - str.len()])?;
-                    file.write_all(str)?;
-                } else {
-                    file.write_all(&str[0..w])?;
-                }
-            }
-            Some(Repeatable::A { w: None }) => {
-                file.write_all(str)?;
-            }
-            _ => panic!("write_str: expecting {:?}", self.awaiting),
+        let status = match specs.status.unwrap_or(b"UNKNOWN").trim_ascii_end() {
+            b"OLD" => Status::Old,
+            b"NEW" => Status::New,
+            b"SCRATCH" => todo!(),
+            b"UNKNOWN" => todo!(),
+            v => panic!("OPEN: invalid STATUS={}", String::from_utf8_lossy(v)),
         };
 
-        drop(file);
-        self.continue_until_rep()
-    }
-}
+        let _sequential = match specs.access.unwrap_or(b"SEQUENTIAL").trim_ascii_end() {
+            b"SEQUENTIAL" => true,
+            b"DIRECT" => todo!(),
+            v => panic!("OPEN: invalid ACCESS={}", String::from_utf8_lossy(v)),
+        };
 
-pub struct ListDirectedWriter<'a> {
-    file: Rc<RefCell<dyn std::io::Write + 'a>>,
-    prev_char: bool,
-}
+        let _formatted = match specs.form.unwrap_or(b"UNFORMATTED").trim_ascii_end() {
+            b"FORMATTED" => true,
+            b"UNFORMATTED" => todo!(),
+            v => panic!("OPEN: invalid FORM={}", String::from_utf8_lossy(v)),
+        };
 
-impl<'a> ListDirectedWriter<'a> {
-    pub fn new(ctx: &'a mut Context, unit: Option<i32>, _rec: Option<i32>) -> Result<Self> {
-        let file = ctx.io_unit(unit)?;
+        if let Some(file) = specs.file {
+            let path = PathBuf::from(
+                std::str::from_utf8(file.trim_ascii_end()).map_err(|_| Error::NonUnicodePath)?,
+            );
 
-        Ok(Self {
-            file,
-            prev_char: false,
-        })
-    }
-}
+            let stream = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(matches!(status, Status::New))
+                .open(path)?;
 
-impl Writer for ListDirectedWriter<'_> {
-    fn start(&mut self) -> Result<()> {
-        Ok(())
-    }
-
-    fn finish(&mut self) -> Result<()> {
-        self.file.borrow_mut().write_all(b"\n")?;
-        Ok(())
-    }
-
-    fn write_i32(&mut self, n: i32) -> Result<()> {
-        self.prev_char = false;
-        self.file.borrow_mut().write_all(b" ")?;
-
-        let str = format_i(n, 11, None, None);
-        self.file.borrow_mut().write_all(&str)?;
-        Ok(())
-    }
-
-    fn write_f32(&mut self, n: f32) -> Result<()> {
-        self.prev_char = false;
-        self.file.borrow_mut().write_all(b" ")?;
-
-        // XXX
-        let width = 16;
-        let mut str = format!("{n:.8}    ");
-        while str.len() < width {
-            str.insert(0, ' ');
-        }
-        self.file.borrow_mut().write_all(&str.into_bytes())?;
-        Ok(())
-    }
-
-    fn write_f64(&mut self, n: f64) -> Result<()> {
-        self.prev_char = false;
-        self.file.borrow_mut().write_all(b" ")?;
-
-        // XXX
-        let width = 25;
-        let mut str = format!("{n:.16}    ");
-        while str.len() < width {
-            str.insert(0, ' ');
-        }
-        self.file.borrow_mut().write_all(&str.into_bytes())?;
-        Ok(())
-    }
-
-    fn write_bool(&mut self, _n: bool) -> Result<()> {
-        todo!();
-    }
-
-    fn write_str(&mut self, str: &[u8]) -> Result<()> {
-        if !self.prev_char {
-            self.file.borrow_mut().write_all(b" ")?;
-            self.prev_char = true;
+            self.units.insert(unit, Unit::new(stream));
+        } else {
+            panic!("TODO: OPEN with no FILE")
         }
 
-        self.file.borrow_mut().write_all(str)?;
         Ok(())
     }
-}
 
-pub struct UnformattedWriter<'a> {
-    file: Rc<RefCell<dyn std::io::Write + 'a>>,
-}
+    pub fn close(&mut self, specs: CloseSpecs) -> Result<()> {
+        let unit = specs.unit.expect("CLOSE must have UNIT");
 
-impl<'a> UnformattedWriter<'a> {
-    pub fn new(ctx: &'a mut Context, unit: Option<i32>, _rec: Option<i32>) -> Result<Self> {
-        todo!();
+        let _remove_file = match specs.status.map(|s| s.trim_ascii_end()) {
+            None => false, // TODO: should DELETE if SCRATCH
+            Some(b"KEEP") => false,
+            Some(b"DELETE") => todo!(),
+            Some(v) => panic!("CLOSE: invalid STATUS={}", String::from_utf8_lossy(v)),
+        };
 
-        let file = ctx.io_unit(unit)?;
+        match self.units.get(&unit) {
+            None => panic!("TODO: report missing unit"),
+            Some(_u) => {
+                self.units.remove(&unit);
+            }
+        }
 
-        Ok(Self { file })
-    }
-}
-
-impl Writer for UnformattedWriter<'_> {
-    fn start(&mut self) -> Result<()> {
-        todo!()
-    }
-
-    fn finish(&mut self) -> Result<()> {
-        todo!()
-    }
-
-    fn write_i32(&mut self, n: i32) -> Result<()> {
-        todo!()
-    }
-
-    fn write_f32(&mut self, n: f32) -> Result<()> {
-        todo!()
-    }
-
-    fn write_f64(&mut self, n: f64) -> Result<()> {
-        todo!()
-    }
-
-    fn write_bool(&mut self, n: bool) -> Result<()> {
-        todo!()
-    }
-
-    fn write_str(&mut self, str: &[u8]) -> Result<()> {
-        todo!()
+        Ok(())
     }
 }

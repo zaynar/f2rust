@@ -1,4 +1,5 @@
 #![allow(clippy::new_without_default)]
+#![allow(clippy::collapsible_else_if)]
 
 mod array;
 mod chararray;

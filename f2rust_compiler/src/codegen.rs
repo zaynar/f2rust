@@ -1714,6 +1714,9 @@ impl CodeGenUnit<'_> {
                 let unit = match unit {
                     Specifier::Asterisk => "None".to_owned(),
                     Specifier::Expression(e) => {
+                        if e.resolve_type(&self.syms)? != DataType::Integer {
+                            bail!("internal file identifiers not supported");
+                        }
                         format!("Some({})", self.emit_expression_ctx(e, Ctx::ArgScalar)?)
                     }
                 };
@@ -1745,7 +1748,7 @@ impl CodeGenUnit<'_> {
                 if let Some(iostat) = other.get("IOSTAT") {
                     let e = self.emit_expression_ctx(iostat, Ctx::Assignment)?;
                     code += &format!("  {e} = io::capture_iostat(|| {{\n");
-                };
+                }
                 code += "    writer.start()?;\n";
                 code += &self.emit_data_nlist::<NlistCallbackWrite>(iolist, Ctx::Value)?;
                 code += "    writer.finish()?;\n";
@@ -1774,16 +1777,134 @@ impl CodeGenUnit<'_> {
                 code += "  writer.finish()?;\n";
                 code += "}\n";
             }
-            Statement::Open(_) => {
-                code += "todo!(); /* OPEN */\n";
+            Statement::Open(specs) => {
+                code += "{\n";
+                code += "  use f2rust_std::io;\n\n";
+                code += "  let specs = io::OpenSpecs {\n";
+
+                match specs.get("UNIT") {
+                    None => bail!("OPEN must have UNIT"),
+                    Some(e) => {
+                        if e.resolve_type(&self.syms)? != DataType::Integer {
+                            bail!("internal file identifiers not supported");
+                        }
+                    }
+                }
+
+                for (name, e) in specs {
+                    match name.as_str() {
+                        "IOSTAT" => (),
+                        "UNIT" | "FILE" | "STATUS" | "ACCESS" | "FORM" | "RECL" => {
+                            let e = self.emit_expression_ctx(e, Ctx::ArgScalar)?;
+                            code += &format!("    {}: Some({e}),\n", name.to_ascii_lowercase());
+                        }
+                        "BLANK" => {
+                            bail!("TODO: OPEN has unsupported specifier {name}")
+                        }
+                        _ => bail!("OPEN has invalid specifier {name}"),
+                    }
+                }
+
+                code += "    ..Default::default()\n";
+                code += "  };\n";
+
+                if let Some(iostat) = specs.get("IOSTAT") {
+                    let e = self.emit_expression_ctx(iostat, Ctx::Assignment)?;
+                    code += &format!("  {e} = io::capture_iostat(|| ctx.open(specs))?;\n");
+                } else {
+                    code += "  ctx.open(specs)?;\n";
+                }
+                code += "}\n";
             }
-            Statement::Close(_) => {
-                code += "todo!(); /* CLOSE */\n";
+            Statement::Close(specs) => {
+                code += "{\n";
+                code += "  use f2rust_std::io;\n\n";
+                code += "  let specs = io::CloseSpecs {\n";
+
+                match specs.get("UNIT") {
+                    None => bail!("CLOSE must have UNIT"),
+                    Some(e) => {
+                        if e.resolve_type(&self.syms)? != DataType::Integer {
+                            bail!("internal file identifiers not supported");
+                        }
+                    }
+                }
+
+                for (name, e) in specs {
+                    match name.as_str() {
+                        "IOSTAT" => (),
+                        "UNIT" | "STATUS" => {
+                            let e = self.emit_expression_ctx(e, Ctx::ArgScalar)?;
+                            code += &format!("    {}: Some({e}),\n", name.to_ascii_lowercase());
+                        }
+                        _ => bail!("CLOSE has invalid specifier {name}"),
+                    }
+                }
+
+                code += "    ..Default::default()\n";
+                code += "  };\n";
+
+                if let Some(iostat) = specs.get("IOSTAT") {
+                    let e = self.emit_expression_ctx(iostat, Ctx::Assignment)?;
+                    code += &format!("  {e} = io::capture_iostat(|| ctx.close(specs))?;\n");
+                } else {
+                    code += "  ctx.close(specs)?;\n";
+                }
+                code += "}\n";
             }
-            Statement::Inquire(_) => {
-                code += "todo!(); /* INQUIRE */\n";
+            Statement::Inquire(specs) => {
+                code += "{\n";
+                code += "  use f2rust_std::io;\n\n";
+                code += "  let specs = io::InquireSpecs {\n";
+
+                match specs.get("UNIT") {
+                    None => {
+                        if !specs.contains_key("FILE") {
+                            bail!("INQUIRE must have either FILE or UNIT");
+                        }
+                    }
+                    Some(e) => {
+                        if e.resolve_type(&self.syms)? != DataType::Integer {
+                            bail!("internal file identifiers not supported");
+                        }
+                        if specs.contains_key("FILE") {
+                            bail!("INQUIRE cannot have both FILE and UNIT");
+                        }
+                    }
+                }
+
+                for (name, e) in specs {
+                    match name.as_str() {
+                        "IOSTAT" => (),
+                        "UNIT" | "FILE" => {
+                            let e = self.emit_expression_ctx(e, Ctx::ArgScalar)?;
+                            code += &format!("    {}: Some({e}),\n", name.to_ascii_lowercase());
+                        }
+                        "EXIST" | "OPENED" | "NUMBER" | "NAMED" | "NAME" => {
+                            let e = self.emit_expression_ctx(e, Ctx::ArgScalarMut)?;
+                            code += &format!("    {}: Some({e}),\n", name.to_ascii_lowercase());
+                        }
+                        "ACCESS" | "SEQUENTIAL" | "DIRECT" | "FORM" | "FORMATTED"
+                        | "UNFORMATTED" | "RECL" | "NEXTREC" | "BLANK" => {
+                            bail!("TODO: INQUIRE has unsupported specifier {name}")
+                        }
+                        _ => bail!("INQUIRE has invalid specifier {name}"),
+                    }
+                }
+
+                code += "    ..Default::default()\n";
+                code += "  };\n";
+
+                if let Some(iostat) = specs.get("IOSTAT") {
+                    let e = self.emit_expression_ctx(iostat, Ctx::Assignment)?;
+                    code += &format!("  {e} = io::capture_iostat(|| ctx.inquire(specs))?;\n");
+                } else {
+                    code += "  ctx.inquire(specs)?;\n";
+                }
+                code += "}\n";
             }
             Statement::Backspace(_) => {
+                // NOTE: UNIT must be external file identifier
                 code += "todo!(); /* BACKSPACE */\n";
             }
             Statement::Endfile(_) => {

@@ -14,6 +14,7 @@
 //!
 //! `Context` also provides a way to intercept and/or sandbox any IO.
 
+use chrono::{Datelike, Timelike};
 use std::{
     any::{Any, TypeId},
     cell::RefCell,
@@ -21,9 +22,8 @@ use std::{
     rc::Rc,
 };
 
-use chrono::{Datelike, Timelike};
-
-use crate::{Error, Result, fstr};
+use crate::io::{FileManager, ReadWriteSeek};
+use crate::{Error, Result, fstr, io};
 
 pub trait SaveInit {
     fn new() -> Self;
@@ -32,16 +32,14 @@ pub trait SaveInit {
 pub struct Context<'a> {
     data: HashMap<TypeId, Rc<dyn Any>>,
 
-    // This is Rc<RefCell> because we lend it out to WriterBuilder, which might
-    // hold onto it across other calls into Context
-    stdout: Rc<RefCell<dyn std::io::Write + 'a>>,
+    file_manager: FileManager<'a>,
 }
 
 impl<'a> Context<'a> {
     pub fn new() -> Self {
         Self {
             data: HashMap::new(),
-            stdout: Rc::new(RefCell::new(std::io::stdout())),
+            file_manager: FileManager::new(),
         }
     }
 
@@ -55,7 +53,7 @@ impl<'a> Context<'a> {
     }
 
     pub fn set_stdout<W: std::io::Write + 'a>(&mut self, stdout: W) {
-        self.stdout = Rc::new(RefCell::new(stdout));
+        self.file_manager.set_stdout(stdout);
     }
 
     /// STOP statement
@@ -96,12 +94,24 @@ impl<'a> Context<'a> {
         values[7] = (now.nanosecond() / 1_000_000) as i32;
     }
 
-    pub fn io_unit(&mut self, unit: Option<i32>) -> Result<Rc<RefCell<dyn std::io::Write + 'a>>> {
-        match unit {
-            None => Ok(Rc::clone(&self.stdout)),
-            Some(6) => Ok(Rc::clone(&self.stdout)),
-            Some(n) => panic!("unsupported UNIT={n}"),
-        }
+    pub fn read_unit(&mut self, unit: Option<i32>) -> Result<Rc<RefCell<dyn ReadWriteSeek + 'a>>> {
+        self.file_manager.read_unit(unit)
+    }
+
+    pub fn write_unit(&mut self, unit: Option<i32>) -> Result<Rc<RefCell<dyn ReadWriteSeek + 'a>>> {
+        self.file_manager.write_unit(unit)
+    }
+
+    pub fn inquire(&mut self, specs: io::InquireSpecs) -> Result<()> {
+        self.file_manager.inquire(specs)
+    }
+
+    pub fn open(&mut self, specs: io::OpenSpecs) -> Result<()> {
+        self.file_manager.open(specs)
+    }
+
+    pub fn close(&mut self, specs: io::CloseSpecs) -> Result<()> {
+        self.file_manager.close(specs)
     }
 }
 

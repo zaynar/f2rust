@@ -19,9 +19,8 @@
 //! Some of these are omitted because we don't support line labels and unstructured control flow
 //! at all (because that's hard). Others are omitted just because we haven't needed them yet.
 
-use std::collections::HashMap;
-
 use crate::file::SourceLoc;
+use indexmap::IndexMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LenSpecification {
@@ -151,7 +150,7 @@ pub enum SpecifierValue {
 struct Specifier(Option<String>, SpecifierValue);
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Specifiers(pub HashMap<String, SpecifierValue>);
+pub struct Specifiers(pub IndexMap<String, SpecifierValue>);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DataLists {
@@ -546,7 +545,7 @@ peg::parser! {
         // def is used for the first specifiers without the optional NAME=
         rule specifiers(def: &[&str]) -> Specifiers
             = s:specifier() ++ "," {
-                Specifiers(HashMap::from_iter(
+                Specifiers(IndexMap::from_iter(
                 s.into_iter().enumerate().map(|(i, Specifier(k, v))|
                     (k.unwrap_or_else(|| (*def.get(i).expect("missing required specifier name")).to_owned()), v)
                 )))
@@ -558,7 +557,7 @@ peg::parser! {
                 { Statement::Read(s, d) }
             / "READ" "FMT="? fmt:specifier_value()
                 d:("," e:expression() { DataName::Expression(e) } / data_name())* ![_]
-                { Statement::Read(Specifiers(HashMap::from([("FMT".to_owned(), fmt)])), d) }
+                { Statement::Read(Specifiers(IndexMap::from([("FMT".to_owned(), fmt)])), d) }
 
         rule write_statement() -> Statement
             = "WRITE(" s:specifiers(&["UNIT", "FMT"]) ")"
@@ -568,7 +567,7 @@ peg::parser! {
         rule print_statement() -> Statement
             = "PRINT" "FMT="? fmt:specifier_value()
                 d:("," e:expression() { DataName::Expression(e) } / "," d:data_name() { d })* ![_]
-                { Statement::Print(Specifiers(HashMap::from([("FMT".to_owned(), fmt)])), d) }
+                { Statement::Print(Specifiers(IndexMap::from([("FMT".to_owned(), fmt)])), d) }
 
         rule open_statement() -> Statement
             = "OPEN(" s:specifiers(&["UNIT"]) ")" ![_] { Statement::Open(s) }

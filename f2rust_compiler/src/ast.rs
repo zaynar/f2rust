@@ -4,7 +4,7 @@
 //! We also set up the symbol table with various information on how each symbol is declared
 //! and used.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
@@ -47,7 +47,7 @@ pub enum Specifier {
     Expression(Expression),
 }
 
-type Specifiers = HashMap<String, Expression>;
+type Specifiers = IndexMap<String, Expression>;
 
 /// Executable statements
 #[derive(Debug, Clone)]
@@ -1657,7 +1657,7 @@ impl Parser {
             grammar::Statement::Read(specs, iolist)
             | grammar::Statement::Write(specs, iolist)
             | grammar::Statement::Print(specs, iolist) => {
-                let mut other = HashMap::new();
+                let mut other = IndexMap::new();
 
                 let unit = match specs.0.get("UNIT") {
                     None => {
@@ -1746,7 +1746,7 @@ impl Parser {
             | grammar::Statement::Backspace(specs)
             | grammar::Statement::Endfile(specs)
             | grammar::Statement::Rewind(specs) => {
-                let mut ast_specs = HashMap::new();
+                let mut ast_specs = IndexMap::new();
 
                 let unit = specs.0.get("UNIT");
                 match unit {

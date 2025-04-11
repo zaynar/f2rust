@@ -8,6 +8,8 @@ pub enum Error {
     Format(#[from] FormatError),
     #[error("IO error")]
     IO(#[from] std::io::Error),
+    #[error("non-Unicode path")]
+    NonUnicodePath,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
