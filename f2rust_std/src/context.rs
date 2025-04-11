@@ -23,7 +23,7 @@ use std::{
 
 use chrono::{Datelike, Timelike};
 
-use crate::{Error, Result, fstr, io::WriterBuilder};
+use crate::{Error, Result, fstr};
 
 pub trait SaveInit {
     fn new() -> Self;
@@ -96,11 +96,12 @@ impl<'a> Context<'a> {
         values[7] = (now.nanosecond() / 1_000_000) as i32;
     }
 
-    pub fn writer<'w>(&mut self) -> WriterBuilder<'w>
-    where
-        'a: 'w,
-    {
-        WriterBuilder::new(Rc::clone(&self.stdout))
+    pub fn io_unit(&mut self, unit: Option<i32>) -> Result<Rc<RefCell<dyn std::io::Write + 'a>>> {
+        match unit {
+            None => Ok(Rc::clone(&self.stdout)),
+            Some(6) => Ok(Rc::clone(&self.stdout)),
+            Some(n) => panic!("unsupported UNIT={n}"),
+        }
     }
 }
 

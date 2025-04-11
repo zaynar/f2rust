@@ -8,7 +8,7 @@ mod errors;
 mod format;
 pub mod fstr;
 pub mod intrinsics;
-mod io;
+pub mod io;
 mod util;
 
 pub use array::*;

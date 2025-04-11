@@ -1,24 +1,17 @@
 use std::{cell::RefCell, iter::repeat_n, rc::Rc};
 
 use crate::{
-    Result,
-    format::{
-        self, EditDescriptor, Nonrepeatable, ParsedFormatSpec, ParsedFormatSpecIter, Repeatable,
-    },
+    Context, Error, Result,
+    format::{self, EditDescriptor, Nonrepeatable, ParsedFormatSpecIter, Repeatable},
 };
 
-pub enum Format {
-    Unformatted,
-    Formatted(format::ParsedFormatSpec),
-    ListDirected,
-}
-
-pub struct WriterBuilder<'a> {
-    stdout: Rc<RefCell<dyn std::io::Write + 'a>>,
-    unit: Option<i32>,
-    fmt: Format,
-    rec: Option<i32>,
-    iostat: Option<&'a mut i32>,
+pub fn capture_iostat<F: FnOnce() -> Result<()>>(f: F) -> Result<i32> {
+    match f() {
+        Ok(()) => Ok(0),
+        Err(Error::IO(_)) => Ok(-1),
+        // TODO: return positive value for EOF
+        Err(e) => Err(e),
+    }
 }
 
 pub trait Writer {
@@ -29,71 +22,6 @@ pub trait Writer {
     fn write_f64(&mut self, n: f64) -> Result<()>;
     fn write_bool(&mut self, n: bool) -> Result<()>;
     fn write_str(&mut self, str: &[u8]) -> Result<()>;
-}
-
-impl<'a> WriterBuilder<'a> {
-    pub fn new(stdout: Rc<RefCell<dyn std::io::Write + 'a>>) -> Self {
-        Self {
-            stdout,
-            unit: None,
-            fmt: Format::Unformatted,
-            rec: None,
-            iostat: None,
-        }
-    }
-
-    pub fn unit(self, unit: i32) -> Self {
-        Self {
-            unit: Some(unit),
-            ..self
-        }
-    }
-
-    pub fn fmt(self, fmt: &[u8]) -> Result<Self> {
-        let fmt = format::FormatParser::new(fmt).parse()?;
-
-        Ok(Self {
-            fmt: Format::Formatted(fmt),
-            ..self
-        })
-    }
-
-    pub fn fmt_list(self) -> Self {
-        Self {
-            fmt: Format::ListDirected,
-            ..self
-        }
-    }
-
-    pub fn rec(self, rec: i32) -> Self {
-        Self {
-            rec: Some(rec),
-            ..self
-        }
-    }
-
-    pub fn iostat(self, iostat: &'a mut i32) -> Self {
-        Self {
-            iostat: Some(iostat),
-            ..self
-        }
-    }
-
-    pub fn build(self) -> Result<Box<dyn Writer + 'a>> {
-        let file = match self.unit {
-            None => self.stdout,
-            Some(n) => panic!("unsupported UNIT={n}"),
-        };
-
-        let mut writer: Box<dyn Writer + 'a> = match self.fmt {
-            Format::Unformatted => todo!(),
-            Format::Formatted(fmt) => Box::new(FormattedWriter::new(file, fmt, self.iostat)),
-            Format::ListDirected => Box::new(ListDirectedWriter::new(file, self.iostat)),
-        };
-
-        writer.start()?;
-        Ok(writer)
-    }
 }
 
 fn overflow(w: usize) -> Vec<u8> {
@@ -136,9 +64,10 @@ fn format_i(n: i32, w: usize, m: Option<usize>, plus: Option<bool>) -> Vec<u8> {
 
 pub struct FormattedWriter<'a> {
     file: Rc<RefCell<dyn std::io::Write + 'a>>,
-    // iostat: Option<&'a mut i32>,
-    awaiting: Option<Repeatable>,
     iter: ParsedFormatSpecIter,
+
+    awaiting: Option<Repeatable>,
+
     // We should output '\n' on finish, unless we outputted one at EndOfRecord
     // and haven't output any entries for the next record
     end_of_record: bool,
@@ -148,19 +77,21 @@ pub struct FormattedWriter<'a> {
 
 impl<'a> FormattedWriter<'a> {
     pub fn new(
-        file: Rc<RefCell<dyn std::io::Write + 'a>>,
-        fmt: ParsedFormatSpec,
-        _iostat: Option<&'a mut i32>,
-    ) -> Self {
-        Self {
-            file,
-            // iostat,
-            awaiting: None,
-            iter: fmt.into_iter(),
-            end_of_record: false,
+        ctx: &'a mut Context,
+        unit: Option<i32>,
+        _rec: Option<i32>,
+        fmt: &[u8],
+    ) -> Result<Self> {
+        let file = ctx.io_unit(unit)?;
+        let fmt = format::FormatParser::new(fmt).parse()?;
 
+        Ok(Self {
+            file,
+            iter: fmt.into_iter(),
+            awaiting: None,
+            end_of_record: false,
             plus: None,
-        }
+        })
     }
 
     fn continue_until_rep(&mut self) -> Result<()> {
@@ -262,17 +193,17 @@ impl Writer for FormattedWriter<'_> {
 
 pub struct ListDirectedWriter<'a> {
     file: Rc<RefCell<dyn std::io::Write + 'a>>,
-    // iostat: Option<&'a mut i32>,
     prev_char: bool,
 }
 
 impl<'a> ListDirectedWriter<'a> {
-    pub fn new(file: Rc<RefCell<dyn std::io::Write + 'a>>, _iostat: Option<&'a mut i32>) -> Self {
-        Self {
+    pub fn new(ctx: &'a mut Context, unit: Option<i32>, _rec: Option<i32>) -> Result<Self> {
+        let file = ctx.io_unit(unit)?;
+
+        Ok(Self {
             file,
-            // iostat,
             prev_char: false,
-        }
+        })
     }
 }
 
@@ -335,5 +266,49 @@ impl Writer for ListDirectedWriter<'_> {
 
         self.file.borrow_mut().write_all(str)?;
         Ok(())
+    }
+}
+
+pub struct UnformattedWriter<'a> {
+    file: Rc<RefCell<dyn std::io::Write + 'a>>,
+}
+
+impl<'a> UnformattedWriter<'a> {
+    pub fn new(ctx: &'a mut Context, unit: Option<i32>, _rec: Option<i32>) -> Result<Self> {
+        todo!();
+
+        let file = ctx.io_unit(unit)?;
+
+        Ok(Self { file })
+    }
+}
+
+impl Writer for UnformattedWriter<'_> {
+    fn start(&mut self) -> Result<()> {
+        todo!()
+    }
+
+    fn finish(&mut self) -> Result<()> {
+        todo!()
+    }
+
+    fn write_i32(&mut self, n: i32) -> Result<()> {
+        todo!()
+    }
+
+    fn write_f32(&mut self, n: f32) -> Result<()> {
+        todo!()
+    }
+
+    fn write_f64(&mut self, n: f64) -> Result<()> {
+        todo!()
+    }
+
+    fn write_bool(&mut self, n: bool) -> Result<()> {
+        todo!()
+    }
+
+    fn write_str(&mut self, str: &[u8]) -> Result<()> {
+        todo!()
     }
 }

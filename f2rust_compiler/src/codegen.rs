@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
 use log::warn;
 
-use crate::ast::{DataType, Expression, LenSpecification, Statement};
+use crate::ast::{DataType, Expression, LenSpecification, Specifier, Statement};
 use crate::grammar::{BinaryOp, Constant, UnaryOp};
 use crate::{ast, globan, intrinsics};
 
@@ -1709,53 +1709,67 @@ impl CodeGenUnit<'_> {
                 iolist,
             } => {
                 code += "{\n";
-                code += "  use f2rust_std::data::Val;\n\n";
+                code += "  use f2rust_std::{data::Val, io::{self, Writer}};\n\n";
 
-                code += "  let mut writer = ctx.writer()\n";
-                if let ast::Specifier::Expression(e) = unit {
-                    let e = self.emit_expression(e)?;
-                    code += &format!("    .unit({e})\n");
-                }
+                let unit = match unit {
+                    Specifier::Asterisk => "None".to_owned(),
+                    Specifier::Expression(e) => {
+                        format!("Some({})", self.emit_expression_ctx(e, Ctx::ArgScalar)?)
+                    }
+                };
+                let rec = match other.get("REC") {
+                    Some(e) => format!("Some({})", self.emit_expression_ctx(e, Ctx::ArgScalar)?),
+                    None => "None".to_owned(),
+                };
+
+                code += "  let mut writer = ";
                 match fmt {
                     Some(ast::Specifier::Expression(e)) => {
-                        let e = self.emit_expression(e)?;
-                        code += &format!("    .fmt({e})?\n");
+                        let fmt = self.emit_expression_ctx(e, Ctx::ArgScalar)?;
+                        code += &format!("io::FormattedWriter::new(ctx, {unit}, {rec}, {fmt})?;\n");
                     }
                     Some(ast::Specifier::Asterisk) => {
-                        code += "    .fmt_list()\n";
+                        code += &format!("io::ListDirectedWriter::new(ctx, {unit}, {rec})?;\n");
                     }
-                    None => (),
+                    None => {
+                        code += &format!("io::UnformattedWriter::new(ctx, {unit}, {rec})?;\n");
+                    }
                 }
-                for (name, e) in other {
-                    let ctx = if name == "IOSTAT" {
-                        Ctx::ArgScalarMut
-                    } else {
-                        Ctx::ArgScalar
-                    };
-                    let e = self.emit_expression_ctx(e, ctx)?;
-                    let name = name.to_ascii_lowercase();
-                    code += &format!("    .{name}({e})\n");
+
+                for name in other.keys() {
+                    if !matches!(name.as_str(), "IOSTAT" | "REC") {
+                        bail!("unrecognised specifier {name} in WRITE");
+                    }
                 }
-                code += "    .build()?;\n";
+
+                if let Some(iostat) = other.get("IOSTAT") {
+                    let e = self.emit_expression_ctx(iostat, Ctx::Assignment)?;
+                    code += &format!("  {e} = io::capture_iostat(|| {{\n");
+                };
+                code += "    writer.start()?;\n";
                 code += &self.emit_data_nlist::<NlistCallbackWrite>(iolist, Ctx::Value)?;
-                code += "  writer.finish()?;\n";
+                code += "    writer.finish()?;\n";
+                if other.contains_key("IOSTAT") {
+                    code += "    Ok(())\n";
+                    code += "  })?;\n";
+                }
                 code += "}\n";
             }
             Statement::Print { fmt, iolist } => {
                 code += "{\n";
-                code += "  use f2rust_std::data::Val;\n\n";
+                code += "  use f2rust_std::{data::Val, io::{self, Writer}};\n\n";
 
-                code += "  let mut writer = ctx.writer()\n";
+                code += "  let mut writer = ";
                 match fmt {
                     ast::Specifier::Expression(e) => {
-                        let e = self.emit_expression(e)?;
-                        code += &format!("    .fmt({e})\n");
+                        let fmt = self.emit_expression_ctx(e, Ctx::ArgScalar)?;
+                        code += &format!("io::FormattedWriter::new(ctx, None, None, {fmt})?;\n");
                     }
                     ast::Specifier::Asterisk => {
-                        code += "    .fmt_list()\n";
+                        code += "io::ListDirectedWriter::new(ctx, None, None)?;\n";
                     }
                 }
-                code += "    .build()?;\n";
+                code += "  writer.start()?;\n";
                 code += &self.emit_data_nlist::<NlistCallbackWrite>(iolist, Ctx::Value)?;
                 code += "  writer.finish()?;\n";
                 code += "}\n";
