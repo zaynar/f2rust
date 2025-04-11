@@ -1,7 +1,7 @@
 use crate::{
     ast::DataType,
     codegen::{self, CallSyntax},
-    globan::{self, DummyArg},
+    globan::DummyArg,
 };
 
 // Save some typing for intrinsics following the pattern "XYZ" = f32::xyz, "DXYZ" = f64::xyz

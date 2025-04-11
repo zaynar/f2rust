@@ -252,7 +252,7 @@ impl GrammarPatcher {
                     return None;
                 }
 
-                let mut new_args = vec![
+                let new_args = vec![
                     grammar::Expression::ArrayElementOrFunction(
                         "ARRAY_SUBSCRIPT_VALUE".to_owned(),
                         vec![args[0].clone()],
@@ -664,6 +664,7 @@ fn main() -> Result<()> {
         file.write_all(b"#![allow(unused_imports)]\n")?;
         file.write_all(b"#![allow(unused_variables)]\n")?;
         file.write_all(b"#![allow(unreachable_code)]\n")?;
+        file.write_all(b"#![allow(dead_code)]\n")?;
         file.write_all(b"#![allow(clippy::while_immutable_condition)]\n")?;
         file.write_all(b"#![allow(clippy::assign_op_pattern)]\n")?;
         file.write_all(b"#![allow(clippy::needless_return)]\n")?;

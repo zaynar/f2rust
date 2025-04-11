@@ -1692,7 +1692,7 @@ impl CodeGenUnit<'_> {
                 code += &format!("while {e} {{\n{body}}}\n");
             }
             Statement::Stop => {
-                code += "ctx.stop();\n";
+                code += "ctx.stop()?;\n";
             }
             Statement::Read {
                 unit,
