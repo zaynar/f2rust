@@ -676,21 +676,14 @@ impl CodeGenUnit<'_> {
             (DataType::Integer, DataType::Integer) => {
                 format!("intrinsics::pow({a}, {b})")
             }
-
-            (DataType::Real, DataType::Integer) | (DataType::Double, DataType::Integer) => {
-                format!("{a}.powi({b})")
-            }
-
-            (DataType::Integer, DataType::Real) => format!("({a} as f32).powf({b})"),
-            (DataType::Integer, DataType::Double) => format!("({a} as f64).powf({b})"),
-
-            (DataType::Real, DataType::Real) | (DataType::Double, DataType::Double) => {
-                format!("{a}.powf({b})")
-            }
-
-            (DataType::Real, DataType::Double) => format!("({a} as f64).powf({b})"),
-            (DataType::Double, DataType::Real) => format!("{a}.powf({b} as f64)"),
-
+            (DataType::Real, DataType::Integer) => format!("f32::powi({a}, {b})"),
+            (DataType::Double, DataType::Integer) => format!("f64::powi({a}, {b})"),
+            (DataType::Integer, DataType::Real) => format!("f32::powf({a} as f32, {b})"),
+            (DataType::Integer, DataType::Double) => format!("f64::powf({a} as f64, {b})"),
+            (DataType::Real, DataType::Real) => format!("f32::powf({a}, {b})"),
+            (DataType::Double, DataType::Double) => format!("f64::powf({a}, {b})"),
+            (DataType::Real, DataType::Double) => format!("f64::powf({a} as f64, {b})"),
+            (DataType::Double, DataType::Real) => format!("f64::powf({a}, {b} as f64)"),
             _ => bail!("invalid types in **: {t1:?}, {t2:?}"),
         })
     }
@@ -1357,7 +1350,7 @@ impl CodeGenUnit<'_> {
                     }
                 }
             }
-        } else if !sym.ast.darg {
+        } else if !sym.ast.darg && !sym.ast.external {
             // Non-array, non-character, local variable
 
             let ty = emit_datatype(&sym.ast.base_type);
