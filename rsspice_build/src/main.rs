@@ -44,9 +44,11 @@ fn safe_identifier(s: &str) -> String {
 
 type Node = (String, String);
 struct DepGraph {
-    keywords: HashMap<String, Vec<Node>>,
     deps: HashMap<Node, HashSet<Node>>,
     trans: HashMap<Node, HashSet<Node>>,
+    transparents: HashMap<Node, HashSet<Node>>,
+
+    toposort_files: Vec<Node>,
 
     assigned: HashMap<Node, String>,
     crates: IndexMap<String, Vec<Node>>,
@@ -55,11 +57,14 @@ struct DepGraph {
 // Some crude stuff for building a subset of the code, and potentially splitting it
 // into multiple crates to help build times
 impl DepGraph {
-    fn new(glob: &GlobalAnalysis, keywords: HashMap<String, Vec<Node>>) -> Self {
+    fn new(glob: &GlobalAnalysis) -> Self {
         Self {
-            keywords,
             deps: glob.dependency_graph(),
             trans: HashMap::new(),
+            transparents: HashMap::new(),
+
+            toposort_files: Vec::new(),
+
             assigned: HashMap::new(),
             crates: IndexMap::new(),
         }
@@ -68,6 +73,142 @@ impl DepGraph {
     fn compute(&mut self) {
         for k in self.deps.keys().cloned().collect::<Vec<_>>() {
             self.find_transitive_deps(k);
+        }
+
+        for (from, to) in &self.trans {
+            for to in to {
+                self.transparents
+                    .entry(to.clone())
+                    .or_default()
+                    .insert(from.clone());
+            }
+        }
+
+        // We assume the dependency tree is acyclic. (This is true for spicelib,
+        // not for other modules, but we only care about spicelib here.)
+        //
+        // Once we've calculated transitive dependencies of every file, sort by decreasing
+        // number of ancestors to get a topological sort. (If X depends on Y, then Y
+        // cannot have fewer ancestors than X.)
+        //
+        // We want to split the graph into crates like:
+        //
+        //      4
+        //     / \
+        //   3a   3b
+        //    | X |
+        //   2a   2b
+        //    | X |
+        //   1a   1b
+        //
+        // with each crate having ~250 files, where each level depends on the 2 crates in the
+        // lower level, allowing some parallelism during builds.
+        //
+        // We pick a source file with many transitive dependencies, to all go into 1a.
+        // Every other file that does not depend on 1a, goes into 1b.
+        // Then we pick another for 2a, and everything else that depends only on 1a/1b goes
+        // into 2b. Etc.
+
+        self.toposort_files = self
+            .deps
+            .keys()
+            .filter(|d| d.0 == "spicelib")
+            .cloned()
+            .collect::<Vec<_>>();
+        self.toposort_files
+            .sort_by_key(|f| (-(self.transparents[f].len() as i32), f.clone()));
+
+        self.assign_files("spicelib-1a", "spicelib", |n| n == "pool.f");
+        self.assign_rest("spicelib-1b", "spicelib", &[]);
+        self.assign_files("spicelib-2a", "spicelib", |n| n == "spkgeo.f");
+        self.assign_rest("spicelib-2b", "spicelib", &["spicelib-1a", "spicelib-1b"]);
+        self.assign_files("spicelib-3a", "spicelib", |n| {
+            n == "keeper.f" || n.starts_with("ek") || n.starts_with("zzek")
+        });
+        self.assign_rest(
+            "spicelib-3b",
+            "spicelib",
+            &["spicelib-1a", "spicelib-1b", "spicelib-2a", "spicelib-2b"],
+        );
+
+        // for f in &self.toposort_files {
+        //     println!(
+        //         "{} {} {:?}",
+        //         self.transparents[f].len(),
+        //         self.trans[f]
+        //             .iter()
+        //             .filter(|d| !self.assigned.contains_key(d))
+        //             .count(),
+        //         f
+        //     );
+        // }
+
+        self.assign_all("spicelib-4", "spicelib");
+        self.assign_all("support", "support");
+        self.assign_all("testutil", "testutil");
+        self.assign_all("tspice", "tspice");
+
+        for ns in HashSet::<String>::from_iter(self.deps.keys().map(|d| d.0.clone())) {
+            self.assign_all("programs", &ns);
+        }
+
+        for vs in self.crates.values_mut() {
+            vs.sort();
+        }
+    }
+
+    fn assign_files<P: Fn(&str) -> bool>(
+        &mut self,
+        cratename: &str,
+        namespace: &str,
+        predicate: P,
+    ) {
+        for file in self
+            .toposort_files
+            .iter()
+            .filter(|(ns, nm)| ns == namespace && predicate(nm))
+        {
+            for dep in &self.trans[file] {
+                if !self.assigned.contains_key(dep) {
+                    self.assigned.insert(dep.clone(), cratename.to_owned());
+                    self.crates
+                        .entry(cratename.to_owned())
+                        .or_default()
+                        .push(dep.clone());
+                }
+            }
+        }
+    }
+
+    fn assign_rest(&mut self, cratename: &str, namespace: &str, deps: &[&str]) {
+        for file in &self.toposort_files {
+            if file.0 == namespace
+                && !self.assigned.contains_key(file)
+                && self.trans[file]
+                    .iter()
+                    .all(|dep| match self.assigned.get(dep) {
+                        None => true,
+                        Some(ass) => ass == cratename || deps.contains(&ass.as_str()),
+                    })
+            {
+                self.assigned.insert(file.clone(), cratename.to_owned());
+                self.crates
+                    .entry(cratename.to_owned())
+                    .or_default()
+                    .push(file.clone());
+            }
+        }
+    }
+
+    fn assign_all(&mut self, cratename: &str, namespace: &str) {
+        for file in self.deps.keys() {
+            if file.0 == namespace && !self.assigned.contains_key(file) {
+                self.assigned.insert(file.clone(), cratename.to_owned());
+                self.crates
+                    .entry(cratename.to_owned())
+                    .or_default()
+                    .push(file.clone());
+            }
         }
     }
 
@@ -86,98 +227,21 @@ impl DepGraph {
             }
         }
 
-        self.trans.insert(start, found.clone());
+        self.trans.insert(start.clone(), found.clone());
         found
-    }
-
-    // Get files from the given namespace, matching either keyword or filename
-    fn files(&self, ns: &str, kws: &[&str], files: &[&str]) -> Vec<(String, String)> {
-        let mut r: Vec<_> = files
-            .iter()
-            .map(|f| (ns.to_string(), f.to_string()))
-            .collect();
-        for kw in kws {
-            r.extend(self.keywords[*kw].clone());
-        }
-        r.retain(|n| n.0 == ns);
-        r.sort();
-        r
-    }
-
-    // Add the given set of files to the crate, as long as they only depend on
-    // files already assigned to a crate
-    fn assign_crate(&mut self, cname: &str, starts: &[(String, String)]) {
-        let mut files = HashSet::new();
-
-        loop {
-            let mut dirty = false;
-            for start in starts {
-                if self.assigned.contains_key(start) {
-                    continue;
-                }
-
-                let trans = self.trans.get(start).unwrap();
-
-                if trans
-                    .iter()
-                    .all(|n| n == start || self.assigned.contains_key(n))
-                {
-                    self.assigned.insert(start.clone(), cname.to_owned());
-                    files.insert(start.clone());
-                    dirty = true;
-                }
-            }
-            if !dirty {
-                break;
-            }
-        }
-
-        let entry = self.crates.entry(cname.to_owned()).or_default();
-        entry.extend(files);
-        entry.sort();
-        entry.dedup();
-    }
-
-    // Add the given set of files to the crate, plus all their transitive dependencies
-    fn assign_crate_trans(&mut self, cname: &str, starts: &[(String, String)]) {
-        let mut files = HashSet::new();
-
-        for start in starts {
-            if self.assigned.contains_key(start) {
-                continue;
-            }
-
-            let trans = self.trans.get(start).unwrap();
-            files.extend(
-                trans
-                    .iter()
-                    .filter(|n| !self.assigned.contains_key(n))
-                    .cloned(),
-            );
-            for n in trans {
-                self.assigned.insert(n.clone(), cname.to_owned());
-            }
-        }
-
-        let entry = self.crates.entry(cname.to_owned()).or_default();
-        entry.extend(files);
-        entry.sort();
-        entry.dedup();
     }
 
     fn dump(&self) {
         for (cname, files) in &self.crates {
             println!("Assigned to {cname}: {}", files.len());
-            if false {
-                println!(
-                    "  {}",
-                    files
-                        .iter()
-                        .map(|(_, b)| b.to_owned())
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                );
-            }
+            // println!(
+            //     "  {}",
+            //     files
+            //         .iter()
+            //         .map(|(_, b)| b.to_owned())
+            //         .collect::<Vec<_>>()
+            //         .join(" ")
+            // );
         }
     }
 }
@@ -293,7 +357,7 @@ fn main() -> Result<()> {
 
     let src_root = PathBuf::from("tspice/src");
     let override_root = PathBuf::from("rsspice_build/override");
-    let gen_root = PathBuf::from("rsspice_gen/src/generated");
+    let gen_root = PathBuf::from("generated");
 
     let t0 = Instant::now();
 
@@ -431,154 +495,178 @@ fn main() -> Result<()> {
     let mut glob = globan::GlobalAnalysis::new(&["spicelib", "support", "testutil"], program_units);
     glob.analyse()?;
 
-    let mut deps = DepGraph::new(&glob, keyword_files);
+    let mut deps = DepGraph::new(&glob);
     deps.compute();
 
-    // HACK: this was a very rough attempt to manually split the codebase into chunks
-    // of roughly <200 files, each depending only on earlier chunks. We should do something
-    // much cleaner and more sensible.
-
-    deps.assign_crate_trans(
-        "test",
-        &deps.files(
-            "tspice",
-            &[],
-            &["f_vector3.f", "f_vectorg.f", "f_q2m.f", "f_m2q.f"],
-        ),
-    );
-    deps.assign_crate_trans(
-        "test",
-        &deps.files("testutil", &[], &["tsetup.f", "tclose.f"]),
-    );
-    deps.assign_crate_trans("test", &deps.files("spicelib", &[], &["ana.f", "benum.f"]));
-
-    deps.assign_crate(
-        "early",
-        &deps.files(
-            "spicelib",
-            &[],
-            &[
-                "vrotv.f", "vadd.f", "vaddg.f", "vnorm.f", "vhat.f", "vproj.f", "vsub.f",
-                "vcrss.f", "vlcom.f", "vdot.f", "vscl.f", "moved.f", "pos.f", "cpos.f", "beint.f",
-                "beuns.f", "benum.f", "bedec.f", "frstnb.f", "q2m.f", "ana.f", "ucase.f",
-                "replch.f", "ljust.f", "isrchc.f",
-            ],
-        ),
-    );
-
-    deps.assign_crate(
-        "trace",
-        &deps.files(
-            "spicelib",
-            &["CHARACTER", "ALPHANUMERIC", "FILES", "ERROR"],
-            &[],
-        ),
-    );
-    deps.assign_crate_trans("trace", &deps.files("spicelib", &[], &["sigerr.f"]));
-
-    deps.assign_crate(
-        "base",
-        &deps.files(
-            "spicelib",
-            &[
-                "CONSTANTS",
-                "CHARACTER",
-                "STRING",
-                "WORD",
-                "ALPHANUMERIC",
-                "CONVERSION",
-                "FILES",
-                "ERROR",
-                "UTILITY",
-            ],
-            &[],
-        ),
-    );
-
-    deps.assign_crate("array", &deps.files("spicelib", &["ARRAY"], &[]));
-
-    deps.assign_crate(
-        "math",
-        &deps.files(
-            "spicelib",
-            &[
-                "MATRIX", "VECTOR", "MATH", "NUMBERS", "NUMBER", "NUMERIC", "INTEGER",
-            ],
-            &[],
-        ),
-    );
-
-    deps.assign_crate(
-        "lists",
-        &deps.files(
-            "spicelib",
-            &[
-                "LIST",
-                "LINKED LIST",
-                "AB LINKED LIST",
-                "CELLS",
-                "WINDOWS",
-                "SETS",
-            ],
-            &[],
-        ),
-    );
-
-    deps.assign_crate(
-        "shapes",
-        &deps.files(
-            "spicelib",
-            &[
-                "CONIC",
-                "ELLIPSE",
-                "ELLIPSOID",
-                "$PLANES",
-                "$ELLIPSES",
-                "LINE",
-                "LATITUDE",
-                "EXTREMA",
-                "INTERSECTION",
-            ],
-            &[],
-        ),
-    );
-    deps.assign_crate_trans("parsing", &deps.files("spicelib", &["PARSING"], &[]));
-    deps.assign_crate_trans("constants", &deps.files("spicelib", &["CONSTANTS"], &[]));
-    deps.assign_crate_trans("frames", &deps.files("spicelib", &["FRAME", "FRAMES"], &[]));
-    deps.assign_crate_trans("files", &deps.files("spicelib", &["FILES"], &[]));
-    deps.assign_crate_trans("ek", &deps.files("spicelib", &["EK"], &[]));
-    deps.assign_crate_trans("ephemeris", &deps.files("spicelib", &["EPHEMERIS"], &[]));
-
-    for lib in ["spicelib", "support", "testutil", "tspice"] {
-        deps.assign_crate_trans(
-            lib,
-            &deps
-                .trans
-                .keys()
-                .filter(|k| k.0 == lib)
-                .cloned()
-                .collect::<Vec<_>>(),
-        );
-    }
-
     deps.dump();
-    println!("Unassigned: {}", deps.trans.len() - deps.assigned.len());
+    println!("Unassigned: {}", deps.deps.len() - deps.assigned.len());
 
-    let sources = deps.crates["test"].clone();
-
-    // let mut sources = deps.crates["early"].clone();
-    // sources.extend_from_slice(&deps.crates["trace"]);
-    // sources.extend_from_slice(&deps.crates["base"]);
-    // sources.extend_from_slice(&deps.crates["array"]);
-    // sources.extend_from_slice(&deps.crates["math"]);
+    // let sources = deps.assigned.keys().collect::<Vec<_>>();
+    let mut sources = HashSet::new();
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_vector3.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_vectorg.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_m2q.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_q2m.f".to_owned())].clone());
+    sources.extend(deps.trans[&("testutil".to_owned(), "tsetup.f".to_owned())].clone());
+    sources.extend(deps.trans[&("testutil".to_owned(), "tclose.f".to_owned())].clone());
+    sources.extend(deps.trans[&("spicelib".to_owned(), "ana.f".to_owned())].clone());
+    sources.extend(deps.trans[&("spicelib".to_owned(), "benum.f".to_owned())].clone());
 
     println!("Compiling {} files", sources.len());
 
-    const PRETTY_PRINT: bool = false;
-    const SINGLE_FILE_PER_MOD: bool = false;
+    for (name, ds) in [
+        ("spicelib-1a", vec![]),
+        ("spicelib-1b", vec![]),
+        ("spicelib-2a", vec!["spicelib-1a", "spicelib-1b"]),
+        ("spicelib-2b", vec!["spicelib-1a", "spicelib-1b"]),
+        (
+            "spicelib-3a",
+            vec!["spicelib-1a", "spicelib-1b", "spicelib-2a", "spicelib-2b"],
+        ),
+        (
+            "spicelib-3b",
+            vec!["spicelib-1a", "spicelib-1b", "spicelib-2a", "spicelib-2b"],
+        ),
+        (
+            "spicelib-4",
+            vec![
+                "spicelib-1a",
+                "spicelib-1b",
+                "spicelib-2a",
+                "spicelib-2b",
+                "spicelib-3a",
+                "spicelib-3b",
+            ],
+        ),
+        (
+            "spicelib",
+            vec![
+                "spicelib-1a",
+                "spicelib-1b",
+                "spicelib-2a",
+                "spicelib-2b",
+                "spicelib-3a",
+                "spicelib-3b",
+                "spicelib-4",
+            ],
+        ),
+        ("support", vec!["spicelib"]),
+        ("testutil", vec!["spicelib", "support"]),
+        ("tspice", vec!["spicelib", "support", "testutil"]),
+        ("programs", vec!["spicelib", "support", "testutil"]),
+    ] {
+        let cratename = format!("rsspice_{name}");
 
-    let mut mods = HashMap::new();
-    for (namespace, filename) in &sources {
+        let path = gen_root.join(&cratename);
+
+        std::fs::create_dir_all(path.join("src"))?;
+
+        let cratefiles = deps.crates.get(name).cloned().unwrap_or_default();
+        let mut namespaces: Vec<_> = cratefiles.iter().map(|(ns, _nm)| ns).collect();
+        namespaces.sort();
+        namespaces.dedup();
+        for ns in &namespaces {
+            let src = path.join("src").join(ns);
+
+            if !std::fs::exists(&src)? {
+                std::fs::create_dir(&src)?;
+            }
+        }
+
+        let mut cargo = std::fs::File::create(path.join("Cargo.toml"))?;
+        writeln!(cargo, "#\n# GENERATED FILE\n#\n")?;
+        writeln!(cargo, "[package]")?;
+        writeln!(cargo, r#"name = "{cratename}""#)?;
+        writeln!(cargo, r#"version = "0.1.0""#)?;
+        writeln!(cargo, r#"edition = "2024""#)?;
+        writeln!(cargo)?;
+        writeln!(cargo, "[dependencies]")?;
+        writeln!(cargo, r#"f2rust_std = {{ path = "../../f2rust_std" }}"#)?;
+        for d in &ds {
+            writeln!(cargo, r#"rsspice_{d} = {{ path = "../rsspice_{d}" }}"#)?;
+        }
+        drop(cargo);
+
+        let mut ignore = std::fs::File::create(path.join("src/.gitignore"))?;
+        writeln!(ignore, "*/")?;
+        drop(ignore);
+
+        let mut librs = std::fs::File::create(path.join("src/lib.rs"))?;
+        writeln!(librs, "//\n// GENERATED FILE\n//\n")?;
+        if name == "spicelib" {
+            writeln!(librs, "pub mod {name} {{")?;
+            for d in &ds {
+                let dcrate = format!("rsspice_{d}");
+                let dmod = dcrate.replace("-", "_");
+                writeln!(librs, "    pub use {dmod}::spicelib::*;")?;
+            }
+            writeln!(librs, "}}")?;
+        } else {
+            for ns in &namespaces {
+                writeln!(librs, "pub mod {ns};")?;
+            }
+        }
+        if ds.contains(&"support") {
+            writeln!(librs)?;
+            writeln!(librs, "pub(crate) use rsspice_support as support;")?;
+        }
+        if ds.contains(&"testutil") {
+            writeln!(librs)?;
+            writeln!(librs, "pub(crate) use rsspice_testutil as testutil;")?;
+        }
+        drop(librs);
+
+        for ns in &namespaces {
+            let mut modrs = std::fs::File::create(path.join("src").join(ns).join("mod.rs"))?;
+            writeln!(modrs, "//\n// GENERATED FILE\n//\n")?;
+            writeln!(modrs, "#![allow(non_snake_case)]")?;
+            writeln!(modrs, "#![allow(unused_parens, clippy::double_parens)]")?;
+            writeln!(modrs, "#![allow(unused_mut, unused_assignments)]")?;
+            writeln!(modrs, "#![allow(unused_imports)]")?;
+            writeln!(modrs, "#![allow(unused_variables)]")?;
+            writeln!(modrs, "#![allow(unreachable_code)]")?;
+            writeln!(modrs, "#![allow(dead_code)]")?;
+            writeln!(modrs, "#![allow(clippy::while_immutable_condition)]")?;
+            writeln!(modrs, "#![allow(clippy::assign_op_pattern)]")?;
+            writeln!(modrs, "#![allow(clippy::needless_return)]")?;
+            writeln!(modrs, "#![allow(clippy::unnecessary_cast)]")?;
+            writeln!(modrs, "#![allow(clippy::if_same_then_else)]")?;
+            writeln!(modrs, "#![allow(clippy::needless_bool_assign)]")?;
+            writeln!(modrs)?;
+
+            for d in &ds {
+                let dcrate = format!("rsspice_{d}");
+                let dmod = dcrate.replace("-", "_");
+                if d.starts_with("spicelib") && ns.starts_with("spicelib") {
+                    writeln!(modrs, "use {dmod}::spicelib::*;")?;
+                } else {
+                    writeln!(modrs, "use {dmod}::{d};")?;
+                }
+            }
+            writeln!(modrs)?;
+
+            let mut modnames = cratefiles
+                .iter()
+                .filter(|f| sources.contains(f))
+                .map(|f| f.1.strip_suffix(".f").or(f.1.strip_suffix(".pgm")).unwrap())
+                .collect::<Vec<_>>();
+            modnames.sort();
+            for name in &modnames {
+                let name_id = safe_identifier(name);
+                writeln!(modrs, "mod {name_id};")?;
+            }
+            writeln!(modrs)?;
+            for name in &modnames {
+                let name_id = safe_identifier(name);
+                writeln!(modrs, "pub use {name_id}::*;")?;
+            }
+        }
+    }
+
+    const PRETTY_PRINT: bool = false;
+
+    let mut succeeded = 0;
+    for node @ (namespace, filename) in &sources {
         let path = src_root.join(namespace).join(filename);
 
         let _span = span!(
@@ -599,88 +687,22 @@ fn main() -> Result<()> {
             Ok(code) => {
                 let file_root = PathBuf::from(filename).with_extension("");
 
-                let path = gen_root
-                    .join(namespace)
-                    .join(file_root.with_extension("rs"));
+                let cratename = format!("rsspice_{}", &deps.assigned[node]);
 
-                if !SINGLE_FILE_PER_MOD {
-                    let mut file = File::create(path)?;
-                    file.write_all(b"use super::*;\n")?;
-                    file.write_all(code.as_bytes())?;
-                }
+                let path = gen_root.join(&cratename);
 
-                mods.entry(namespace)
-                    .or_insert_with(Vec::new)
-                    .push((file_root.to_string_lossy().to_string(), code));
+                let src = path.join("src").join(namespace);
+
+                let mut file = File::create(src.join(file_root.with_extension("rs")))?;
+                file.write_all(b"use super::*;\n")?;
+                file.write_all(code.as_bytes())?;
+
+                succeeded += 1;
             }
         }
     }
 
-    for (modname, filenames) in &mods {
-        let mut path = gen_root.clone();
-        path.push(modname);
-        path.push("mod.rs");
-
-        let mut file = File::create(path)?;
-        let mut filenames = filenames.clone();
-        filenames.sort();
-        for (name, code) in &filenames {
-            let name_id = safe_identifier(name);
-            if SINGLE_FILE_PER_MOD {
-                file.write_all(format!("mod {name_id} {{\n\n{code}\n\n}}\n\n").as_bytes())?;
-            } else {
-                file.write_all(format!("mod {name_id};\n").as_bytes())?;
-            }
-        }
-
-        file.write_all(b"\n")?;
-
-        for (name, _code) in &filenames {
-            let name_id = safe_identifier(name);
-            file.write_all(format!("pub use {name_id}::*;\n").as_bytes())?;
-        }
-
-        file.write_all(b"\n")?;
-
-        if !matches!(modname.as_str(), "spicelib") {
-            file.write_all(b"pub use crate::generated::spicelib;\n")?;
-        }
-        if !matches!(modname.as_str(), "spicelib" | "support") {
-            file.write_all(b"pub use crate::generated::support;\n")?;
-        }
-        if matches!(modname.as_str(), "tspice") {
-            file.write_all(b"pub use crate::generated::testutil;\n")?;
-        }
-    }
-
-    {
-        let mut path = gen_root.clone();
-        path.push("mod.rs");
-
-        let mut file = File::create(path)?;
-        file.write_all(b"//\n// GENERATED FILE\n//\n\n")?;
-        file.write_all(b"#![allow(non_snake_case)]\n")?;
-        file.write_all(b"#![allow(unused_parens, clippy::double_parens)]\n")?;
-        file.write_all(b"#![allow(unused_mut, unused_assignments)]\n")?;
-        file.write_all(b"#![allow(unused_imports)]\n")?;
-        file.write_all(b"#![allow(unused_variables)]\n")?;
-        file.write_all(b"#![allow(unreachable_code)]\n")?;
-        file.write_all(b"#![allow(dead_code)]\n")?;
-        file.write_all(b"#![allow(clippy::while_immutable_condition)]\n")?;
-        file.write_all(b"#![allow(clippy::assign_op_pattern)]\n")?;
-        file.write_all(b"#![allow(clippy::needless_return)]\n")?;
-        file.write_all(b"#![allow(clippy::unnecessary_cast)]\n")?;
-        file.write_all(b"#![allow(clippy::if_same_then_else)]\n")?;
-        file.write_all(b"#![allow(clippy::needless_bool_assign)]\n")?;
-        file.write_all(b"\n")?;
-
-        let mut modnames = mods.keys().collect::<Vec<_>>();
-        modnames.sort();
-        for name in modnames {
-            let name_id = safe_identifier(name);
-            file.write_all(&format!("pub mod {name_id};\n").into_bytes())?;
-        }
-    }
+    println!("Successfully built {succeeded}/{}", sources.len());
 
     Ok(())
 }

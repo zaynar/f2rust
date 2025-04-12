@@ -5,7 +5,10 @@ edition = "2024"
 
 [dependencies]
 f2rust_std = { path = "../f2rust_std" }
-rsspice_gen = { path = "../rsspice_gen" }
+rsspice_spicelib = { path = "../generated/rsspice_spicelib" }
+rsspice_support = { path = "../generated/rsspice_support" }
+rsspice_testutil = { path = "../generated/rsspice_testutil" }
+rsspice_tspice = { path = "../generated/rsspice_tspice" }
 
 [dev-dependencies]
 approx = "0.5.1"

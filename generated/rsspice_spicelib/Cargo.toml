@@ -1,0 +1,18 @@
+#
+# GENERATED FILE
+#
+
+[package]
+name = "rsspice_spicelib"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+f2rust_std = { path = "../../f2rust_std" }
+rsspice_spicelib-1a = { path = "../rsspice_spicelib-1a" }
+rsspice_spicelib-1b = { path = "../rsspice_spicelib-1b" }
+rsspice_spicelib-2a = { path = "../rsspice_spicelib-2a" }
+rsspice_spicelib-2b = { path = "../rsspice_spicelib-2b" }
+rsspice_spicelib-3a = { path = "../rsspice_spicelib-3a" }
+rsspice_spicelib-3b = { path = "../rsspice_spicelib-3b" }
+rsspice_spicelib-4 = { path = "../rsspice_spicelib-4" }

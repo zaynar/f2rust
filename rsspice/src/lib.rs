@@ -3,7 +3,10 @@ mod tests {
     use approx::assert_abs_diff_eq;
 
     use f2rust_std::{ActualCharArray, Context, Error, Result, fstr};
-    use rsspice_gen::spicelib;
+    use rsspice_spicelib::spicelib;
+    use rsspice_support::support;
+    use rsspice_testutil::testutil;
+    use rsspice_tspice::tspice;
 
     #[test]
     fn vadd() {
@@ -240,7 +243,7 @@ mod tests {
         ctx.set_stdout(&mut stdout);
 
         let mut cmline = b"-v".to_vec();
-        rsspice_gen::testutil::TSETUP(
+        testutil::TSETUP(
             &mut cmline,
             b"logs/spice{0-9}{0-9}.log",
             b"RSSPICE 0.01",
@@ -248,16 +251,16 @@ mod tests {
         )?;
 
         let mut ok = false;
-        rsspice_gen::tspice::F_VECTOR3(&mut ok, &mut ctx)?;
+        tspice::F_VECTOR3(&mut ok, &mut ctx)?;
         assert!(ok);
-        rsspice_gen::tspice::F_VECTORG(&mut ok, &mut ctx)?;
+        tspice::F_VECTORG(&mut ok, &mut ctx)?;
         assert!(ok);
-        rsspice_gen::tspice::F_M2Q(&mut ok, &mut ctx)?;
+        tspice::F_M2Q(&mut ok, &mut ctx)?;
         assert!(ok);
-        rsspice_gen::tspice::F_Q2M(&mut ok, &mut ctx)?;
+        tspice::F_Q2M(&mut ok, &mut ctx)?;
         assert!(ok);
 
-        rsspice_gen::testutil::TCLOSE(&mut ctx)?;
+        testutil::TCLOSE(&mut ctx)?;
 
         Ok(())
     }
