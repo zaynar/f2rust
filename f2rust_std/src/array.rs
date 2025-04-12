@@ -229,6 +229,11 @@ impl<'a, T> DummyArrayMut<'a, T> {
     pub fn subscript(&self, index: i32) -> i32 {
         self.offset(index) as i32 + 1
     }
+
+    pub fn get_disjoint_mut_unwrap<const N: usize>(&mut self, indices: [i32; N]) -> [&mut T; N] {
+        let offsets = indices.map(|index| self.offset(index));
+        self.data.get_disjoint_mut(offsets).expect("array elements passed to function must have disjoint indexes, to avoid aliasing problems")
+    }
 }
 
 fn bounded_data<'a, T>(bounds: &[(i32, i32)], r: &'a [T]) -> &'a [T] {

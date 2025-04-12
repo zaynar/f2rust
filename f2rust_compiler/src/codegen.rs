@@ -881,7 +881,7 @@ impl CodeGenUnit<'_> {
                     if darg.mutated {
                         c.1 += 1;
                     }
-                    if matches!(arg, Expression::ArrayElement(..)) {
+                    if matches!(arg, Expression::ArrayElement(..)) && !darg.is_array {
                         c.2 += 1;
                     }
                 }
@@ -1159,7 +1159,11 @@ impl CodeGenUnit<'_> {
                 bail!("called subroutine as function: {}", name);
             }
         } else if !is_function {
-            bail!("CALL to function, not subroutine: {}", name);
+            // Allow CALL if it returns Character, because `ast` has translated the return
+            // value into an extra darg. Otherwise complain
+            if !matches!(actual.return_type, DataType::Character) {
+                bail!("CALL to function, not subroutine: {}", name);
+            }
         }
 
         if args.len() != actual.dargs.len() {
@@ -2185,12 +2189,17 @@ impl<'a> CodeGen<'a> {
         code += &self.shared.emit_save_struct()?;
 
         for statement_function in &self.statement_functions {
-            let dargs = statement_function
+            let codegen = &statement_function.codegen;
+
+            let darg_names: Vec<_> = statement_function
                 .ast
                 .dargs
                 .iter()
                 .chain(&statement_function.ast.captured)
-                .map(|darg| statement_function.codegen.emit_symbol(darg, Ctx::DummyArg));
+                .collect();
+            let dargs = darg_names
+                .iter()
+                .map(|darg| codegen.emit_symbol(darg, Ctx::DummyArg));
 
             let func_name = &statement_function.ast.name;
 
@@ -2206,6 +2215,12 @@ impl<'a> CodeGen<'a> {
             let dargs = dargs.collect::<Result<Vec<_>>>()?;
             let dargs = dargs.join(", ");
             code += &format!("fn {func_name}({dargs}) {ret} {{\n");
+
+            for name in &darg_names {
+                let sym = codegen.syms.get(name)?;
+                code += &codegen.emit_initialiser(name, sym, false)?;
+            }
+
             code += &statement_function
                 .codegen
                 .emit_expression(&statement_function.ast.body)?;
