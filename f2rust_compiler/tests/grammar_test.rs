@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use anyhow::Result;
 use f2rust_compiler::{
     file,
@@ -8,6 +6,7 @@ use f2rust_compiler::{
         UnaryOp,
     },
 };
+use indexmap::IndexMap;
 
 fn parse(src: &str) -> Statement {
     let input = &file::remove_blanks(src);
@@ -128,7 +127,7 @@ fn test_if() {
     assert_eq!(
         parse("READ (TEXT,*,IOSTAT=IOSTAT) ( IC(I), I = 1, NI - 2 )"),
         Statement::Read(
-            Specifiers(HashMap::from([
+            Specifiers(IndexMap::from([
                 (
                     "UNIT".to_owned(),
                     SpecifierValue::Expression(Expression::Symbol("TEXT".to_owned()))
