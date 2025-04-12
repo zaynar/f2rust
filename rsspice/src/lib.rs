@@ -237,12 +237,13 @@ mod tests {
     }
 
     #[test]
-    fn f_vector3() -> Result<()> {
+    fn tspice() -> Result<()> {
         let mut stdout = vec![];
         let mut ctx = Context::new();
         ctx.set_stdout(&mut stdout);
 
-        let mut cmline = b"-v".to_vec();
+        // let mut cmline = b"-v".to_vec();
+        let mut cmline = b" ".to_vec();
         testutil::TSETUP(
             &mut cmline,
             b"logs/spice{0-9}{0-9}.log",
@@ -258,6 +259,8 @@ mod tests {
         tspice::F_M2Q(&mut ok, &mut ctx)?;
         assert!(ok);
         tspice::F_Q2M(&mut ok, &mut ctx)?;
+        assert!(ok);
+        tspice::F_EULER(&mut ok, &mut ctx)?;
         assert!(ok);
 
         testutil::TCLOSE(&mut ctx)?;

@@ -501,16 +501,18 @@ fn main() -> Result<()> {
     deps.dump();
     println!("Unassigned: {}", deps.deps.len() - deps.assigned.len());
 
-    // let sources = deps.assigned.keys().collect::<Vec<_>>();
     let mut sources = HashSet::new();
     sources.extend(deps.trans[&("tspice".to_owned(), "f_vector3.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_vectorg.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_m2q.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_q2m.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_euler.f".to_owned())].clone());
     sources.extend(deps.trans[&("testutil".to_owned(), "tsetup.f".to_owned())].clone());
     sources.extend(deps.trans[&("testutil".to_owned(), "tclose.f".to_owned())].clone());
     sources.extend(deps.trans[&("spicelib".to_owned(), "ana.f".to_owned())].clone());
     sources.extend(deps.trans[&("spicelib".to_owned(), "benum.f".to_owned())].clone());
+
+    // let sources = deps.assigned.keys().collect::<Vec<_>>();
 
     println!("Compiling {} files", sources.len());
 
@@ -676,7 +678,7 @@ fn main() -> Result<()> {
         )
         .entered();
 
-        info!("Compiling");
+        // info!("Compiling");
 
         let code = glob.codegen(namespace, filename, PRETTY_PRINT);
 

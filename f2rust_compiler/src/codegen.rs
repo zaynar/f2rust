@@ -5,7 +5,7 @@ use std::io::Write;
 
 use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
-use log::warn;
+use log::{error, warn};
 
 use crate::ast::{DataType, Expression, LenSpecification, Specifier, Statement};
 use crate::grammar::{BinaryOp, Constant, UnaryOp};
@@ -841,13 +841,14 @@ impl CodeGenUnit<'_> {
         })
     }
 
-    /// Emit comma-separate arguments for a function call
+    /// Emit comma-separate arguments for a function call,
+    /// plus some optional code to prepare those arguments before the call
     fn emit_args(
         &self,
         dargs: &[globan::DummyArg],
         args: &[Expression],
         requires_ctx: bool,
-    ) -> Result<String> {
+    ) -> Result<(String, String)> {
         assert_eq!(dargs.len(), args.len());
 
         // Detect aliasing violations:
@@ -861,27 +862,35 @@ impl CodeGenUnit<'_> {
         //
         // So, warn about the aliasing, and then replace the non-mut arguments with clone()
         // which will probably do the right thing.
+        //
+        // We also need to support cases like `CALL FOO (X(1), X(2))` which FORTRAN does allow
+        // (since the aliasing restriction applies to the elements accessed, not the whole array),
+        // but Rust doesn't (because it borrows the whole array). So we detect the specific
+        // case of mutable elements of the same array, and use get_disjoint_mut()
 
-        // Value is (total occurrences, mutable occurrences)
-        let mut sym_counts: HashMap<&str, (usize, usize)> = HashMap::new();
-        dargs
-            .iter()
-            .zip(args.iter())
-            .for_each(|(darg, arg)| match arg {
+        // Value is (total occurrences, mutable occurrences, mutable array elt occurrences)
+        let mut sym_counts: HashMap<&str, (usize, usize, usize)> = HashMap::new();
+        for (darg, arg) in dargs.iter().zip(args.iter()) {
+            match arg {
                 Expression::Symbol(s)
                 | Expression::ArrayElement(s, ..)
                 | Expression::Substring(s, ..)
                 | Expression::SubstringArrayElement(s, ..) => {
-                    let c = sym_counts.entry(s).or_insert((0, 0));
+                    let c = sym_counts.entry(s).or_insert((0, 0, 0));
                     c.0 += 1;
                     if darg.mutated {
                         c.1 += 1;
                     }
+                    if matches!(arg, Expression::ArrayElement(..)) {
+                        c.2 += 1;
+                    }
                 }
                 _ => (),
-            });
+            }
+        }
 
         let mut aliased = HashSet::new();
+        let mut aliased_arrays: IndexMap<&str, Vec<(usize, String)>> = IndexMap::new();
         for (sym, count) in sym_counts {
             if count.0 >= 2 && count.1 >= 1 {
                 // warn!(
@@ -891,11 +900,16 @@ impl CodeGenUnit<'_> {
                 aliased.insert(sym);
             }
             if count.1 >= 2 {
-                bail!("Aliasing violation: symbol {sym} used mutably twice in procedure call");
+                if count.2 == count.1 {
+                    warn!("Possible aliasing violating: assuming array elements are disjoint");
+                    aliased_arrays.insert(sym, Vec::new());
+                } else {
+                    error!("Aliasing violation: symbol {sym} used mutably twice in procedure call");
+                }
             }
         }
 
-        let mut exprs = dargs.iter().zip(args.iter()).map(|(darg, arg)| {
+        let mut exprs = dargs.iter().zip(args.iter()).enumerate().map(|(i, (darg, arg))| {
             let conversion = if darg.is_array {
                 // Function is expecting an array
                 match arg {
@@ -946,7 +960,6 @@ impl CodeGenUnit<'_> {
                     Expression::ImpliedDo { .. } => bail!("cannot use implied-DO as array argument"),
                     Expression::ImpliedDoVar(..) => bail!("cannot use implied-DO-variable as array argument"),
                 }
-
             } else {
                 // Function is expecting a scalar
                 match arg {
@@ -989,8 +1002,13 @@ impl CodeGenUnit<'_> {
                         let get = format!("{s}[{idx_ex}]");
 
                         if darg.mutated {
-                            // Pass by reference
-                            format!("&mut {get}")
+                            if let Some(entry) = aliased_arrays.get_mut(name.as_str()) {
+                                entry.push((i, idx_ex));
+                                format!("arg{i}")
+                            } else {
+                                // Pass by reference
+                                format!("&mut {get}")
+                            }
                         } else if matches!(sym.ast.base_type, DataType::Character) {
                             if aliased.contains(name.as_str()) {
                                 // Try to resolve aliasing violation
@@ -1052,6 +1070,7 @@ impl CodeGenUnit<'_> {
                     Expression::ImpliedDoVar(..) => bail!("cannot use implied-DO-variable as argument"),
                 }
             };
+
             Ok(conversion)
         }).collect::<Vec<_>>();
 
@@ -1061,7 +1080,21 @@ impl CodeGenUnit<'_> {
             exprs.push(Ok("ctx".to_owned()));
         }
 
-        Ok(exprs.into_iter().collect::<Result<Vec<_>>>()?.join(", "))
+        let mut prep_code = String::new();
+        for (name, args) in &aliased_arrays {
+            let names: Vec<_> = args.iter().map(|(i, _e)| format!("arg{i}")).collect();
+            let idxs: Vec<_> = args.iter().map(|(_i, e)| e.clone()).collect();
+            prep_code += &format!(
+                "let [{}] = {name}.get_disjoint_mut_unwrap([{}]);\n",
+                names.join(", "),
+                idxs.join(", ")
+            );
+        }
+
+        Ok((
+            exprs.into_iter().collect::<Result<Vec<_>>>()?.join(", "),
+            prep_code,
+        ))
     }
 
     /// Get the argument types for calling a procedure or intrinsic
@@ -1139,17 +1172,21 @@ impl CodeGenUnit<'_> {
 
         let q = if actual.returns_result { "?" } else { "" };
 
-        let args_ex = self
+        let (args_ex, args_prep) = self
             .emit_args(&actual.dargs, args, actual.requires_ctx)
             .with_context(|| format!("failed args in call to {name}"))?;
+
+        if !args_prep.is_empty() && is_function {
+            bail!("TODO: args_pre for function");
+        }
 
         if sym.ast.darg {
             // Ok(format!(
             // "{name}({args_ex}) /* possible actual procedures: {actual_procs:?} */\n"
             // ))
-            Ok(format!("{name}({args_ex}){q}"))
+            Ok(format!("{args_prep}{name}({args_ex}){q}"))
         } else {
-            Ok(match actual.codegen {
+            let call = match actual.codegen {
                 CallSyntax::Unified => bail!("unexpected unified proc"),
                 CallSyntax::External(name) => {
                     let ns_name = if name.module == self.program.namespace {
@@ -1171,7 +1208,8 @@ impl CodeGenUnit<'_> {
                     }
                     _ => bail!("ArraySubscriptValue invalid args {args:?}"),
                 },
-            })
+            };
+            Ok(format!("{args_prep}{call}"))
         }
     }
 

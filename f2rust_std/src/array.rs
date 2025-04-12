@@ -16,6 +16,9 @@ use crate::util::{offset_1d, offset_2d, parse_bounds};
 // TODO: implement N-dimensional arrays for N>2, using macros.
 // (SPICE needs up to 3D.)
 
+// TODO: Maybe remove the Deref trait, it's confusing since we define our own
+// methods with the same names as std::slice
+
 pub struct ActualArray<T> {
     data: Vec<T>,
     bounds: [(i32, i32); 1],
@@ -92,6 +95,11 @@ impl<T> ActualArray<T> {
 
     pub fn subscript(&self, index: i32) -> i32 {
         self.offset(index) as i32 + 1
+    }
+
+    pub fn get_disjoint_mut_unwrap<const N: usize>(&mut self, indices: [i32; N]) -> [&mut T; N] {
+        let offsets = indices.map(|index| self.offset(index));
+        self.data.get_disjoint_mut(offsets).expect("array elements passed to function must have disjoint indexes, to avoid aliasing problems")
     }
 }
 
