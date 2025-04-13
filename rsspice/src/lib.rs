@@ -1,10 +1,11 @@
+#[allow(non_snake_case)]
 #[cfg(test)]
 mod tests {
     use approx::assert_abs_diff_eq;
-
     use f2rust_std::{ActualCharArray, Context, Error, Result, fstr};
     use rsspice_spicelib::spicelib;
-    use rsspice_support::support;
+    use tempfile::TempDir;
+    // use rsspice_support::support;
     use rsspice_testutil::testutil;
     use rsspice_tspice::tspice;
 
@@ -236,35 +237,71 @@ mod tests {
         )
     }
 
-    #[test]
-    fn tspice() -> Result<()> {
+    fn tspice<F>(testcase: F) -> Result<()>
+    where
+        F: FnOnce(&mut bool, &mut Context) -> Result<()>,
+    {
         let mut stdout = vec![];
         let mut ctx = Context::new();
         ctx.set_stdout(&mut stdout);
+        let tmp = TempDir::with_prefix("rsspice-")?;
+
+        let tmppath = tmp.path();
+        // let tmppath = tmp.into_path();
+
+        ctx.set_cwd(tmppath);
+        // println!("Temp path: {}", tmppath.display());
 
         // let mut cmline = b"-v".to_vec();
         let mut cmline = b" ".to_vec();
         testutil::TSETUP(
             &mut cmline,
-            b"logs/spice{0-9}{0-9}.log",
+            b"spice{0-9}{0-9}{0-9}{0-9}.log",
             b"RSSPICE 0.01",
             &mut ctx,
         )?;
 
         let mut ok = false;
-        tspice::F_VECTOR3(&mut ok, &mut ctx)?;
-        assert!(ok);
-        tspice::F_VECTORG(&mut ok, &mut ctx)?;
-        assert!(ok);
-        tspice::F_M2Q(&mut ok, &mut ctx)?;
-        assert!(ok);
-        tspice::F_Q2M(&mut ok, &mut ctx)?;
-        assert!(ok);
-        tspice::F_EULER(&mut ok, &mut ctx)?;
+        testcase(&mut ok, &mut ctx)?;
         assert!(ok);
 
         testutil::TCLOSE(&mut ctx)?;
 
         Ok(())
+    }
+
+    #[test]
+    fn F_AAAAPHSH() -> Result<()> {
+        tspice(tspice::F_AAAAPHSH)
+    }
+
+    #[test]
+    fn F_AB() -> Result<()> {
+        tspice(tspice::F_AB)
+    }
+
+    #[test]
+    fn F_ET2UTC() -> Result<()> {
+        tspice(tspice::F_ET2UTC)
+    }
+
+    #[test]
+    fn F_EULER() -> Result<()> {
+        tspice(tspice::F_EULER)
+    }
+
+    #[test]
+    fn F_M2Q() -> Result<()> {
+        tspice(tspice::F_M2Q)
+    }
+
+    #[test]
+    fn F_Q2M() -> Result<()> {
+        tspice(tspice::F_Q2M)
+    }
+
+    #[test]
+    fn F_VECTOR3() -> Result<()> {
+        tspice(tspice::F_VECTOR3)
     }
 }

@@ -17,7 +17,8 @@ use crate::util::{offset_1d, offset_2d, parse_bounds};
 // (SPICE needs up to 3D.)
 
 // TODO: Maybe remove the Deref trait, it's confusing since we define our own
-// methods with the same names as std::slice
+// methods with the same names as std::slice.
+// (Rename slice to subarray, add as_slice?)
 
 pub struct ActualArray<T> {
     data: Vec<T>,

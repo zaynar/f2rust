@@ -22,7 +22,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::io::{FileManager, ReadWriteSeek};
+use crate::io::{FileManager, RecFile};
 use crate::{Error, Result, fstr, io};
 
 pub trait SaveInit {
@@ -54,6 +54,10 @@ impl<'a> Context<'a> {
 
     pub fn set_stdout<W: std::io::Write + 'a>(&mut self, stdout: W) {
         self.file_manager.set_stdout(stdout);
+    }
+
+    pub fn set_cwd<P: AsRef<std::path::Path>>(&mut self, path: P) {
+        self.file_manager.set_cwd(path.as_ref().to_path_buf());
     }
 
     /// STOP statement
@@ -94,11 +98,11 @@ impl<'a> Context<'a> {
         values[7] = (now.nanosecond() / 1_000_000) as i32;
     }
 
-    pub fn read_unit(&mut self, unit: Option<i32>) -> Result<Rc<RefCell<dyn ReadWriteSeek + 'a>>> {
+    pub fn read_unit(&mut self, unit: Option<i32>) -> Result<Rc<RefCell<dyn RecFile + 'a>>> {
         self.file_manager.read_unit(unit)
     }
 
-    pub fn write_unit(&mut self, unit: Option<i32>) -> Result<Rc<RefCell<dyn ReadWriteSeek + 'a>>> {
+    pub fn write_unit(&mut self, unit: Option<i32>) -> Result<Rc<RefCell<dyn RecFile + 'a>>> {
         self.file_manager.write_unit(unit)
     }
 

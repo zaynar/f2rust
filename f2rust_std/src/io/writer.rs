@@ -1,7 +1,8 @@
 use crate::format::{EditDescriptor, Nonrepeatable, ParsedFormatSpecIter, Repeatable};
-use crate::io::ReadWriteSeek;
+use crate::io::RecFile;
 use crate::{Context, format};
 use std::cell::RefCell;
+use std::io::{Cursor, Write};
 use std::iter::repeat_n;
 use std::rc::Rc;
 
@@ -54,14 +55,11 @@ fn format_i(n: i32, w: usize, m: Option<usize>, plus: Option<bool>) -> Vec<u8> {
 }
 
 pub struct FormattedWriter<'a> {
-    file: Rc<RefCell<dyn ReadWriteSeek + 'a>>,
+    file: Rc<RefCell<dyn RecFile + 'a>>,
+    record: Option<Cursor<Vec<u8>>>,
+
     iter: ParsedFormatSpecIter,
-
     awaiting: Option<Repeatable>,
-
-    // We should output '\n' on finish, unless we outputted one at EndOfRecord
-    // and haven't output any entries for the next record
-    end_of_record: bool,
 
     plus: Option<bool>,
 }
@@ -78,15 +76,29 @@ impl<'a> FormattedWriter<'a> {
 
         Ok(Self {
             file,
+            record: None,
+
             iter: fmt.into_iter(),
             awaiting: None,
-            end_of_record: false,
+
             plus: None,
         })
     }
 
+    fn flush(&mut self) -> crate::Result<()> {
+        if let Some(record) = self.record.take() {
+            self.file.borrow_mut().write_seq(&record.into_inner())?;
+        }
+        Ok(())
+    }
+
+    fn record(&mut self) -> &mut Cursor<Vec<u8>> {
+        self.record.get_or_insert_with(|| Cursor::new(Vec::new()))
+    }
+
     fn continue_until_rep(&mut self) -> crate::Result<()> {
-        self.end_of_record = false;
+        self.flush()?;
+
         loop {
             match self.iter.next().unwrap() {
                 EditDescriptor::Repeatable(d) => {
@@ -100,9 +112,9 @@ impl<'a> FormattedWriter<'a> {
         }
     }
 
-    fn handle_nonrep(&mut self, d: &Nonrepeatable) -> std::io::Result<()> {
+    fn handle_nonrep(&mut self, d: &Nonrepeatable) -> crate::Result<()> {
         match d {
-            Nonrepeatable::Char { s } => self.file.borrow_mut().write_all(s)?,
+            Nonrepeatable::Char { s } => self.record().write_all(s)?,
             Nonrepeatable::T { c: _ } => todo!(),
             Nonrepeatable::TL { c: _ } => todo!(),
             Nonrepeatable::TR { c: _ } => todo!(),
@@ -113,12 +125,10 @@ impl<'a> FormattedWriter<'a> {
             Nonrepeatable::SP => self.plus = Some(true),
             Nonrepeatable::SS => self.plus = Some(false),
             Nonrepeatable::P { k: _ } => todo!(),
-            Nonrepeatable::BN => todo!(),
-            Nonrepeatable::BZ => todo!(),
+            Nonrepeatable::BN | Nonrepeatable::BZ => (), // no effect on output
             Nonrepeatable::Dollar => todo!(),
             Nonrepeatable::EndOfRecord => {
-                self.end_of_record = true;
-                self.file.borrow_mut().write_all(b"\n")?;
+                self.flush()?;
             }
         }
         Ok(())
@@ -131,10 +141,7 @@ impl Writer for FormattedWriter<'_> {
     }
 
     fn finish(&mut self) -> crate::Result<()> {
-        if !self.end_of_record {
-            self.file.borrow_mut().write_all(b"\n")?;
-        }
-        Ok(())
+        self.flush()
     }
 
     fn write_i32(&mut self, n: i32) -> crate::Result<()> {
@@ -142,7 +149,7 @@ impl Writer for FormattedWriter<'_> {
             Some(Repeatable::I { w, m }) => format_i(n, w, m, self.plus),
             _ => panic!("write_i32: expecting {:?}", self.awaiting),
         };
-        self.file.borrow_mut().write_all(&str)?;
+        self.file.borrow_mut().write_seq(&str)?;
 
         self.continue_until_rep()
     }
@@ -160,30 +167,29 @@ impl Writer for FormattedWriter<'_> {
     }
 
     fn write_str(&mut self, str: &[u8]) -> crate::Result<()> {
-        let mut file = self.file.borrow_mut();
-
         match self.awaiting.take() {
             Some(Repeatable::A { w: Some(w) }) => {
                 if str.len() < w {
-                    file.write_all(&vec![b' '; w - str.len()])?;
-                    file.write_all(str)?;
+                    self.record().write_all(&vec![b' '; w - str.len()])?;
+                    self.record().write_all(str)?;
                 } else {
-                    file.write_all(&str[0..w])?;
+                    self.record().write_all(&str[0..w])?;
                 }
             }
             Some(Repeatable::A { w: None }) => {
-                file.write_all(str)?;
+                self.record().write_all(str)?;
             }
             _ => panic!("write_str: expecting {:?}", self.awaiting),
         };
 
-        drop(file);
         self.continue_until_rep()
     }
 }
 
 pub struct ListDirectedWriter<'a> {
-    file: Rc<RefCell<dyn ReadWriteSeek + 'a>>,
+    file: Rc<RefCell<dyn RecFile + 'a>>,
+    record: Option<Cursor<Vec<u8>>>,
+
     prev_char: bool,
 }
 
@@ -193,8 +199,21 @@ impl<'a> ListDirectedWriter<'a> {
 
         Ok(Self {
             file,
+            record: None,
+
             prev_char: false,
         })
+    }
+
+    fn flush(&mut self) -> crate::Result<()> {
+        if let Some(record) = self.record.take() {
+            self.file.borrow_mut().write_seq(&record.into_inner())?;
+        }
+        Ok(())
+    }
+
+    fn record(&mut self) -> &mut Cursor<Vec<u8>> {
+        self.record.get_or_insert_with(|| Cursor::new(Vec::new()))
     }
 }
 
@@ -204,22 +223,21 @@ impl Writer for ListDirectedWriter<'_> {
     }
 
     fn finish(&mut self) -> crate::Result<()> {
-        self.file.borrow_mut().write_all(b"\n")?;
-        Ok(())
+        self.flush()
     }
 
     fn write_i32(&mut self, n: i32) -> crate::Result<()> {
         self.prev_char = false;
-        self.file.borrow_mut().write_all(b" ")?;
+        self.record().write_all(b" ")?;
 
         let str = format_i(n, 11, None, None);
-        self.file.borrow_mut().write_all(&str)?;
+        self.record().write_all(&str)?;
         Ok(())
     }
 
     fn write_f32(&mut self, n: f32) -> crate::Result<()> {
         self.prev_char = false;
-        self.file.borrow_mut().write_all(b" ")?;
+        self.record().write_all(b" ")?;
 
         // XXX
         let width = 16;
@@ -227,13 +245,13 @@ impl Writer for ListDirectedWriter<'_> {
         while str.len() < width {
             str.insert(0, ' ');
         }
-        self.file.borrow_mut().write_all(&str.into_bytes())?;
+        self.record().write_all(&str.into_bytes())?;
         Ok(())
     }
 
     fn write_f64(&mut self, n: f64) -> crate::Result<()> {
         self.prev_char = false;
-        self.file.borrow_mut().write_all(b" ")?;
+        self.record().write_all(b" ")?;
 
         // XXX
         let width = 25;
@@ -241,7 +259,7 @@ impl Writer for ListDirectedWriter<'_> {
         while str.len() < width {
             str.insert(0, ' ');
         }
-        self.file.borrow_mut().write_all(&str.into_bytes())?;
+        self.record().write_all(&str.into_bytes())?;
         Ok(())
     }
 
@@ -251,17 +269,17 @@ impl Writer for ListDirectedWriter<'_> {
 
     fn write_str(&mut self, str: &[u8]) -> crate::Result<()> {
         if !self.prev_char {
-            self.file.borrow_mut().write_all(b" ")?;
+            self.record().write_all(b" ")?;
             self.prev_char = true;
         }
 
-        self.file.borrow_mut().write_all(str)?;
+        self.record().write_all(str)?;
         Ok(())
     }
 }
 
 pub struct UnformattedWriter<'a> {
-    _file: Rc<RefCell<dyn ReadWriteSeek + 'a>>,
+    _file: Rc<RefCell<dyn RecFile + 'a>>,
 }
 
 impl<'a> UnformattedWriter<'a> {

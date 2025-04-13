@@ -12,3 +12,4 @@ rsspice_tspice = { path = "../generated/rsspice_tspice" }
 
 [dev-dependencies]
 approx = "0.5.1"
+tempfile = "3.19.1"

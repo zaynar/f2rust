@@ -2,6 +2,8 @@
 // GENERATED FILE
 //
 
+#![allow(unused_imports)]
+
 pub mod tspice;
 
 pub(crate) use rsspice_support as support;

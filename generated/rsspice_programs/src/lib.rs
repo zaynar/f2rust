@@ -2,6 +2,8 @@
 // GENERATED FILE
 //
 
+#![allow(unused_imports)]
+
 pub mod brief;
 pub mod chronos;
 pub mod ckbrief;

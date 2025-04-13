@@ -2,6 +2,8 @@
 // GENERATED FILE
 //
 
+#![allow(unused_imports)]
+
 pub mod spicelib {
     pub use rsspice_spicelib_1a::spicelib::*;
     pub use rsspice_spicelib_1b::spicelib::*;

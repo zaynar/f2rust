@@ -10,6 +10,7 @@ use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
 use log::{error, warn};
 
+use crate::grammar::DataName;
 use crate::{file::SourceLoc, grammar, intrinsics};
 
 #[derive(Debug, Clone)]
@@ -1710,6 +1711,12 @@ impl Parser {
                     }
                 }
 
+                if matches!(line, grammar::Statement::Read(..)) {
+                    for io in iolist.iter() {
+                        self.set_dataname_assigned(io);
+                    }
+                }
+
                 let iolist: Vec<_> = iolist
                     .iter()
                     .map(|io| Expression::from_dataname(&mut self.symbols, io))
@@ -1845,5 +1852,21 @@ impl Parser {
 
             _ => bail!("unrecognised basic statement: {}: {:?}", loc, line),
         })
+    }
+
+    fn set_dataname_assigned(&mut self, name: &DataName) {
+        match name {
+            DataName::Variable(s)
+            | DataName::ArrayElement(s, ..)
+            | DataName::Substring(s, ..)
+            | DataName::SubstringArrayElement(s, ..) => {
+                self.symbols
+                    .set_assigned(s, &self.entry.as_ref().unwrap().name);
+            }
+            DataName::ImpliedDo(names, ..) => {
+                names.iter().for_each(|n| self.set_dataname_assigned(n));
+            }
+            DataName::Expression(..) => {}
+        }
     }
 }

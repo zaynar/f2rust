@@ -10,6 +10,10 @@ pub enum Error {
     IO(#[from] std::io::Error),
     #[error("non-Unicode path")]
     NonUnicodePath,
+    #[error("edit descriptor not allowed in READ")]
+    InvalidDescOnInput,
+    #[error("READ reached end of file")]
+    EndOfFile,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

@@ -507,6 +507,10 @@ fn main() -> Result<()> {
     sources.extend(deps.trans[&("tspice".to_owned(), "f_m2q.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_q2m.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_euler.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_aaaaphsh.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_ab.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_et2utc.f".to_owned())].clone());
+
     sources.extend(deps.trans[&("testutil".to_owned(), "tsetup.f".to_owned())].clone());
     sources.extend(deps.trans[&("testutil".to_owned(), "tclose.f".to_owned())].clone());
     sources.extend(deps.trans[&("spicelib".to_owned(), "ana.f".to_owned())].clone());
@@ -595,6 +599,7 @@ fn main() -> Result<()> {
 
         let mut librs = std::fs::File::create(path.join("src/lib.rs"))?;
         writeln!(librs, "//\n// GENERATED FILE\n//\n")?;
+        writeln!(librs, "#![allow(unused_imports)]\n")?;
         if name == "spicelib" {
             writeln!(librs, "pub mod {name} {{")?;
             for d in &ds {

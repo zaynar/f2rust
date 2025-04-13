@@ -1754,7 +1754,57 @@ impl CodeGenUnit<'_> {
                 other,
                 iolist,
             } => {
-                code += &format!("todo!(); /* READ {unit:?} {fmt:?} {other:?} {iolist:?} */\n");
+                // TODO: refactor the shared code with ::Write
+
+                code += "{\n";
+                code += "  use f2rust_std::{data::Val, io::{self, Reader}};\n\n";
+
+                let unit = match unit {
+                    Specifier::Asterisk => "None".to_owned(),
+                    Specifier::Expression(e) => {
+                        if e.resolve_type(&self.syms)? != DataType::Integer {
+                            bail!("internal file identifiers not supported");
+                        }
+                        format!("Some({})", self.emit_expression_ctx(e, Ctx::ArgScalar)?)
+                    }
+                };
+                let rec = match other.get("REC") {
+                    Some(e) => format!("Some({})", self.emit_expression_ctx(e, Ctx::ArgScalar)?),
+                    None => "None".to_owned(),
+                };
+
+                code += "  let mut reader = ";
+                match fmt {
+                    Some(ast::Specifier::Expression(e)) => {
+                        let fmt = self.emit_expression_ctx(e, Ctx::ArgScalar)?;
+                        code += &format!("io::FormattedReader::new(ctx, {unit}, {rec}, {fmt})?;\n");
+                    }
+                    Some(ast::Specifier::Asterisk) => {
+                        code += &format!("io::ListDirectedReader::new(ctx, {unit}, {rec})?;\n");
+                    }
+                    None => {
+                        code += &format!("io::UnformattedReader::new(ctx, {unit}, {rec})?;\n");
+                    }
+                }
+
+                for name in other.keys() {
+                    if !matches!(name.as_str(), "IOSTAT" | "REC") {
+                        bail!("unrecognised specifier {name} in READ");
+                    }
+                }
+
+                if let Some(iostat) = other.get("IOSTAT") {
+                    let e = self.emit_expression_ctx(iostat, Ctx::Assignment)?;
+                    code += &format!("  {e} = io::capture_iostat(|| {{\n");
+                }
+                code += "    reader.start()?;\n";
+                code += &self.emit_data_nlist::<NlistCallbackRead>(iolist, Ctx::Assignment)?;
+                code += "    reader.finish()?;\n";
+                if other.contains_key("IOSTAT") {
+                    code += "    Ok(())\n";
+                    code += "  })?;\n";
+                }
+                code += "}\n";
             }
             Statement::Write {
                 unit,
@@ -2414,7 +2464,57 @@ impl NlistCallback for NlistCallbackWrite {
 
     fn substring_element(s: &str, idx: &str, range: &str) -> Result<String> {
         Ok(format!(
-            "writer.write_str(fstr::substr({s}.get_mut({idx}), {range}))?;\n"
+            "writer.write_str(fstr::substr({s}.get({idx}), {range}))?;\n"
+        ))
+    }
+}
+
+struct NlistCallbackRead {}
+impl NlistCallback for NlistCallbackRead {
+    fn array(s: &str, vt: &DataType) -> Result<String> {
+        if matches!(vt, DataType::Character) {
+            Ok(format!(
+                "for n in {s}.iter_mut() {{ reader.read_str(n)?; }}\n"
+            ))
+        } else {
+            let ty = emit_datatype(vt);
+            Ok(format!(
+                "for n in {s}.iter_mut() {{ *n = reader.read_{ty}()?; }}\n"
+            ))
+        }
+    }
+
+    fn scalar(s: &str, vt: &DataType) -> Result<String> {
+        if matches!(vt, DataType::Character) {
+            Ok(format!("reader.read_str({s})?;\n"))
+        } else {
+            let ty = emit_datatype(vt);
+            Ok(format!("{s} = reader.read_{ty}()?;\n"))
+        }
+    }
+
+    fn value(_e: &str, _vt: &DataType) -> Result<String> {
+        bail!("cannot use expression in READ iolist");
+    }
+
+    fn element(s: &str, idx: &str, vt: &DataType) -> Result<String> {
+        if matches!(vt, DataType::Character) {
+            Ok(format!("reader.read_str(&{s}[{idx}])?;\n"))
+        } else {
+            let ty = emit_datatype(vt);
+            Ok(format!("{s}[{idx}] = reader.read_{ty}()?;\n"))
+        }
+    }
+
+    fn substring(s: &str, range: &str) -> Result<String> {
+        Ok(format!(
+            "reader.read_str(fstr::substr_mut({s}, {range}))?;\n"
+        ))
+    }
+
+    fn substring_element(s: &str, idx: &str, range: &str) -> Result<String> {
+        Ok(format!(
+            "reader.read_str(fstr::substr_mut({s}.get_mut({idx}), {range}))?;\n"
         ))
     }
 }
