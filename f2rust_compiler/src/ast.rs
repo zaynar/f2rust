@@ -178,6 +178,8 @@ impl Expression {
             grammar::Expression::Symbol(s) => {
                 if syms.implied_do_vars.contains(s) {
                     Expression::ImpliedDoVar(s.clone())
+                } else if let Some(alias) = syms.get(s).and_then(|s| s.alias.clone()) {
+                    alias
                 } else {
                     Expression::Symbol(s.clone())
                 }
@@ -234,7 +236,13 @@ impl Expression {
 
     fn from_dataname(syms: &mut SymbolTable, n: &grammar::DataName) -> Result<Self> {
         Ok(match n {
-            grammar::DataName::Variable(s) => Expression::Symbol(s.clone()),
+            grammar::DataName::Variable(s) => {
+                if let Some(alias) = syms.get(s).and_then(|s| s.alias.clone()) {
+                    alias
+                } else {
+                    Expression::Symbol(s.clone())
+                }
+            }
             grammar::DataName::ArrayElement(s, es) => Expression::ArrayElement(
                 s.clone(),
                 es.iter()
@@ -626,6 +634,9 @@ pub struct Symbol {
 
     /// Listed in a SAVE statement
     pub save: bool,
+
+    /// EQUIVALENCE effectively defines this as an alias for an array element
+    pub alias: Option<Expression>,
 }
 
 impl Symbol {
@@ -691,6 +702,7 @@ impl Default for Symbol {
             statement_function: None,
             parameter: None,
             save: false,
+            alias: None,
         }
     }
 }
@@ -811,6 +823,10 @@ impl SymbolTable {
 
     fn set_save(&mut self, name: &str) {
         self.entry(name).save = true;
+    }
+
+    fn set_alias(&mut self, name: &str, e: Expression) {
+        self.entry(name).alias = Some(e);
     }
 
     pub fn contains_key(&self, name: &str) -> bool {
@@ -1217,14 +1233,42 @@ impl Parser {
                 }
             }
 
-            grammar::Statement::Equivalence(..) => {
+            grammar::Statement::Equivalence(nlist) => {
                 if !matches!(self.state, ParseState::Implicit | ParseState::OtherSpec) {
                     bail!("specification statements invalid here: {}: {:?}", loc, line);
                 } else {
                     self.state = ParseState::OtherSpec;
                 }
 
-                warn!("EQUIVALENCE not supported");
+                if nlist.len() != 1 || nlist[0].len() != 2 {
+                    bail!("EQUIVALENCE only supported between 2 variables");
+                }
+
+                let ns = &nlist[0];
+
+                // Some code says e.g.:
+                //    EQUIVALENCE (BEGIN, PTR(1))
+                //    EQUIVALENCE (END,   PTR(2))
+                // which is basically just an alias for the elements, so handle that specially
+                match (&ns[0], &ns[1]) {
+                    (DataName::Variable(s1), DataName::ArrayElement(s2, idxs)) => {
+                        let sym1 = self.symbols.get(s1).unwrap();
+                        let sym2 = self.symbols.get(s2).unwrap();
+                        if !sym1.dims.is_empty() || sym1.base_type != sym2.base_type {
+                            bail!(
+                                "EQUIVALENCE with array element only supported with scalar of same type"
+                            );
+                        }
+                        let e2 = Expression::from_dataname(&mut self.symbols, &ns[1])?;
+                        self.symbols.set_alias(s1, e2);
+                    }
+                    (DataName::Variable(s1), DataName::Variable(s2)) => {
+                        warn!("EQUIVALENCE: {s1} {s2}");
+                    }
+                    _ => {
+                        bail!("EQUIVALENCE only supported between variables and array elements");
+                    }
+                }
             }
 
             grammar::Statement::External(vs) => {
@@ -1319,10 +1363,6 @@ impl Parser {
                 // We should switch to StatementFunction here, but e.g. tspice/f_polyds.f uses
                 // DOUBLE PRECISION after a statement function, so allow that
                 self.state = ParseState::OtherSpec;
-
-                // TODO: implement this properly
-                // (Maybe just expand it out, so codegen doesn't have to care? Otherwise
-                // turn into a function/macro)
 
                 let dargs: Vec<_> = dargs
                     .iter()

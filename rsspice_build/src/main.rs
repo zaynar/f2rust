@@ -514,8 +514,16 @@ fn main() -> Result<()> {
 
     sources.extend(deps.trans[&("testutil".to_owned(), "tsetup.f".to_owned())].clone());
     sources.extend(deps.trans[&("testutil".to_owned(), "tclose.f".to_owned())].clone());
+
+    // Some old manual tests
     sources.extend(deps.trans[&("spicelib".to_owned(), "ana.f".to_owned())].clone());
     sources.extend(deps.trans[&("spicelib".to_owned(), "benum.f".to_owned())].clone());
+
+    // EQUIVALENCE aliasing
+    sources.extend(deps.trans[&("support".to_owned(), "lbrem_1.f".to_owned())].clone());
+
+    let mut sources = Vec::from_iter(sources.iter());
+    sources.sort();
 
     // TODO:
     // ckcov, str2et, scs2e, scencd, scdecd, spkpos, bodvrd, pxform, sctiks, ckgp, ...
