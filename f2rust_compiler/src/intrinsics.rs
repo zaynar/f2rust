@@ -107,8 +107,8 @@ const INTRINSICS: &[IntrinsicDef] = &[
     common_f64!("SQRT", "sqrt"),
     // CSQRT
 
-    common_f32!("EXP", "powf"),
-    common_f64!("EXP", "powf"),
+    common_f32!("EXP", "exp"),
+    common_f64!("EXP", "exp"),
     // CEXP
 
     ("LOG", "ALOG", DataType::Real, DataType::Real, CallSyntax::Func("f32::ln")),
