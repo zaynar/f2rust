@@ -160,11 +160,21 @@ impl Expression {
             grammar::Expression::Unary(op, e2) => {
                 Expression::Unary(op.clone(), Box::new(Self::from(syms, e2)?))
             }
-            grammar::Expression::Binary(op, e1, e2) => Expression::Binary(
-                op.clone(),
-                Box::new(Self::from(syms, e1)?),
-                Box::new(Self::from(syms, e2)?),
-            ),
+            grammar::Expression::Binary(op, e1, e2) => {
+                let e1 = Self::from(syms, e1)?;
+                let e2 = Self::from(syms, e2)?;
+                if let (
+                    grammar::BinaryOp::Concat,
+                    Expression::Constant(grammar::Constant::Character(s1)),
+                    Expression::Constant(grammar::Constant::Character(s2)),
+                ) = (op, &e1, &e2)
+                {
+                    // Simplify string literals that were split into multiple concatenated lines
+                    Expression::Constant(grammar::Constant::Character(s1.clone() + s2))
+                } else {
+                    Expression::Binary(op.clone(), Box::new(e1), Box::new(e2))
+                }
+            }
             grammar::Expression::Symbol(s) => {
                 if syms.implied_do_vars.contains(s) {
                     Expression::ImpliedDoVar(s.clone())
