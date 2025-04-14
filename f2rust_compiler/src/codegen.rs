@@ -445,12 +445,13 @@ impl CodeGenUnit<'_> {
                 RustType::ActualArray
                 | RustType::ActualCharArray
                 | RustType::DummyArray
-                | RustType::DummyArrayMut
-                | RustType::DummyCharArray
-                | RustType::DummyCharArrayMut => format!("{name}.first()"),
-                RustType::SaveActualArray | RustType::SaveActualCharArray => {
-                    format!("save.{name}.first()")
+                | RustType::DummyArrayMut => format!("*{name}.first()"),
+                RustType::DummyCharArray | RustType::DummyCharArrayMut => {
+                    format!("{name}.first()")
                 }
+                RustType::SaveActualArray => format!("*save.{name}.first()"),
+                RustType::SaveActualCharArray => format!("save.{name}.first()"),
+
                 _ => self.emit_symbol(name, Ctx::Value)?,
             },
             Ctx::ArgScalarMut => match sym.rs_ty {
