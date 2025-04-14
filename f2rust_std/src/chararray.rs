@@ -435,6 +435,13 @@ impl IndexMut<i32> for ActualCharArray {
     }
 }
 
+impl IndexMut<[i32; 2]> for ActualCharArray2D {
+    fn index_mut(&mut self, index: [i32; 2]) -> &mut Self::Output {
+        let offset = self.offset(index);
+        &mut self.data[offset..offset + self.element_length]
+    }
+}
+
 impl IndexMut<i32> for DummyCharArrayMut<'_> {
     fn index_mut(&mut self, index: i32) -> &mut Self::Output {
         let offset = self.offset(index);
