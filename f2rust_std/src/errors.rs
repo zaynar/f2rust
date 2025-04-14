@@ -14,6 +14,8 @@ pub enum Error {
     InvalidDescOnInput,
     #[error("READ reached end of file")]
     EndOfFile,
+    #[error("file record corrupted (head/tail length mismatch)")]
+    CorruptedRecord,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

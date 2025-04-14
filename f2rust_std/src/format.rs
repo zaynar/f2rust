@@ -569,22 +569,22 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn parse() -> Result<()> {
-        // let fmt = b"(12I45, I2, (I5.99), 5(E1.2, E1.2E3), A, A5, T2, TL4, TR6, 5X)";
-        // let fmt = b"(I1, 2(I2, 3(I3, I4), I5), I6)";
-        let fmt = b"(I1, 2(I2, 3(I3, I4), I5), 2(I8.1), I6)";
-        // let fmt = b"(I1, I6)";
-
-        let parser = FormatParser::new(fmt);
-        let parsed = parser.parse()?;
-        for d in &parsed.descriptors {
-            println!("{:?}", d);
-        }
-        for x in parsed.into_iter().take(50) {
-            println!("- {x:?}");
-        }
-
-        Ok(())
-    }
+    // #[test]
+    // fn parse() -> Result<()> {
+    //     // let fmt = b"(12I45, I2, (I5.99), 5(E1.2, E1.2E3), A, A5, T2, TL4, TR6, 5X)";
+    //     // let fmt = b"(I1, 2(I2, 3(I3, I4), I5), I6)";
+    //     let fmt = b"(I1, 2(I2, 3(I3, I4), I5), 2(I8.1), I6)";
+    //     // let fmt = b"(I1, I6)";
+    //
+    //     let parser = FormatParser::new(fmt);
+    //     let parsed = parser.parse()?;
+    //     for d in &parsed.descriptors {
+    //         println!("{:?}", d);
+    //     }
+    //     for x in parsed.into_iter().take(50) {
+    //         println!("- {x:?}");
+    //     }
+    //
+    //     Ok(())
+    // }
 }

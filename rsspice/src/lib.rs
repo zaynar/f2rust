@@ -237,7 +237,22 @@ mod tests {
         )
     }
 
+    #[allow(dead_code)]
+    fn tspice_verbose<F>(testcase: F) -> Result<()>
+    where
+        F: FnOnce(&mut bool, &mut Context) -> Result<()>,
+    {
+        tspice_cfg(testcase, true)
+    }
+
     fn tspice<F>(testcase: F) -> Result<()>
+    where
+        F: FnOnce(&mut bool, &mut Context) -> Result<()>,
+    {
+        tspice_cfg(testcase, false)
+    }
+
+    fn tspice_cfg<F>(testcase: F, verbose: bool) -> Result<()>
     where
         F: FnOnce(&mut bool, &mut Context) -> Result<()>,
     {
@@ -246,14 +261,20 @@ mod tests {
         ctx.set_stdout(&mut stdout);
         let tmp = TempDir::with_prefix("rsspice-")?;
 
-        let tmppath = tmp.path();
-        // let tmppath = tmp.into_path();
+        ctx.set_cwd(tmp.path());
 
-        ctx.set_cwd(tmppath);
-        // println!("Temp path: {}", tmppath.display());
+        if verbose {
+            println!("Temp path: {}", tmp.path().display());
 
-        // let mut cmline = b"-v".to_vec();
-        let mut cmline = b" ".to_vec();
+            // Prevent TempDir deleting the path
+            let _ = tmp.into_path();
+        }
+
+        let mut cmline = if verbose {
+            b"-v".to_vec()
+        } else {
+            b" ".to_vec()
+        };
         testutil::TSETUP(
             &mut cmline,
             b"spice{0-9}{0-9}{0-9}{0-9}.log",
@@ -278,6 +299,11 @@ mod tests {
     #[test]
     fn F_AB() -> Result<()> {
         tspice(tspice::F_AB)
+    }
+
+    #[test]
+    fn F_CKCOV() -> Result<()> {
+        tspice(tspice::F_CKCOV)
     }
 
     #[test]

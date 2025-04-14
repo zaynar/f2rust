@@ -5,16 +5,14 @@ pub use writer::*;
 
 use crate::{Error, Result, fstr};
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, BufWriter, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use std::{cell::RefCell, rc::Rc};
 
 pub fn capture_iostat<F: FnOnce() -> Result<()>>(f: F) -> Result<i32> {
     match f() {
         Ok(()) => Ok(0),
-        Err(Error::IO(err)) => {
-            Ok(err.raw_os_error().unwrap_or(i32::MAX))
-        }
+        Err(Error::IO(err)) => Ok(err.raw_os_error().unwrap_or(i32::MAX)),
         Err(Error::EndOfFile) => Ok(-1),
         Err(e) => Err(e),
     }
@@ -58,47 +56,69 @@ pub struct CloseSpecs<'a> {
 }
 
 // Sequential IO:
-// Records are arbitrary length, terminated with '\n' (if formatted;
-// what if unformatted?)
+// Records are arbitrary length, terminated with '\n' (if formatted),
+// or preceded  *and* followed with u32 LE length (if unformatted).
 //
 // Reading consumes the next record.
-// Writing always appends to the end, and doesn't affect the read position.
+// Writing (over)writes the next record, and truncates the file.
 //
 // For performance, we want to use BufReader/BufWriter. But they both want
 // exclusive access to the file, so we use Options to swap between them
 // (flushing internal buffers as needed).
 //
 // Direct IO:
-// Records are fixed length.
+// Records are fixed length, no delimiters.
+// Formatted: space filled with ' '. Unformatted: space filled with '\0'.
 // Read/write always specify RECN.
 
 pub trait RecFile {
-    fn read_seq(&mut self) -> Result<Vec<u8>>;
-    fn write_seq(&mut self, record: &[u8]) -> Result<()>;
-    fn read_direct(&mut self, recn: i32) -> Result<Vec<u8>>;
-    fn write_direct(&mut self, recn: i32, record: &[u8]) -> Result<()>;
+    fn read(&mut self, recnum: Option<i32>) -> Result<Vec<u8>>;
+    fn write(&mut self, recnum: Option<i32>, record: &[u8]) -> Result<()>;
 }
 
-pub struct FsRecFile {
-    read_pos: u64,
+struct FsRecFile {
     reader: Option<BufReader<std::fs::File>>,
     writer: Option<BufWriter<std::fs::File>>,
+
+    sequential: bool,
+    formatted: bool,
+    recl: i32,
+
+    // On the first sequential write, we must truncate the file
+    truncated: bool,
+
+    // Number of records in file, if known
+    numrecs: Option<u64>,
 }
 
+// RecFile wrapper for a File
 impl FsRecFile {
-    fn new(file: std::fs::File) -> Self {
+    fn new(file: std::fs::File, sequential: bool, formatted: bool, recl: Option<i32>) -> Self {
+        assert_eq!(
+            recl.is_some(),
+            !sequential,
+            "recl must be specified iff direct"
+        );
+
         Self {
-            read_pos: 0,
             reader: Some(BufReader::new(file)),
             writer: None,
+
+            sequential,
+            formatted,
+            recl: recl.unwrap_or(0),
+
+            truncated: false,
+            numrecs: None,
         }
     }
 
     fn reader(&mut self) -> Result<&mut BufReader<std::fs::File>> {
         if let Some(mut w) = self.writer.take() {
             w.flush()?;
+            let pos = w.stream_position()?;
             let mut r = BufReader::new(w.into_inner().map_err(|e| e.into_error())?);
-            r.seek(SeekFrom::Start(self.read_pos))?;
+            r.seek(SeekFrom::Start(pos))?;
             self.reader = Some(r);
         }
 
@@ -107,81 +127,182 @@ impl FsRecFile {
 
     fn writer(&mut self) -> Result<&mut BufWriter<std::fs::File>> {
         if let Some(mut r) = self.reader.take() {
-            self.read_pos = r.stream_position()?;
+            let pos = r.stream_position()?;
             let mut w = BufWriter::new(r.into_inner());
-            w.seek(SeekFrom::End(0))?;
+            w.seek(SeekFrom::Start(pos))?;
             self.writer = Some(w);
         }
 
         Ok(self.writer.as_mut().unwrap())
     }
-}
 
-impl RecFile for FsRecFile {
     fn read_seq(&mut self) -> Result<Vec<u8>> {
-        let mut buf = Vec::new();
-        if self.reader()?.read_until(b'\n', &mut buf)? == 0 {
-            return Err(Error::EndOfFile);
+        if self.formatted {
+            let mut buf = Vec::new();
+            if self.reader()?.read_until(b'\n', &mut buf)? == 0 {
+                return Err(Error::EndOfFile);
+            }
+            buf.pop(); // remove the '\n'
+            Ok(buf)
+        } else {
+            let r = self.reader()?;
+
+            // Record has u32 LE len as both header and trailer. Use the header to
+            // read the whole thing
+            let mut len_bytes = [0u8; 4];
+            match r.read_exact(&mut len_bytes) {
+                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    return Err(Error::EndOfFile);
+                }
+                Err(e) => return Err(e.into()),
+                Ok(()) => (),
+            }
+            let len = u32::from_le_bytes(len_bytes);
+
+            let mut buf = vec![0; len as usize + 4];
+            r.read_exact(&mut buf)?;
+
+            // Remove the trailer, and verify it's consistent with len
+            let tail_bytes = buf.drain(buf.len() - 4..).collect::<Vec<_>>();
+            let tail_len = u32::from_le_bytes(tail_bytes.try_into().unwrap());
+            if tail_len != len {
+                return Err(Error::CorruptedRecord);
+            }
+            Ok(buf)
         }
-        buf.pop(); // remove the '\n'
-        Ok(buf)
     }
 
     fn write_seq(&mut self, record: &[u8]) -> Result<()> {
-        let w = self.writer()?;
-        w.write_all(record)?;
-        w.write_all(&[b'\n'])?;
+        if self.formatted {
+            let w = self.writer()?;
+            w.write_all(record)?;
+            w.write_all(b"\n")?;
+        } else {
+            let w = self.writer()?;
+            let len = (record.len() as u32).to_le_bytes();
+            w.write_all(&len)?;
+            w.write_all(record)?;
+            w.write_all(&len)?;
+        }
+
+        // The first sequential write should truncate the file.
+        // (Subsequent writes don't need to, because they're only making the file longer)
+        if !self.truncated {
+            // Convert BufWriter into File
+            let mut w = self.writer.take().unwrap();
+            w.flush()?;
+            let pos = w.stream_position()?;
+            let file = w.into_inner().map_err(|e| e.into_error())?;
+
+            file.set_len(pos)?;
+
+            // Convert File back into BufWriter
+            let mut w = BufWriter::new(file);
+            w.seek(SeekFrom::Start(pos))?;
+            self.writer = Some(w);
+
+            self.truncated = true;
+        }
+
         Ok(())
     }
 
-    fn read_direct(&mut self, _recn: i32) -> Result<Vec<u8>> {
-        todo!()
+    fn read_direct(&mut self, recnum: i32) -> Result<Vec<u8>> {
+        let recl = self.recl;
+
+        let r = self.reader()?;
+        r.seek(SeekFrom::Start((recnum - 1) as u64 * recl as u64))?;
+
+        let mut buf = vec![0; recl as usize];
+        r.read_exact(&mut buf)?;
+        Ok(buf)
     }
 
-    fn write_direct(&mut self, _recn: i32, _record: &[u8]) -> Result<()> {
-        todo!()
+    fn write_direct(&mut self, recnum: i32, record: &[u8]) -> Result<()> {
+        let recl = self.recl;
+
+        // Get the cached file size, or compute it
+        let numrecs = match self.numrecs {
+            Some(n) => n,
+            None => {
+                let w = self.writer()?;
+                w.seek(SeekFrom::End(0))?;
+                let file_len = w.stream_position()?;
+                file_len / (recl as u64)
+            }
+        };
+
+        // If we're >=1 record past the end of the file, we need to insert empty records
+        if (recnum - 1) as u64 > numrecs {
+            let fill = if self.formatted { b' ' } else { b'\0' };
+            let dummy = vec![fill; recl as usize];
+
+            let w = self.writer()?;
+            w.seek(SeekFrom::End(0))?;
+            for _ in numrecs..(recnum - 1) as u64 {
+                w.write_all(&dummy)?;
+            }
+        }
+
+        let w = self.writer()?;
+        w.seek(SeekFrom::Start((recnum - 1) as u64 * recl as u64))?;
+        w.write_all(record)?;
+
+        self.numrecs = Some(numrecs.max(recnum as u64));
+
+        Ok(())
     }
 }
 
-pub struct WriterRecFile<W: Write> {
+impl RecFile for FsRecFile {
+    fn read(&mut self, recnum: Option<i32>) -> Result<Vec<u8>> {
+        if let Some(recnum) = recnum {
+            assert!(!self.sequential, "direct read on non-direct file");
+            self.read_direct(recnum)
+        } else {
+            assert!(self.sequential, "sequential read on non-sequential file");
+            self.read_seq()
+        }
+    }
+
+    fn write(&mut self, recnum: Option<i32>, record: &[u8]) -> Result<()> {
+        if let Some(recnum) = recnum {
+            assert!(!self.sequential, "direct write on non-direct file");
+            self.write_direct(recnum, record)
+        } else {
+            assert!(self.sequential, "sequential write on non-sequential file");
+            self.write_seq(record)
+        }
+    }
+}
+
+// RecFile wrapper for an arbitrary Write type (particularly stdout)
+struct WriterRecFile<W: Write> {
     writer: W,
 }
 
 impl<W: Write> RecFile for WriterRecFile<W> {
-    fn read_seq(&mut self) -> Result<Vec<u8>> {
-        todo!();
+    fn read(&mut self, _recnum: Option<i32>) -> Result<Vec<u8>> {
+        todo!()
     }
 
-    fn write_seq(&mut self, record: &[u8]) -> Result<()> {
+    fn write(&mut self, _recnum: Option<i32>, record: &[u8]) -> Result<()> {
         self.writer.write_all(record)?;
         self.writer.write_all(b"\n")?;
         Ok(())
-    }
-
-    fn read_direct(&mut self, _recn: i32) -> Result<Vec<u8>> {
-        todo!()
-    }
-
-    fn write_direct(&mut self, _recn: i32, _record: &[u8]) -> Result<()> {
-        todo!()
     }
 }
 
 struct Unit<'a> {
     path: Option<PathBuf>,
     file: Rc<RefCell<dyn RecFile + 'a>>,
-
-    // TODO: do we actually need this?
-    #[allow(dead_code)]
-    formatted: bool,
 }
 
 impl<'a> Unit<'a> {
-    fn new<F: RecFile + 'a>(path: Option<PathBuf>, file: F, formatted: bool) -> Self {
+    fn new<F: RecFile + 'a>(path: Option<PathBuf>, file: F) -> Self {
         Self {
             path,
             file: Rc::new(RefCell::new(file)),
-            formatted,
         }
     }
 }
@@ -195,7 +316,7 @@ impl<'a> FileManager<'a> {
     pub fn new() -> Self {
         Self {
             units: HashMap::from([
-                // (5, StdinUnit {}),
+                // (5, std::io::stdin ...),
                 (
                     6,
                     Unit::new(
@@ -203,7 +324,6 @@ impl<'a> FileManager<'a> {
                         WriterRecFile {
                             writer: std::io::stdout(),
                         },
-                        true,
                     ),
                 ),
             ]),
@@ -237,7 +357,7 @@ impl<'a> FileManager<'a> {
 
     pub fn set_stdout<W: Write + 'a>(&mut self, writer: W) {
         self.units
-            .insert(6, Unit::new(None, WriterRecFile { writer }, true));
+            .insert(6, Unit::new(None, WriterRecFile { writer }));
     }
 
     pub fn inquire(&mut self, specs: InquireSpecs) -> Result<()> {
@@ -262,6 +382,7 @@ impl<'a> FileManager<'a> {
                 }
 
                 // TODO: sequential, direct, formatted, unformatted
+                // (Currently codegen will bail if they are used)
 
                 let opened = false; // TODO
                 if let Some(v) = specs.opened {
@@ -272,6 +393,7 @@ impl<'a> FileManager<'a> {
                         *v = 0;
                     }
                     // TODO: access, form, recl, nextrec, blank
+                    // (Currently codegen will bail if they are used)
                 }
             } else {
                 if let Some(v) = specs.exist {
@@ -291,6 +413,7 @@ impl<'a> FileManager<'a> {
             if opened {
                 // TODO: number, named, name, access, sequential, direct, form,
                 // formatted unformatted, recl, nextrec, blank
+                // (Currently codegen will bail if they are used)
             }
         } else {
             // codegen should prevent this case
@@ -305,10 +428,10 @@ impl<'a> FileManager<'a> {
 
         // println!(
         //     "OPEN {unit} file={:?} status={:?} access={:?} form={:?} recl={:?}",
-        //     specs.file.map(|f| std::str::from_utf8(f)),
-        //     specs.status.map(|f| std::str::from_utf8(f)),
-        //     specs.access.map(|f| std::str::from_utf8(f)),
-        //     specs.form.map(|f| std::str::from_utf8(f)),
+        //     specs.file.map(|f| std::str::from_utf8(f).unwrap()),
+        //     specs.status.map(|f| std::str::from_utf8(f).unwrap()),
+        //     specs.access.map(|f| std::str::from_utf8(f).unwrap()),
+        //     specs.form.map(|f| std::str::from_utf8(f).unwrap()),
         //     specs.recl,
         // );
 
@@ -329,13 +452,19 @@ impl<'a> FileManager<'a> {
             v => panic!("OPEN: invalid STATUS={}", String::from_utf8_lossy(v)),
         };
 
-        let _sequential = match specs.access.unwrap_or(b"SEQUENTIAL").trim_ascii_end() {
+        let sequential = match specs.access.unwrap_or(b"SEQUENTIAL").trim_ascii_end() {
             b"SEQUENTIAL" => true,
-            b"DIRECT" => todo!(),
+            b"DIRECT" => false,
             v => panic!("OPEN: invalid ACCESS={}", String::from_utf8_lossy(v)),
         };
 
-        let formatted = match specs.form.unwrap_or(b"UNFORMATTED").trim_ascii_end() {
+        let formatted_def = if sequential {
+            b"FORMATTED".as_slice()
+        } else {
+            b"UNFORMATTED".as_slice()
+        };
+
+        let formatted = match specs.form.unwrap_or(formatted_def).trim_ascii_end() {
             b"FORMATTED" => true,
             b"UNFORMATTED" => false,
             v => panic!("OPEN: invalid FORM={}", String::from_utf8_lossy(v)),
@@ -350,8 +479,13 @@ impl<'a> FileManager<'a> {
                 .create_new(matches!(status, Status::New))
                 .open(&path)?;
 
-            self.units
-                .insert(unit, Unit::new(Some(path), FsRecFile::new(f), formatted));
+            self.units.insert(
+                unit,
+                Unit::new(
+                    Some(path),
+                    FsRecFile::new(f, sequential, formatted, specs.recl),
+                ),
+            );
         } else {
             panic!("TODO: OPEN with no FILE")
         }

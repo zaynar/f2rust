@@ -502,19 +502,23 @@ fn main() -> Result<()> {
     println!("Unassigned: {}", deps.deps.len() - deps.assigned.len());
 
     let mut sources = HashSet::new();
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_vector3.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_vectorg.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_m2q.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_q2m.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_euler.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_aaaaphsh.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_ab.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_ckcov.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_et2utc.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_euler.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_m2q.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_q2m.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_vector3.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_vectorg.f".to_owned())].clone());
 
     sources.extend(deps.trans[&("testutil".to_owned(), "tsetup.f".to_owned())].clone());
     sources.extend(deps.trans[&("testutil".to_owned(), "tclose.f".to_owned())].clone());
     sources.extend(deps.trans[&("spicelib".to_owned(), "ana.f".to_owned())].clone());
     sources.extend(deps.trans[&("spicelib".to_owned(), "benum.f".to_owned())].clone());
+
+    // TODO:
+    // ckcov, str2et, scs2e, scencd, scdecd, spkpos, bodvrd, pxform, sctiks, ckgp, ...
 
     // let sources = deps.assigned.keys().collect::<Vec<_>>();
 

@@ -17,17 +17,19 @@ pub trait Reader {
 
 pub struct FormattedReader<'a> {
     file: Rc<RefCell<dyn RecFile + 'a>>,
+
     iter: ParsedFormatSpecIter,
     awaiting: Option<Repeatable>,
 
     record: Option<Cursor<Vec<u8>>>,
+    recnum: Option<i32>,
 }
 
 impl<'a> FormattedReader<'a> {
     pub fn new(
         ctx: &'a mut Context,
         unit: Option<i32>,
-        _rec: Option<i32>,
+        recnum: Option<i32>,
         fmt: &[u8],
     ) -> crate::Result<Self> {
         let file = ctx.read_unit(unit)?;
@@ -35,16 +37,22 @@ impl<'a> FormattedReader<'a> {
 
         Ok(Self {
             file,
+
             iter: fmt.into_iter(),
             awaiting: None,
 
             record: None,
+            recnum,
         })
     }
 
     fn record(&mut self) -> crate::Result<&mut Cursor<Vec<u8>>> {
         if self.record.is_none() {
-            self.record = Some(Cursor::new(self.file.borrow_mut().read_seq()?));
+            self.record = Some(Cursor::new(self.file.borrow_mut().read(self.recnum)?));
+
+            if let Some(recnum) = &mut self.recnum {
+                *recnum += 1;
+            }
         }
         Ok(self.record.as_mut().unwrap())
     }
@@ -193,45 +201,81 @@ impl Reader for ListDirectedReader<'_> {
 */
 
 pub struct UnformattedReader<'a> {
-    _file: Rc<RefCell<dyn RecFile + 'a>>,
+    file: Rc<RefCell<dyn RecFile + 'a>>,
+
+    record: Option<Cursor<Vec<u8>>>,
+    recnum: Option<i32>,
 }
 
 impl<'a> UnformattedReader<'a> {
     pub fn new(
-        _ctx: &'a mut Context,
-        _unit: Option<i32>,
-        _rec: Option<i32>,
+        ctx: &'a mut Context,
+        unit: Option<i32>,
+        recnum: Option<i32>,
     ) -> crate::Result<Self> {
-        todo!();
+        let file = ctx.read_unit(unit)?;
+
+        Ok(Self {
+            file,
+
+            record: None,
+            recnum,
+        })
+    }
+
+    fn record(&mut self) -> crate::Result<&mut Cursor<Vec<u8>>> {
+        if self.record.is_none() {
+            self.record = Some(Cursor::new(self.file.borrow_mut().read(self.recnum)?));
+
+            if let Some(recnum) = &mut self.recnum {
+                *recnum += 1;
+            }
+        }
+        Ok(self.record.as_mut().unwrap())
+    }
+
+    /// Read from current record into buf, filling with NUL bytes if needed
+    fn read_exact(&mut self, buf: &mut [u8]) -> crate::Result<()> {
+        let read = self.record()?.read(buf)?;
+        buf[read..].fill(0);
+        Ok(())
     }
 }
 
 impl Reader for UnformattedReader<'_> {
     fn start(&mut self) -> crate::Result<()> {
-        todo!()
+        Ok(())
     }
 
     fn finish(&mut self) -> crate::Result<()> {
-        todo!()
+        Ok(())
     }
 
     fn read_i32(&mut self) -> crate::Result<i32> {
-        todo!()
+        let mut buf = [0; 4];
+        self.read_exact(&mut buf)?;
+        Ok(i32::from_le_bytes(buf))
     }
 
     fn read_f32(&mut self) -> crate::Result<f32> {
-        todo!()
+        let mut buf = [0; 4];
+        self.read_exact(&mut buf)?;
+        Ok(f32::from_le_bytes(buf))
     }
 
     fn read_f64(&mut self) -> crate::Result<f64> {
-        todo!()
+        let mut buf = [0; 8];
+        self.read_exact(&mut buf)?;
+        Ok(f64::from_le_bytes(buf))
     }
 
     fn read_bool(&mut self) -> crate::Result<bool> {
-        todo!()
+        let mut buf = [0; 4];
+        self.read_exact(&mut buf)?;
+        Ok(i32::from_le_bytes(buf) != 0)
     }
 
-    fn read_str(&mut self, _str: &mut [u8]) -> crate::Result<()> {
-        todo!()
+    fn read_str(&mut self, str: &mut [u8]) -> crate::Result<()> {
+        self.read_exact(str)
     }
 }

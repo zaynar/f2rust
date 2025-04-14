@@ -56,10 +56,12 @@ fn format_i(n: i32, w: usize, m: Option<usize>, plus: Option<bool>) -> Vec<u8> {
 
 pub struct FormattedWriter<'a> {
     file: Rc<RefCell<dyn RecFile + 'a>>,
-    record: Option<Cursor<Vec<u8>>>,
 
     iter: ParsedFormatSpecIter,
     awaiting: Option<Repeatable>,
+
+    record: Option<Cursor<Vec<u8>>>,
+    recnum: Option<i32>,
 
     plus: Option<bool>,
 }
@@ -68,7 +70,7 @@ impl<'a> FormattedWriter<'a> {
     pub fn new(
         ctx: &'a mut Context,
         unit: Option<i32>,
-        _rec: Option<i32>,
+        recnum: Option<i32>,
         fmt: &[u8],
     ) -> crate::Result<Self> {
         let file = ctx.write_unit(unit)?;
@@ -76,10 +78,12 @@ impl<'a> FormattedWriter<'a> {
 
         Ok(Self {
             file,
-            record: None,
 
             iter: fmt.into_iter(),
             awaiting: None,
+
+            record: None,
+            recnum,
 
             plus: None,
         })
@@ -87,7 +91,13 @@ impl<'a> FormattedWriter<'a> {
 
     fn flush(&mut self) -> crate::Result<()> {
         if let Some(record) = self.record.take() {
-            self.file.borrow_mut().write_seq(&record.into_inner())?;
+            self.file
+                .borrow_mut()
+                .write(self.recnum, &record.into_inner())?;
+
+            if let Some(recnum) = &mut self.recnum {
+                *recnum += 1;
+            }
         }
         Ok(())
     }
@@ -97,8 +107,6 @@ impl<'a> FormattedWriter<'a> {
     }
 
     fn continue_until_rep(&mut self) -> crate::Result<()> {
-        self.flush()?;
-
         loop {
             match self.iter.next().unwrap() {
                 EditDescriptor::Repeatable(d) => {
@@ -149,7 +157,7 @@ impl Writer for FormattedWriter<'_> {
             Some(Repeatable::I { w, m }) => format_i(n, w, m, self.plus),
             _ => panic!("write_i32: expecting {:?}", self.awaiting),
         };
-        self.file.borrow_mut().write_seq(&str)?;
+        self.record().write_all(&str)?;
 
         self.continue_until_rep()
     }
@@ -187,57 +195,45 @@ impl Writer for FormattedWriter<'_> {
 }
 
 pub struct ListDirectedWriter<'a> {
-    file: Rc<RefCell<dyn RecFile + 'a>>,
-    record: Option<Cursor<Vec<u8>>>,
+    w: FormattedWriter<'a>,
 
     prev_char: bool,
 }
 
 impl<'a> ListDirectedWriter<'a> {
-    pub fn new(ctx: &'a mut Context, unit: Option<i32>, _rec: Option<i32>) -> crate::Result<Self> {
-        let file = ctx.write_unit(unit)?;
-
+    pub fn new(
+        ctx: &'a mut Context,
+        unit: Option<i32>,
+        recnum: Option<i32>,
+    ) -> crate::Result<Self> {
         Ok(Self {
-            file,
-            record: None,
-
+            w: FormattedWriter::new(ctx, unit, recnum, b"(A)")?,
             prev_char: false,
         })
-    }
-
-    fn flush(&mut self) -> crate::Result<()> {
-        if let Some(record) = self.record.take() {
-            self.file.borrow_mut().write_seq(&record.into_inner())?;
-        }
-        Ok(())
-    }
-
-    fn record(&mut self) -> &mut Cursor<Vec<u8>> {
-        self.record.get_or_insert_with(|| Cursor::new(Vec::new()))
     }
 }
 
 impl Writer for ListDirectedWriter<'_> {
     fn start(&mut self) -> crate::Result<()> {
-        Ok(())
+        self.w.start()
     }
 
     fn finish(&mut self) -> crate::Result<()> {
-        self.flush()
+        self.w.finish()
     }
 
     fn write_i32(&mut self, n: i32) -> crate::Result<()> {
         self.prev_char = false;
-        self.record().write_all(b" ")?;
+        self.w.record().write_all(b" ")?;
 
         let str = format_i(n, 11, None, None);
-        self.record().write_all(&str)?;
+        self.w.record().write_all(&str)?;
         Ok(())
     }
 
     fn write_f32(&mut self, n: f32) -> crate::Result<()> {
         self.prev_char = false;
-        self.record().write_all(b" ")?;
+        self.w.record().write_all(b" ")?;
 
         // XXX
         let width = 16;
@@ -245,13 +241,13 @@ impl Writer for ListDirectedWriter<'_> {
         while str.len() < width {
             str.insert(0, ' ');
         }
-        self.record().write_all(&str.into_bytes())?;
+        self.w.record().write_all(&str.into_bytes())?;
         Ok(())
     }
 
     fn write_f64(&mut self, n: f64) -> crate::Result<()> {
         self.prev_char = false;
-        self.record().write_all(b" ")?;
+        self.w.record().write_all(b" ")?;
 
         // XXX
         let width = 25;
@@ -259,7 +255,7 @@ impl Writer for ListDirectedWriter<'_> {
         while str.len() < width {
             str.insert(0, ' ');
         }
-        self.record().write_all(&str.into_bytes())?;
+        self.w.record().write_all(&str.into_bytes())?;
         Ok(())
     }
 
@@ -269,59 +265,81 @@ impl Writer for ListDirectedWriter<'_> {
 
     fn write_str(&mut self, str: &[u8]) -> crate::Result<()> {
         if !self.prev_char {
-            self.record().write_all(b" ")?;
+            self.w.record().write_all(b" ")?;
             self.prev_char = true;
         }
 
-        self.record().write_all(str)?;
+        self.w.record().write_all(str)?;
         Ok(())
     }
 }
 
 pub struct UnformattedWriter<'a> {
-    _file: Rc<RefCell<dyn RecFile + 'a>>,
+    file: Rc<RefCell<dyn RecFile + 'a>>,
+    record: Option<Cursor<Vec<u8>>>,
+    recnum: Option<i32>,
 }
 
 impl<'a> UnformattedWriter<'a> {
     pub fn new(
-        _ctx: &'a mut Context,
-        _unit: Option<i32>,
-        _rec: Option<i32>,
+        ctx: &'a mut Context,
+        unit: Option<i32>,
+        recnum: Option<i32>,
     ) -> crate::Result<Self> {
-        todo!();
+        let file = ctx.write_unit(unit)?;
 
-        // let file = ctx.io_unit(unit)?;
-        //
-        // Ok(Self { file })
+        Ok(Self {
+            file,
+            record: None,
+            recnum,
+        })
+    }
+
+    fn flush(&mut self) -> crate::Result<()> {
+        if let Some(record) = self.record.take() {
+            self.file
+                .borrow_mut()
+                .write(self.recnum, &record.into_inner())?;
+
+            if let Some(recnum) = &mut self.recnum {
+                *recnum += 1;
+            }
+        }
+        Ok(())
+    }
+
+    fn record(&mut self) -> &mut Cursor<Vec<u8>> {
+        self.record.get_or_insert_with(|| Cursor::new(Vec::new()))
     }
 }
 
 impl Writer for UnformattedWriter<'_> {
     fn start(&mut self) -> crate::Result<()> {
-        todo!()
+        Ok(())
     }
 
     fn finish(&mut self) -> crate::Result<()> {
-        todo!()
+        self.flush()
     }
 
-    fn write_i32(&mut self, _n: i32) -> crate::Result<()> {
-        todo!()
+    fn write_i32(&mut self, n: i32) -> crate::Result<()> {
+        Ok(self.record().write_all(&n.to_le_bytes())?)
     }
 
-    fn write_f32(&mut self, _n: f32) -> crate::Result<()> {
-        todo!()
+    fn write_f32(&mut self, n: f32) -> crate::Result<()> {
+        Ok(self.record().write_all(&n.to_le_bytes())?)
     }
 
-    fn write_f64(&mut self, _n: f64) -> crate::Result<()> {
-        todo!()
+    fn write_f64(&mut self, n: f64) -> crate::Result<()> {
+        Ok(self.record().write_all(&n.to_le_bytes())?)
     }
 
-    fn write_bool(&mut self, _n: bool) -> crate::Result<()> {
-        todo!()
+    fn write_bool(&mut self, b: bool) -> crate::Result<()> {
+        let n: u32 = if b { 1 } else { 0 };
+        Ok(self.record().write_all(&n.to_le_bytes())?)
     }
 
-    fn write_str(&mut self, _str: &[u8]) -> crate::Result<()> {
-        todo!()
+    fn write_str(&mut self, str: &[u8]) -> crate::Result<()> {
+        Ok(self.record().write_all(str)?)
     }
 }
