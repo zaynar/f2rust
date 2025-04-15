@@ -640,6 +640,26 @@ impl GlobalAnalysis {
                     }
                 }
             }
+
+            // If an EQUIVALENCE is mutated, the owner of its data needs to be
+            // marked as mutated too
+            let mut equivs = vec![];
+            for (_name, sym) in program.symbols.iter() {
+                if let Some(ast::Expression::ArrayElement(alias, ..)) = &sym.ast.alias {
+                    equivs.push((alias.clone(), sym.mutated.clone()));
+                }
+                if let Some(equiv) = &sym.ast.equivalence {
+                    equivs.push((equiv.clone(), sym.mutated.clone()));
+                }
+            }
+            for (equiv, mutated) in equivs {
+                let sym = program.symbols.get_mut(&equiv)?;
+                for m in mutated {
+                    if sym.mutated.insert(m) {
+                        dirty = true;
+                    }
+                }
+            }
         }
 
         Ok(dirty)

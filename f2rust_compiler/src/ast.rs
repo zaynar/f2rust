@@ -637,6 +637,9 @@ pub struct Symbol {
 
     /// EQUIVALENCE effectively defines this as an alias for an array element
     pub alias: Option<Expression>,
+
+    /// EQUIVALENCE defines this as sharing storage with another equal-sized object
+    pub equivalence: Option<String>,
 }
 
 impl Symbol {
@@ -703,6 +706,7 @@ impl Default for Symbol {
             parameter: None,
             save: false,
             alias: None,
+            equivalence: None,
         }
     }
 }
@@ -827,6 +831,10 @@ impl SymbolTable {
 
     fn set_alias(&mut self, name: &str, e: Expression) {
         self.entry(name).alias = Some(e);
+    }
+
+    fn set_equivalence(&mut self, name: &str, equiv: &str) {
+        self.entry(name).equivalence = Some(equiv.to_owned());
     }
 
     pub fn contains_key(&self, name: &str) -> bool {
@@ -1246,12 +1254,13 @@ impl Parser {
 
                 let ns = &nlist[0];
 
-                // Some code says e.g.:
-                //    EQUIVALENCE (BEGIN, PTR(1))
-                //    EQUIVALENCE (END,   PTR(2))
-                // which is basically just an alias for the elements, so handle that specially
                 match (&ns[0], &ns[1]) {
-                    (DataName::Variable(s1), DataName::ArrayElement(s2, idxs)) => {
+                    (DataName::Variable(s1), DataName::ArrayElement(s2, ..)) => {
+                        // Some code says e.g.:
+                        //    EQUIVALENCE (BEGIN, PTR(1))
+                        //    EQUIVALENCE (END,   PTR(2))
+                        // which is basically just an alias for the elements, so handle that case;
+                        // all references to the symbol will be replaced with an element access
                         let sym1 = self.symbols.get(s1).unwrap();
                         let sym2 = self.symbols.get(s2).unwrap();
                         if !sym1.dims.is_empty() || sym1.base_type != sym2.base_type {
@@ -1263,7 +1272,32 @@ impl Parser {
                         self.symbols.set_alias(s1, e2);
                     }
                     (DataName::Variable(s1), DataName::Variable(s2)) => {
-                        warn!("EQUIVALENCE: {s1} {s2}");
+                        // When two scalars/arrays of equal size (in bytes) are equivalenced,
+                        // we pick the one with the strongest alignment requirement as the primary
+                        // representation. The other symbol is defined as an alias, which
+                        // casts to the required type on every access. (That results in some
+                        // ugly generated code, but casting on every access keeps the borrow
+                        // checker happy.)
+
+                        // Swap them so the DOUBLE comes first, for alignment
+                        let (s1, s2) =
+                            if self.symbols.get(s2).unwrap().base_type == DataType::Double {
+                                (s2, s1)
+                            } else {
+                                (s1, s2)
+                            };
+
+                        let _sym1 = self.symbols.get(s1).unwrap();
+                        let sym2 = self.symbols.get(s2).unwrap();
+
+                        // We've only bothered implementing this in DummyArray for now
+                        if sym2.dims.len() != 1 {
+                            bail!("EQUIVALENCE only supported with a 1-dimensional array");
+                        }
+
+                        // TODO: verify the sizes are the same, to avoid runtime errors
+
+                        self.symbols.set_equivalence(s2, s1);
                     }
                     _ => {
                         bail!("EQUIVALENCE only supported between variables and array elements");

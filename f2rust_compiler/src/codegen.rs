@@ -34,12 +34,15 @@ enum RustType {
     SaveActualCharArray, // `struct SaveVars { X: ActualCharArray }`
     Procedure,           // `fn X(...)` / `fn F(X: fn() -> i32)`
     LocalDoVar,          // `for X in 0..1`
+    EquivArray,          // Like DummyArray but in EQUIVALENCE with a Primitive/ActualArray
+    EquivArrayMut,       // Like DummyArrayMut but etc
 }
 
 /// The syntactic contexts in which a symbol name or expression can be used
 #[derive(Debug, Clone, Copy)]
 enum Ctx {
     Value,            // `X + 1`
+    ValueMut,         // `X.slice_mut()`
     ArgScalar,        // `F(X)` where F expects a scalar (primitive or string)
     ArgScalarMut,     // `F(&mut X)`
     ArgScalarAliased, // `F(&X.clone())`
@@ -73,6 +76,12 @@ impl Symbol {
         // declared and used
         let rs_ty = if sym.ast.do_var && !sym.ast.outside_do {
             RustType::LocalDoVar
+        } else if let Some(_equiv) = &sym.ast.equivalence {
+            if mutated {
+                RustType::EquivArrayMut
+            } else {
+                RustType::EquivArray
+            }
         } else if sym.ast.called {
             RustType::Procedure
         } else if !sym.ast.dims.is_empty() {
@@ -439,6 +448,20 @@ impl CodeGenUnit<'_> {
                 | RustType::SaveActualArray
                 | RustType::SaveActualCharArray => format!("save.{name}"),
                 RustType::SaveChar => format!("&save.{name}"),
+
+                RustType::EquivArray | RustType::EquivArrayMut => format!(
+                    "DummyArray::<{ty}>::from_equiv({}, {})",
+                    self.emit_symbol(sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArray)?,
+                    self.emit_dims(sym)?
+                ),
+            },
+            Ctx::ValueMut => match sym.rs_ty {
+                RustType::EquivArrayMut => format!(
+                    "DummyArrayMut::<{ty}>::from_equiv({}, {})",
+                    self.emit_symbol(sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArrayMut)?,
+                    self.emit_dims(sym)?
+                ),
+                _ => self.emit_symbol(name, Ctx::Value)?,
             },
             Ctx::ArgScalar => match sym.rs_ty {
                 // When passing an array as a scalar, we take the first element
@@ -473,7 +496,9 @@ impl CodeGenUnit<'_> {
                 | RustType::DummyCharArray
                 | RustType::CharSliceRef
                 | RustType::Procedure
-                | RustType::LocalDoVar => {
+                | RustType::LocalDoVar
+                | RustType::EquivArray
+                | RustType::EquivArrayMut => {
                     bail!("invalid context {ctx:?} for symbol {name}: {sym:?}")
                 }
             },
@@ -505,6 +530,11 @@ impl CodeGenUnit<'_> {
                 RustType::SaveActualCharArray => format!("save.{name}.as_arg()"),
                 RustType::Procedure => format!("&[{name}]"),
                 RustType::LocalDoVar => format!("&[{name}]"),
+                RustType::EquivArray | RustType::EquivArrayMut => format!(
+                    "&DummyArray::<{ty}>::from_equiv({}, {})",
+                    self.emit_symbol(sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArray)?,
+                    self.emit_dims(sym)?
+                ),
             },
             Ctx::ArgArrayMut => match sym.rs_ty {
                 // slice::from_mut converts &mut T to &mut [T]
@@ -520,12 +550,18 @@ impl CodeGenUnit<'_> {
                 RustType::SaveChar => format!("CharArrayMut::from_mut(&mut save.{name})"),
                 RustType::SaveActualArray => format!("&mut save.{name}"),
                 RustType::SaveActualCharArray => format!("save.{name}.as_arg_mut()"),
+                RustType::EquivArrayMut => format!(
+                    "&mut DummyArrayMut::<{ty}>::from_equiv({}, {})",
+                    self.emit_symbol(sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArrayMut)?,
+                    self.emit_dims(sym)?
+                ),
                 RustType::Primitive
                 | RustType::DummyArray
                 | RustType::DummyCharArray
                 | RustType::CharSliceRef
                 | RustType::Procedure
-                | RustType::LocalDoVar => {
+                | RustType::LocalDoVar
+                | RustType::EquivArray => {
                     bail!("invalid context {ctx:?} for symbol {name}: {sym:?}")
                 }
             },
@@ -551,7 +587,9 @@ impl CodeGenUnit<'_> {
                 | RustType::SaveChar
                 | RustType::SaveActualArray
                 | RustType::SaveActualCharArray
-                | RustType::LocalDoVar => {
+                | RustType::LocalDoVar
+                | RustType::EquivArray
+                | RustType::EquivArrayMut => {
                     bail!("invalid context {ctx:?} for symbol {name}: {sym:?}")
                 }
             },
@@ -568,12 +606,18 @@ impl CodeGenUnit<'_> {
                 | RustType::DummyArrayMut
                 | RustType::DummyCharArrayMut => name.to_owned(),
                 RustType::SaveActualArray | RustType::SaveActualCharArray => format!("save.{name}"),
+                RustType::EquivArrayMut => format!(
+                    "DummyArrayMut::<{ty}>::from_equiv({}, {})",
+                    self.emit_symbol(sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArrayMut)?,
+                    self.emit_dims(sym)?
+                ),
                 RustType::Primitive
                 | RustType::DummyArray
                 | RustType::DummyCharArray
                 | RustType::CharSliceRef
                 | RustType::Procedure
-                | RustType::LocalDoVar => {
+                | RustType::LocalDoVar
+                | RustType::EquivArray => {
                     bail!("invalid context {ctx:?} for symbol {name}: {sym:?}")
                 }
             },
@@ -936,7 +980,11 @@ impl CodeGenUnit<'_> {
                         }
                     }
                     Expression::ArrayElement(name, idx) => {
-                        let s = self.emit_symbol(name, Ctx::Value)?;
+                        let s = if darg.mutated {
+                            self.emit_symbol(name, Ctx::ValueMut)?
+                        } else {
+                            self.emit_symbol(name, Ctx::Value)?
+                        };
                         let sym = self.syms.get(name)?;
                         if sym.ast.dims.is_empty() {
                             bail!("cannot access element of non-array");
@@ -1264,26 +1312,30 @@ impl CodeGenUnit<'_> {
         Ok(code)
     }
 
+    /// Dimension declarator for an array
+    fn emit_dims(&self, sym: &Symbol) -> Result<String> {
+        let dims = sym.ast.dims.iter().map(|dim| {
+            let lower = match &dim.lower {
+                None => "1".to_owned(),
+                Some(e) => self.emit_expression(e)?,
+            };
+            match &dim.upper {
+                None => Ok(format!("{lower} .. ")),
+                Some(e) => {
+                    let e = self.emit_expression(e)?;
+                    Ok(format!("{lower} ..= {e}"))
+                }
+            }
+        });
+        Ok(dims.collect::<Result<Vec<_>>>()?.join(", "))
+    }
+
     /// Initialise local variables (including DummyArray accessors etc)
     fn emit_initialiser(&self, name: &String, sym: &Symbol, is_mut: bool) -> Result<String> {
         let mut code = String::new();
 
         if !sym.ast.dims.is_empty() {
-            // Dimension declarator for an array
-            let dims = sym.ast.dims.iter().map(|dim| {
-                let lower = match &dim.lower {
-                    None => "1".to_owned(),
-                    Some(e) => self.emit_expression(e)?,
-                };
-                match &dim.upper {
-                    None => Ok(format!("{lower} .. ")),
-                    Some(e) => {
-                        let e = self.emit_expression(e)?;
-                        Ok(format!("{lower} ..= {e}"))
-                    }
-                }
-            });
-            let dims = dims.collect::<Result<Vec<_>>>()?.join(", ");
+            let dims = self.emit_dims(sym)?;
 
             // Find whether this is a Char array (with optional string length) or normal array
             let (char_label, char_len) = match sym.ast.base_type {

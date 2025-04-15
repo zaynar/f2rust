@@ -64,7 +64,7 @@ appropriate use of pass-by-value and pass-by-`&mut`-reference,
 arrays are passed as `&[T]` slices, strings are `&[u8]`, etc.
 This reduces the need for a custom wrapper around the translated code.
 
-* No `unsafe`.
+* No `unsafe`. (Not counting the use of `bytemuck` for `EQUIVALENCE`.)
 
 * Thread-safety. `SAVE` variables are implemented with a `Context` argument
 that is passed between functions, instead of using `static` or any other global state.

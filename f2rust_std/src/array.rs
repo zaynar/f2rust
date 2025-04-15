@@ -237,6 +237,24 @@ impl<'a, T> DummyArrayMut<'a, T> {
     }
 }
 
+impl<'a, T> DummyArray<'a, T>
+where
+    T: bytemuck::Pod,
+{
+    pub fn from_equiv<S: bytemuck::Pod, B0: RangeBounds<i32>>(orig: &'a [S], b0: B0) -> Self {
+        Self::new(bytemuck::must_cast_slice(orig), b0)
+    }
+}
+
+impl<'a, T> DummyArrayMut<'a, T>
+where
+    T: bytemuck::Pod,
+{
+    pub fn from_equiv<S: bytemuck::Pod, B0: RangeBounds<i32>>(orig: &'a mut [S], b0: B0) -> Self {
+        Self::new(bytemuck::must_cast_slice_mut(orig), b0)
+    }
+}
+
 fn bounded_data<'a, T>(bounds: &[(i32, i32)], r: &'a [T]) -> &'a [T] {
     if bounds.last().unwrap().1 == i32::MAX {
         r
@@ -476,4 +494,38 @@ impl<T> IndexMut<[i32; 2]> for DummyArrayMut2D<'_, T> {
         let offset = self.offset(index);
         &mut self.data[offset]
     }
+}
+
+#[test]
+fn test_equivalence_array() {
+    let mut orig: ActualArray<f64> = ActualArray::new(1..=2);
+    orig[1] = 1.0;
+    orig[2] = 2.0;
+
+    let mut ints = DummyArrayMut::<i32>::from_equiv(&mut orig, 1..);
+
+    assert_eq!(ints[1], 0x00000000);
+    assert_eq!(ints[2], 0x3ff00000);
+    assert_eq!(ints[3], 0x00000000);
+    assert_eq!(ints[4], 0x40000000);
+
+    ints[2] = 0x40000000;
+    ints[4] = 0x3ff00000;
+
+    assert_eq!(orig[1], 2.0);
+    assert_eq!(orig[2], 1.0);
+}
+
+#[test]
+fn test_equivalence_val() {
+    let mut orig: f64 = 1.0;
+
+    let mut ints = DummyArrayMut::<i32>::from_equiv(std::slice::from_mut(&mut orig), 1..);
+
+    assert_eq!(ints[1], 0x00000000);
+    assert_eq!(ints[2], 0x3ff00000);
+
+    ints[2] = 0x40000000;
+
+    assert_eq!(orig, 2.0);
 }

@@ -322,6 +322,11 @@ mod tests {
     }
 
     #[test]
+    fn F_MOVED() -> Result<()> {
+        tspice(tspice::F_MOVED)
+    }
+
+    #[test]
     fn F_Q2M() -> Result<()> {
         tspice(tspice::F_Q2M)
     }
@@ -329,5 +334,15 @@ mod tests {
     #[test]
     fn F_VECTOR3() -> Result<()> {
         tspice(tspice::F_VECTOR3)
+    }
+
+    #[test]
+    fn F_VECTORG() -> Result<()> {
+        tspice(tspice::F_VECTORG)
+    }
+
+    #[test]
+    fn F_ZZPLAT() -> Result<()> {
+        tspice(tspice::F_ZZPLAT)
     }
 }

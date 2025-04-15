@@ -508,9 +508,11 @@ fn main() -> Result<()> {
     sources.extend(deps.trans[&("tspice".to_owned(), "f_et2utc.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_euler.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_m2q.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_moved.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_q2m.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_vector3.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_vectorg.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_zzplat.f".to_owned())].clone());
 
     sources.extend(deps.trans[&("testutil".to_owned(), "tsetup.f".to_owned())].clone());
     sources.extend(deps.trans[&("testutil".to_owned(), "tclose.f".to_owned())].clone());
@@ -526,7 +528,7 @@ fn main() -> Result<()> {
     sources.sort();
 
     // TODO:
-    // ckcov, str2et, scs2e, scencd, scdecd, spkpos, bodvrd, pxform, sctiks, ckgp, ...
+    // str2et, scs2e, scencd, scdecd, spkpos, bodvrd, pxform, sctiks, ckgp, ...
 
     // let sources = deps.assigned.keys().collect::<Vec<_>>();
 
