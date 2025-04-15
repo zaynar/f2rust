@@ -1,9 +1,7 @@
 use crate::format::{EditDescriptor, Nonrepeatable, ParsedFormatSpecIter, Repeatable};
-use crate::io::RecFile;
-use crate::{Context, Error, format};
-use std::cell::RefCell;
+use crate::io::RecFileRef;
+use crate::{Error, format};
 use std::io::{Cursor, Read, Seek};
-use std::rc::Rc;
 
 pub trait Reader {
     fn start(&mut self) -> crate::Result<()>;
@@ -16,7 +14,7 @@ pub trait Reader {
 }
 
 pub struct FormattedReader<'a> {
-    file: Rc<RefCell<dyn RecFile + 'a>>,
+    file: RecFileRef<'a>,
 
     iter: ParsedFormatSpecIter,
     awaiting: Option<Repeatable>,
@@ -26,13 +24,7 @@ pub struct FormattedReader<'a> {
 }
 
 impl<'a> FormattedReader<'a> {
-    pub fn new(
-        ctx: &'a mut Context,
-        unit: Option<i32>,
-        recnum: Option<i32>,
-        fmt: &[u8],
-    ) -> crate::Result<Self> {
-        let file = ctx.read_unit(unit)?;
+    pub fn new(file: RecFileRef<'a>, recnum: Option<i32>, fmt: &[u8]) -> crate::Result<Self> {
         let fmt = format::FormatParser::new(fmt).parse()?;
 
         Ok(Self {
@@ -134,12 +126,13 @@ impl Reader for FormattedReader<'_> {
         match self.awaiting.take() {
             Some(Repeatable::A { w: Some(w) }) => {
                 if str.len() < w {
+                    // Take the rightmost `len` characters from the input field
                     self.seek_relative((w - str.len()) as i64)?;
                     self.read_exact(str)?;
                 } else {
-                    let start = str.len() - w;
-                    str[0..start].fill(b' ');
-                    self.read_exact(&mut str[start..])?;
+                    // Read with trailing blanks
+                    self.read_exact(&mut str[0..w])?;
+                    str[w..].fill(b' ');
                 }
             }
             Some(Repeatable::A { w: None }) => {
@@ -201,20 +194,14 @@ impl Reader for ListDirectedReader<'_> {
 */
 
 pub struct UnformattedReader<'a> {
-    file: Rc<RefCell<dyn RecFile + 'a>>,
+    file: RecFileRef<'a>,
 
     record: Option<Cursor<Vec<u8>>>,
     recnum: Option<i32>,
 }
 
 impl<'a> UnformattedReader<'a> {
-    pub fn new(
-        ctx: &'a mut Context,
-        unit: Option<i32>,
-        recnum: Option<i32>,
-    ) -> crate::Result<Self> {
-        let file = ctx.read_unit(unit)?;
-
+    pub fn new(file: RecFileRef<'a>, recnum: Option<i32>) -> crate::Result<Self> {
         Ok(Self {
             file,
 

@@ -76,6 +76,8 @@ pub trait RecFile {
     fn write(&mut self, recnum: Option<i32>, record: &[u8]) -> Result<()>;
 }
 
+pub type RecFileRef<'a> = Rc<RefCell<dyn RecFile + 'a>>;
+
 struct FsRecFile {
     reader: Option<BufReader<std::fs::File>>,
     writer: Option<BufWriter<std::fs::File>>,
@@ -293,9 +295,49 @@ impl<W: Write> RecFile for WriterRecFile<W> {
     }
 }
 
+pub struct InternalFile<'a> {
+    buf: &'a mut [u8],
+    nextrec: i32,
+}
+
+impl<'a> InternalFile<'a> {
+    pub fn open(buf: &'a mut [u8]) -> RecFileRef<'a> {
+        Rc::new(RefCell::new(Self { buf, nextrec: 0 }))
+    }
+}
+
+impl<'a> RecFile for InternalFile<'a> {
+    fn read(&mut self, recnum: Option<i32>) -> Result<Vec<u8>> {
+        assert!(
+            recnum.is_none(),
+            "internal files must be accessed sequentially"
+        );
+        if self.nextrec == 0 {
+            self.nextrec += 1;
+            Ok(self.buf.to_vec())
+        } else {
+            Err(Error::EndOfFile)
+        }
+    }
+
+    fn write(&mut self, recnum: Option<i32>, record: &[u8]) -> Result<()> {
+        assert!(
+            recnum.is_none(),
+            "internal files must be accessed sequentially"
+        );
+        if self.nextrec == 0 {
+            self.nextrec += 1;
+            fstr::assign(self.buf, record);
+            Ok(())
+        } else {
+            Err(Error::EndOfFile)
+        }
+    }
+}
+
 struct Unit<'a> {
     path: Option<PathBuf>,
-    file: Rc<RefCell<dyn RecFile + 'a>>,
+    file: RecFileRef<'a>,
 }
 
 impl<'a> Unit<'a> {
@@ -342,19 +384,11 @@ impl<'a> FileManager<'a> {
         Ok(self.cwd.join(str))
     }
 
-    fn io_unit(&mut self, unit: i32) -> Result<Rc<RefCell<dyn RecFile + 'a>>> {
+    pub fn io_unit(&mut self, unit: i32) -> Result<RecFileRef<'a>> {
         match self.units.get(&unit) {
             None => panic!("TODO: report missing unit"),
             Some(u) => Ok(Rc::clone(&u.file)),
         }
-    }
-
-    pub fn read_unit(&mut self, unit: Option<i32>) -> Result<Rc<RefCell<dyn RecFile + 'a>>> {
-        self.io_unit(unit.unwrap_or(5))
-    }
-
-    pub fn write_unit(&mut self, unit: Option<i32>) -> Result<Rc<RefCell<dyn RecFile + 'a>>> {
-        self.io_unit(unit.unwrap_or(6))
     }
 
     pub fn set_stdout<W: Write + 'a>(&mut self, writer: W) {

@@ -1,10 +1,8 @@
+use crate::format;
 use crate::format::{EditDescriptor, Nonrepeatable, ParsedFormatSpecIter, Repeatable};
-use crate::io::RecFile;
-use crate::{Context, format};
-use std::cell::RefCell;
+use crate::io::RecFileRef;
 use std::io::{Cursor, Write};
 use std::iter::repeat_n;
-use std::rc::Rc;
 
 pub trait Writer {
     fn start(&mut self) -> crate::Result<()>;
@@ -55,7 +53,7 @@ fn format_i(n: i32, w: usize, m: Option<usize>, plus: Option<bool>) -> Vec<u8> {
 }
 
 pub struct FormattedWriter<'a> {
-    file: Rc<RefCell<dyn RecFile + 'a>>,
+    file: RecFileRef<'a>,
 
     iter: ParsedFormatSpecIter,
     awaiting: Option<Repeatable>,
@@ -67,13 +65,7 @@ pub struct FormattedWriter<'a> {
 }
 
 impl<'a> FormattedWriter<'a> {
-    pub fn new(
-        ctx: &'a mut Context,
-        unit: Option<i32>,
-        recnum: Option<i32>,
-        fmt: &[u8],
-    ) -> crate::Result<Self> {
-        let file = ctx.write_unit(unit)?;
+    pub fn new(file: RecFileRef<'a>, recnum: Option<i32>, fmt: &[u8]) -> crate::Result<Self> {
         let fmt = format::FormatParser::new(fmt).parse()?;
 
         Ok(Self {
@@ -201,13 +193,9 @@ pub struct ListDirectedWriter<'a> {
 }
 
 impl<'a> ListDirectedWriter<'a> {
-    pub fn new(
-        ctx: &'a mut Context,
-        unit: Option<i32>,
-        recnum: Option<i32>,
-    ) -> crate::Result<Self> {
+    pub fn new(file: RecFileRef<'a>, recnum: Option<i32>) -> crate::Result<Self> {
         Ok(Self {
-            w: FormattedWriter::new(ctx, unit, recnum, b"(A)")?,
+            w: FormattedWriter::new(file, recnum, b"(A)")?,
             prev_char: false,
         })
     }
@@ -275,19 +263,13 @@ impl Writer for ListDirectedWriter<'_> {
 }
 
 pub struct UnformattedWriter<'a> {
-    file: Rc<RefCell<dyn RecFile + 'a>>,
+    file: RecFileRef<'a>,
     record: Option<Cursor<Vec<u8>>>,
     recnum: Option<i32>,
 }
 
 impl<'a> UnformattedWriter<'a> {
-    pub fn new(
-        ctx: &'a mut Context,
-        unit: Option<i32>,
-        recnum: Option<i32>,
-    ) -> crate::Result<Self> {
-        let file = ctx.write_unit(unit)?;
-
+    pub fn new(file: RecFileRef<'a>, recnum: Option<i32>) -> crate::Result<Self> {
         Ok(Self {
             file,
             record: None,

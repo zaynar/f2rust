@@ -1,9 +1,7 @@
-use f2rust_std::io::{
-    CloseSpecs, FormattedReader, FormattedWriter, ListDirectedWriter, OpenSpecs, Reader,
-    UnformattedReader, UnformattedWriter, Writer,
-};
+use f2rust_std::io::*;
 use f2rust_std::{Context, Error, Result};
 use std::io::{Read, Seek};
+use std::rc::Rc;
 use tempfile::NamedTempFile;
 
 #[test]
@@ -11,7 +9,7 @@ fn sequential_formatted() -> Result<()> {
     let mut ctx = Context::new();
     let mut tmp = NamedTempFile::with_prefix("f2rust_std-")?;
 
-    let unit = Some(1);
+    let unit = 1;
     let file = tmp
         .path()
         .as_os_str()
@@ -20,7 +18,7 @@ fn sequential_formatted() -> Result<()> {
         .to_owned();
 
     ctx.open(OpenSpecs {
-        unit,
+        unit: Some(unit),
         file: Some(file.as_bytes()),
         status: Some(b"OLD"),
         access: Some(b"SEQUENTIAL"),
@@ -29,7 +27,7 @@ fn sequential_formatted() -> Result<()> {
     })?;
 
     for i in 1..=3 {
-        let mut w = FormattedWriter::new(&mut ctx, unit, None, b"(A,A,I4)")?;
+        let mut w = FormattedWriter::new(ctx.io_unit(unit)?, None, b"(A,A,I4)")?;
         w.start()?;
 
         w.write_str(b"Hello ")?;
@@ -39,7 +37,10 @@ fn sequential_formatted() -> Result<()> {
         w.finish()?;
     }
 
-    ctx.close(CloseSpecs { unit, status: None })?;
+    ctx.close(CloseSpecs {
+        unit: Some(unit),
+        status: None,
+    })?;
 
     let mut content = Vec::new();
     tmp.read_to_end(&mut content)?;
@@ -50,7 +51,7 @@ fn sequential_formatted() -> Result<()> {
     tmp.rewind()?;
 
     ctx.open(OpenSpecs {
-        unit,
+        unit: Some(unit),
         file: Some(file.as_bytes()),
         status: Some(b"OLD"),
         access: Some(b"SEQUENTIAL"),
@@ -59,7 +60,7 @@ fn sequential_formatted() -> Result<()> {
     })?;
 
     {
-        let mut r = FormattedReader::new(&mut ctx, unit, None, b"(A)")?;
+        let mut r = FormattedReader::new(ctx.io_unit(unit)?, None, b"(A)")?;
         r.start()?;
 
         let mut buf = vec![b'x'; 100];
@@ -72,21 +73,24 @@ fn sequential_formatted() -> Result<()> {
     }
 
     {
-        let mut w = FormattedWriter::new(&mut ctx, unit, None, b"(A)")?;
+        let mut w = FormattedWriter::new(ctx.io_unit(unit)?, None, b"(A)")?;
         w.start()?;
         w.write_str(b"Bye")?;
         w.finish()?;
     }
 
     {
-        let mut r = FormattedReader::new(&mut ctx, unit, None, b"(A)")?;
+        let mut r = FormattedReader::new(ctx.io_unit(unit)?, None, b"(A)")?;
         r.start()?;
         let mut buf = vec![b'x'; 100];
         assert!(matches!(r.read_str(&mut buf), Err(Error::EndOfFile)));
         r.finish()?;
     }
 
-    ctx.close(CloseSpecs { unit, status: None })?;
+    ctx.close(CloseSpecs {
+        unit: Some(unit),
+        status: None,
+    })?;
 
     let mut content = Vec::new();
     tmp.read_to_end(&mut content)?;
@@ -101,7 +105,7 @@ fn list_directed() -> Result<()> {
     let mut ctx = Context::new();
     let mut tmp = NamedTempFile::with_prefix("f2rust_std-")?;
 
-    let unit = Some(1);
+    let unit = 1;
     let file = tmp
         .path()
         .as_os_str()
@@ -110,7 +114,7 @@ fn list_directed() -> Result<()> {
         .to_owned();
 
     ctx.open(OpenSpecs {
-        unit,
+        unit: Some(unit),
         file: Some(file.as_bytes()),
         status: Some(b"OLD"),
         access: Some(b"SEQUENTIAL"),
@@ -119,7 +123,7 @@ fn list_directed() -> Result<()> {
     })?;
 
     for i in 1..=3 {
-        let mut w = ListDirectedWriter::new(&mut ctx, unit, None)?;
+        let mut w = ListDirectedWriter::new(ctx.io_unit(unit)?, None)?;
         w.start()?;
 
         w.write_str(b"Hello ")?;
@@ -129,7 +133,10 @@ fn list_directed() -> Result<()> {
         w.finish()?;
     }
 
-    ctx.close(CloseSpecs { unit, status: None })?;
+    ctx.close(CloseSpecs {
+        unit: Some(unit),
+        status: None,
+    })?;
 
     let mut content = Vec::new();
     tmp.read_to_end(&mut content)?;
@@ -147,7 +154,7 @@ fn sequential_unformatted() -> Result<()> {
     let mut ctx = Context::new();
     let mut tmp = NamedTempFile::with_prefix("f2rust_std-")?;
 
-    let unit = Some(1);
+    let unit = 1;
     let file = tmp
         .path()
         .as_os_str()
@@ -156,7 +163,7 @@ fn sequential_unformatted() -> Result<()> {
         .to_owned();
 
     ctx.open(OpenSpecs {
-        unit,
+        unit: Some(unit),
         file: Some(file.as_bytes()),
         status: Some(b"OLD"),
         access: Some(b"SEQUENTIAL"),
@@ -165,7 +172,7 @@ fn sequential_unformatted() -> Result<()> {
     })?;
 
     for i in 1..=2 {
-        let mut w = UnformattedWriter::new(&mut ctx, unit, None)?;
+        let mut w = UnformattedWriter::new(ctx.io_unit(unit)?, None)?;
         w.start()?;
 
         w.write_i32(0x11223344 * i)?;
@@ -178,7 +185,10 @@ fn sequential_unformatted() -> Result<()> {
         w.finish()?;
     }
 
-    ctx.close(CloseSpecs { unit, status: None })?;
+    ctx.close(CloseSpecs {
+        unit: Some(unit),
+        status: None,
+    })?;
 
     let mut content = Vec::new();
     tmp.read_to_end(&mut content)?;
@@ -206,7 +216,7 @@ fn sequential_unformatted() -> Result<()> {
     tmp.rewind()?;
 
     ctx.open(OpenSpecs {
-        unit,
+        unit: Some(unit),
         file: Some(file.as_bytes()),
         status: Some(b"OLD"),
         access: Some(b"SEQUENTIAL"),
@@ -215,7 +225,7 @@ fn sequential_unformatted() -> Result<()> {
     })?;
 
     for i in 1..=2 {
-        let mut r = UnformattedReader::new(&mut ctx, unit, None)?;
+        let mut r = UnformattedReader::new(ctx.io_unit(unit)?, None)?;
         r.start()?;
 
         assert_eq!(r.read_i32()?, 0x11223344 * i);
@@ -234,14 +244,53 @@ fn sequential_unformatted() -> Result<()> {
     }
 
     {
-        let mut r = UnformattedReader::new(&mut ctx, unit, None)?;
+        let mut r = UnformattedReader::new(ctx.io_unit(unit)?, None)?;
         r.start()?;
 
         println!("{:?}", r.read_i32());
         assert!(matches!(r.read_i32(), Err(Error::EndOfFile)));
     }
 
-    ctx.close(CloseSpecs { unit, status: None })?;
+    ctx.close(CloseSpecs {
+        unit: Some(unit),
+        status: None,
+    })?;
+
+    Ok(())
+}
+
+#[test]
+fn internal_file() -> Result<()> {
+    let mut content = vec![b' '; 30];
+
+    {
+        let file = InternalFile::open(&mut content);
+        let mut w = ListDirectedWriter::new(Rc::clone(&file), None)?;
+        w.start()?;
+
+        w.write_str(b"Hello ")?;
+        w.write_str(b"world")?;
+        w.write_i32(1)?;
+
+        w.finish()?;
+    }
+
+    assert_eq!(content, b" Hello world           1      ");
+
+    {
+        let mut buf = vec![b'x'; 20];
+
+        let file = InternalFile::open(&mut content);
+        let mut r = FormattedReader::new(Rc::clone(&file), None, b"(A12,I12)")?;
+        r.start()?;
+        r.read_str(&mut buf)?;
+        assert_eq!(buf.trim_ascii_end(), b" Hello world");
+        r.finish()?;
+
+        let mut r = FormattedReader::new(Rc::clone(&file), None, b"(A12,I12)")?;
+        r.start()?;
+        assert!(matches!(r.read_str(&mut buf), Err(Error::EndOfFile)));
+    }
 
     Ok(())
 }

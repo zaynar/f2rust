@@ -22,7 +22,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::io::{FileManager, RecFile};
+use crate::io::{FileManager, RecFileRef};
 use crate::{Error, Result, fstr, io};
 
 pub trait SaveInit {
@@ -98,12 +98,16 @@ impl<'a> Context<'a> {
         values[7] = (now.nanosecond() / 1_000_000) as i32;
     }
 
-    pub fn read_unit(&mut self, unit: Option<i32>) -> Result<Rc<RefCell<dyn RecFile + 'a>>> {
-        self.file_manager.read_unit(unit)
+    pub fn default_read_unit(&mut self) -> Result<RecFileRef<'a>> {
+        self.file_manager.io_unit(5)
     }
 
-    pub fn write_unit(&mut self, unit: Option<i32>) -> Result<Rc<RefCell<dyn RecFile + 'a>>> {
-        self.file_manager.write_unit(unit)
+    pub fn default_write_unit(&mut self) -> Result<RecFileRef<'a>> {
+        self.file_manager.io_unit(6)
+    }
+
+    pub fn io_unit(&mut self, unit: i32) -> Result<RecFileRef<'a>> {
+        self.file_manager.io_unit(unit)
     }
 
     pub fn inquire(&mut self, specs: io::InquireSpecs) -> Result<()> {

@@ -1896,12 +1896,15 @@ impl CodeGenUnit<'_> {
                 code += "  use f2rust_std::{data::Val, io::{self, Reader}};\n\n";
 
                 let unit = match unit {
-                    Specifier::Asterisk => "None".to_owned(),
+                    Specifier::Asterisk => "ctx.default_read_unit()?".to_owned(),
                     Specifier::Expression(e) => {
                         if e.resolve_type(&self.syms)? != DataType::Integer {
-                            bail!("internal file identifiers not supported");
+                            bail!("TODO: internal files not supported in READ");
                         }
-                        format!("Some({})", self.emit_expression_ctx(e, Ctx::ArgScalar)?)
+                        format!(
+                            "ctx.io_unit({})?",
+                            self.emit_expression_ctx(e, Ctx::ArgScalar)?
+                        )
                     }
                 };
                 let rec = match other.get("REC") {
@@ -1913,13 +1916,13 @@ impl CodeGenUnit<'_> {
                 match fmt {
                     Some(ast::Specifier::Expression(e)) => {
                         let fmt = self.emit_expression_ctx(e, Ctx::ArgScalar)?;
-                        code += &format!("io::FormattedReader::new(ctx, {unit}, {rec}, {fmt})?;\n");
+                        code += &format!("io::FormattedReader::new({unit}, {rec}, {fmt})?;\n");
                     }
                     Some(ast::Specifier::Asterisk) => {
-                        code += &format!("io::ListDirectedReader::new(ctx, {unit}, {rec})?;\n");
+                        code += &format!("io::ListDirectedReader::new({unit}, {rec})?;\n");
                     }
                     None => {
-                        code += &format!("io::UnformattedReader::new(ctx, {unit}, {rec})?;\n");
+                        code += &format!("io::UnformattedReader::new({unit}, {rec})?;\n");
                     }
                 }
 
@@ -1952,12 +1955,20 @@ impl CodeGenUnit<'_> {
                 code += "  use f2rust_std::{data::Val, io::{self, Writer}};\n\n";
 
                 let unit = match unit {
-                    Specifier::Asterisk => "None".to_owned(),
+                    Specifier::Asterisk => "ctx.default_write_unit()?".to_owned(),
                     Specifier::Expression(e) => {
-                        if e.resolve_type(&self.syms)? != DataType::Integer {
-                            bail!("internal file identifiers not supported");
+                        if e.resolve_type(&self.syms)? == DataType::Integer {
+                            format!(
+                                "ctx.io_unit({})?",
+                                self.emit_expression_ctx(e, Ctx::ArgScalar)?
+                            )
+                        } else {
+                            code += &format!(
+                                "  let internal_file = io::InternalFile::open({});\n",
+                                self.emit_expression_ctx(e, Ctx::ArgScalarMut)?
+                            );
+                            "internal_file".to_owned()
                         }
-                        format!("Some({})", self.emit_expression_ctx(e, Ctx::ArgScalar)?)
                     }
                 };
                 let rec = match other.get("REC") {
@@ -1969,13 +1980,13 @@ impl CodeGenUnit<'_> {
                 match fmt {
                     Some(ast::Specifier::Expression(e)) => {
                         let fmt = self.emit_expression_ctx(e, Ctx::ArgScalar)?;
-                        code += &format!("io::FormattedWriter::new(ctx, {unit}, {rec}, {fmt})?;\n");
+                        code += &format!("io::FormattedWriter::new({unit}, {rec}, {fmt})?;\n");
                     }
                     Some(ast::Specifier::Asterisk) => {
-                        code += &format!("io::ListDirectedWriter::new(ctx, {unit}, {rec})?;\n");
+                        code += &format!("io::ListDirectedWriter::new({unit}, {rec})?;\n");
                     }
                     None => {
-                        code += &format!("io::UnformattedWriter::new(ctx, {unit}, {rec})?;\n");
+                        code += &format!("io::UnformattedWriter::new({unit}, {rec})?;\n");
                     }
                 }
 
@@ -2026,7 +2037,7 @@ impl CodeGenUnit<'_> {
                     None => bail!("OPEN must have UNIT"),
                     Some(e) => {
                         if e.resolve_type(&self.syms)? != DataType::Integer {
-                            bail!("internal file identifiers not supported");
+                            bail!("OPEN must not use internal files");
                         }
                     }
                 }
@@ -2065,7 +2076,7 @@ impl CodeGenUnit<'_> {
                     None => bail!("CLOSE must have UNIT"),
                     Some(e) => {
                         if e.resolve_type(&self.syms)? != DataType::Integer {
-                            bail!("internal file identifiers not supported");
+                            bail!("CLOSE must not use internal files");
                         }
                     }
                 }
@@ -2105,10 +2116,10 @@ impl CodeGenUnit<'_> {
                     }
                     Some(e) => {
                         if e.resolve_type(&self.syms)? != DataType::Integer {
-                            bail!("internal file identifiers not supported");
+                            bail!("INQUIRE must not use internal files");
                         }
                         if specs.contains_key("FILE") {
-                            bail!("INQUIRE cannot have both FILE and UNIT");
+                            bail!("INQUIRE must not have both FILE and UNIT");
                         }
                     }
                 }
