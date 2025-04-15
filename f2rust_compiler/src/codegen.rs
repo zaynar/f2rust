@@ -48,6 +48,7 @@ enum Ctx {
     ArgScalarAliased, // `F(&X.clone())`
     ArgArray,         // `F(X)` where F expects an array
     ArgArrayMut,      // `F(&mut X)`
+    ArgArrayAliased,  // `F(&X.to_vec())`
     DummyArg,         // `fn F(X: T)`
     Assignment,       // `X = 1`
     SaveStruct,       // `struct SaveVars { X: T, }`
@@ -565,6 +566,16 @@ impl CodeGenUnit<'_> {
                     bail!("invalid context {ctx:?} for symbol {name}: {sym:?}")
                 }
             },
+            Ctx::ArgArrayAliased => match sym.rs_ty {
+                RustType::ActualArray | RustType::DummyArray | RustType::DummyArrayMut => {
+                    format!("&{name}.as_slice().to_vec()")
+                }
+                RustType::CharVec => format!("&{name}.clone()"),
+                RustType::CharSliceRef => format!("&{name}.to_vec()"),
+                RustType::CharSliceMut => format!("&{name}.to_vec()"),
+                RustType::SaveChar => format!("&save.{name}.to_vec()"),
+                _ => self.emit_symbol(name, Ctx::ArgArray)?,
+            },
             Ctx::DummyArg => match sym.rs_ty {
                 // Used as Rust function parameters, i.e. the public API of our code,
                 // so these try to use basic Rust types that the function body will convert to
@@ -975,6 +986,8 @@ impl CodeGenUnit<'_> {
 
                         if darg.mutated {
                             self.emit_symbol(name, Ctx::ArgArrayMut)?
+                        } else if aliased.contains(name.as_str()) {
+                            self.emit_symbol(name, Ctx::ArgArrayAliased)?
                         } else {
                             self.emit_symbol(name, Ctx::ArgArray)?
                         }
