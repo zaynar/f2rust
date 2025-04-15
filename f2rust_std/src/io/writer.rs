@@ -52,6 +52,204 @@ fn format_i(n: i32, w: usize, m: Option<usize>, plus: Option<bool>) -> Vec<u8> {
     }
 }
 
+// TODO: This needs a lot more testing
+fn format_f(n: f64, w: usize, d: usize, plus: Option<bool>) -> Vec<u8> {
+    let dec = f2rust_ryu::d2d(n);
+
+    let mut out = String::new();
+
+    if n < 0.0 {
+        out += "-";
+    } else if plus.unwrap_or(false) {
+        out += "+";
+    }
+
+    let digits = dec.mantissa.to_string();
+    if dec.exponent >= 0 {
+        out += &digits;
+
+        if out.len() + dec.exponent as usize + 1 + d > w {
+            return overflow(w);
+        } else {
+            out.extend(repeat_n('0', dec.exponent as usize));
+            out.push('.');
+            out.extend(repeat_n('0', d));
+        }
+    } else {
+        let nexp = (-dec.exponent) as usize;
+        if digits.len() > nexp {
+            // Last `-dec.exponent` digits are the fraction
+            let (integer, fraction) = digits.split_at(digits.len() - nexp);
+
+            out += integer;
+            out.push('.');
+
+            if out.len() + d > w {
+                return overflow(w);
+            } else {
+                if fraction.len() > d {
+                    // TODO: round the last digit
+                    out += &fraction[0..d];
+                } else {
+                    out += fraction;
+                    out.extend(repeat_n('0', d - fraction.len()));
+                }
+            }
+        } else {
+            // Integer part is 0
+            let fraction = digits;
+
+            // Add the optional `0.` unless that would cause us to overflow
+            if out.len() + 2 + d <= w {
+                out.push('0');
+            }
+            out.push('.');
+
+            if out.len() + d > w {
+                return overflow(w);
+            } else if nexp - fraction.len() >= d {
+                out.extend(repeat_n('0', d));
+            } else {
+                let fill = nexp - fraction.len();
+                out.extend(repeat_n('0', fill));
+
+                if fraction.len() > d - fill {
+                    // TODO: round the last digit
+                    out += &fraction[0..d - fill];
+                } else {
+                    out += &fraction;
+                    out.extend(repeat_n('0', d - fill - fraction.len()));
+                }
+            }
+        }
+    }
+
+    Vec::from_iter(repeat_n(b' ', w - out.len()).chain(out.into_bytes()))
+}
+
+fn format_e(n: f64, w: usize, d: usize, e: Option<usize>, plus: Option<bool>) -> Vec<u8> {
+    if e.is_some() {
+        todo!("Ew.dEe not supported");
+    }
+
+    let dec = f2rust_ryu::d2d(n);
+
+    let mut out = String::new();
+
+    if n < 0.0 {
+        out += "-";
+    } else if plus.unwrap_or(false) {
+        out += "+";
+    }
+
+    let fraction = dec.mantissa.to_string();
+
+    let exp = if dec.mantissa == 0 {
+        "E+00".to_owned()
+    } else {
+        let e = dec.exponent + fraction.len() as i32;
+        if e.abs() <= 99 {
+            format!("E{e:+03}")
+        } else {
+            format!("E{e:+04}")
+        }
+    };
+
+    // Add the optional `0.` unless that would cause us to overflow
+    if out.len() + 2 + d + exp.len() <= w {
+        out.push('0');
+    }
+    out.push('.');
+
+    if out.len() + d + exp.len() > w {
+        return overflow(w);
+    } else {
+        if fraction.len() > d {
+            // TODO: round the last digit
+            out += &fraction[0..d];
+        } else {
+            out += &fraction;
+            out.extend(repeat_n('0', d - fraction.len()));
+        }
+    }
+
+    out += &exp;
+
+    Vec::from_iter(repeat_n(b' ', w - out.len()).chain(out.into_bytes()))
+}
+
+#[test]
+fn test_f() {
+    // TODO: NaN, infinity?
+    // TODO: rounding
+
+    for (n, s) in [
+        (0.0, "    0.0000"),
+        (1.0, "    1.0000"),
+        (50.0, "   50.0000"),
+        (88000.0, "88000.0000"),
+        (888000.0, "**********"),
+        (-50.0, "  -50.0000"),
+        (1.1, "    1.1000"),
+        (0.11, "    0.1100"),
+        (0.011, "    0.0110"),
+        (0.0011, "    0.0011"),
+        (0.00011, "    0.0001"),
+        (0.000011, "    0.0000"),
+        (0.0000011, "    0.0000"),
+        // (5.55554, "    5.5554"),
+        // (5.55555, "    5.5556"),
+        // (0.00554, "    0.0054"),
+        // (0.00555, "    0.0056"),
+    ] {
+        assert_eq!(String::from_utf8_lossy(&format_f(n, 10, 4, None)), s);
+    }
+
+    for (n, w, d, s) in [
+        (0.1, 4, 1, " 0.1"),
+        (0.1, 3, 1, "0.1"),
+        (0.1, 2, 1, ".1"),
+        (0.1, 1, 1, "*"),
+        (9.94, 7, 1, "    9.9"),
+        // (9.95, 7, 1, "   10.0"),
+        (99999.94, 7, 1, "99999.9"),
+        // (99999.95, 7, 1, "*******"),
+    ] {
+        assert_eq!(String::from_utf8_lossy(&format_f(n, w, d, None)), s);
+    }
+
+    assert_eq!(
+        String::from_utf8_lossy(&format_f(50.0, 10, 4, Some(true))),
+        "  +50.0000"
+    );
+}
+
+#[test]
+fn test_e() {
+    for (n, s) in [
+        (0.0, "  0.0000E+00"),
+        (1.0, "  0.1000E+01"),
+        (-1.0, " -0.1000E+01"),
+        (0.01, "  0.1000E-01"),
+        (50.0, "  0.5000E+02"),
+        (0.5e90, "  0.5000E+90"),
+        (0.5e100, " 0.5000E+100"),
+        (0.5e-90, "  0.5000E-90"),
+        (0.5e-100, " 0.5000E-100"),
+    ] {
+        assert_eq!(String::from_utf8_lossy(&format_e(n, 12, 4, None, None)), s);
+    }
+
+    for (n, w, d, s) in [
+        (0.1, 8, 1, " 0.1E+00"),
+        (0.1, 7, 1, "0.1E+00"),
+        (0.1, 6, 1, ".1E+00"),
+        (0.1, 5, 1, "*****"),
+    ] {
+        assert_eq!(String::from_utf8_lossy(&format_e(n, w, d, None, None)), s);
+    }
+}
+
 pub struct FormattedWriter<'a> {
     file: RecFileRef<'a>,
 
