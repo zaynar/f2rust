@@ -1,5 +1,7 @@
 //! Code generation. Emits the Rust code for expressions, statements and program units.
 
+use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
@@ -14,7 +16,7 @@ use crate::{ast, globan, intrinsics};
 /// The Rust representation of a symbol name or an expression, based on how it's
 /// used in the main body of the function. (It may have different representations
 /// in dargs etc, which get shadowed.)
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum RustType {
     Primitive,           // `let X: i32` / `(1 + 2)`, for non-array non-character types
     PrimitiveMut,        // `let mut X: i32`
@@ -56,7 +58,7 @@ enum Ctx {
 }
 
 /// A symbol in a specific Entry
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Symbol {
     /// All namespaced procedures that can be represented by this symbol
     actual_procs: Vec<globan::Name>,
@@ -150,19 +152,50 @@ impl Symbol {
 }
 
 #[derive(Debug)]
-struct SymbolTable(IndexMap<String, Symbol>);
+struct SymbolTable {
+    syms: IndexMap<String, Symbol>,
+
+    // An ugly hack to support temporarily defining symbols for use in arguments etc.
+    // We use RefCell so the rest of the code can use a non-mut &SymbolTable and keep
+    // &Symbols around, avoiding the performace cost of cloning them, without the
+    // borrow checker worrying that we might invalidate those symbols.
+    temp: RefCell<Vec<(String, Symbol)>>,
+}
 
 impl SymbolTable {
-    fn get(&self, name: &str) -> Result<&Symbol> {
-        if let Some(sym) = self.0.get(name) {
-            Ok(sym)
+    fn new(syms: IndexMap<String, Symbol>) -> Self {
+        Self {
+            syms,
+            temp: RefCell::new(Vec::new()),
+        }
+    }
+
+    fn get(&self, name: &str) -> Result<Cow<Symbol>> {
+        if let Some(sym) = self
+            .temp
+            .borrow()
+            .iter()
+            .rev()
+            .find_map(|(n, s)| if n == name { Some(s) } else { None })
+        {
+            Ok(Cow::Owned(sym.clone()))
+        } else if let Some(sym) = self.syms.get(name) {
+            Ok(Cow::Borrowed(sym))
         } else {
             bail!("unrecognized symbol {name}")
         }
     }
 
     fn iter(&self) -> impl Iterator<Item = (&String, &Symbol)> {
-        self.0.iter()
+        self.syms.iter()
+    }
+
+    /// Call func with an extra symbol added to the symbol table
+    fn with_temp<R, F: FnOnce() -> R>(&self, name: &str, sym: Symbol, func: F) -> R {
+        self.temp.borrow_mut().push((name.to_owned(), sym));
+        let ret = func();
+        self.temp.borrow_mut().pop();
+        ret
     }
 }
 
@@ -453,14 +486,14 @@ impl CodeGenUnit<'_> {
                 RustType::EquivArray | RustType::EquivArrayMut => format!(
                     "DummyArray::<{ty}>::from_equiv({}, {})",
                     self.emit_symbol(sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArray)?,
-                    self.emit_dims(sym)?
+                    self.emit_dims(&sym)?
                 ),
             },
             Ctx::ValueMut => match sym.rs_ty {
                 RustType::EquivArrayMut => format!(
                     "DummyArrayMut::<{ty}>::from_equiv({}, {})",
                     self.emit_symbol(sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArrayMut)?,
-                    self.emit_dims(sym)?
+                    self.emit_dims(&sym)?
                 ),
                 _ => self.emit_symbol(name, Ctx::Value)?,
             },
@@ -534,7 +567,7 @@ impl CodeGenUnit<'_> {
                 RustType::EquivArray | RustType::EquivArrayMut => format!(
                     "DummyArray::<{ty}>::from_equiv({}, {}).as_slice()",
                     self.emit_symbol(sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArray)?,
-                    self.emit_dims(sym)?
+                    self.emit_dims(&sym)?
                 ),
             },
             Ctx::ArgArrayMut => match sym.rs_ty {
@@ -554,7 +587,7 @@ impl CodeGenUnit<'_> {
                 RustType::EquivArrayMut => format!(
                     "DummyArrayMut::<{ty}>::from_equiv({}, {}).as_slice_mut()",
                     self.emit_symbol(sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArrayMut)?,
-                    self.emit_dims(sym)?
+                    self.emit_dims(&sym)?
                 ),
                 RustType::Primitive
                 | RustType::DummyArray
@@ -620,7 +653,7 @@ impl CodeGenUnit<'_> {
                 RustType::EquivArrayMut => format!(
                     "DummyArrayMut::<{ty}>::from_equiv({}, {})",
                     self.emit_symbol(sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArrayMut)?,
-                    self.emit_dims(sym)?
+                    self.emit_dims(&sym)?
                 ),
                 RustType::Primitive
                 | RustType::DummyArray
@@ -965,6 +998,8 @@ impl CodeGenUnit<'_> {
             }
         }
 
+        let mut prep_code = String::new();
+
         let mut exprs = dargs.iter().zip(args.iter()).enumerate().map(|(i, (darg, arg))| {
             let conversion = if darg.is_array {
                 // Function is expecting an array
@@ -1087,6 +1122,42 @@ impl CodeGenUnit<'_> {
                     Expression::Function(name, args) => {
                         if darg.mutated {
                             bail!("cannot pass function return value to mutable dummy argument");
+                        } else if darg.base_type == DataType::Character {
+                            // CHARACTER functions write their output into an extra final darg.
+                            // To use the function in an argument or expression, we need to
+                            // allocate some storage and pass it to the function.
+                            let sym = self.syms.get(name)?;
+                            let len = match &sym.ast.character_len {
+                                Some(LenSpecification::Integer(c)) => c.to_string(),
+                                Some(LenSpecification::IntConstantExpr(e)) => self.emit_expression(e)?,
+                                _ => bail!("cannot use CHARACTER-returning function in argument, unless it has an explicit size"),
+                            };
+
+                            // Create a temporary symbol to store the character data,
+                            // with just enough details to keep emit_args happy
+                            let arg_name = format!("arg{i}");
+                            prep_code += &format!("let mut {arg_name} = vec![b' '; {len}];\n");
+                            let arg_sym = Symbol {
+                                actual_procs: Vec::new(),
+                                mutated: true,
+                                ast: ast::Symbol {
+                                    base_type: DataType::Character,
+                                    ..Default::default()
+                                },
+                                rs_ty: RustType::CharVec,
+                            };
+
+                            let mut args = args.clone();
+                            args.push(Expression::Symbol(arg_name.clone()));
+
+                            let (call, result) = self.syms.with_temp(&arg_name, arg_sym, || -> Result<_> {
+                                let call = self.emit_call(name, &args, false)?;
+                                let result = self.emit_symbol(&arg_name, Ctx::ArgScalar)?;
+                                Ok((call, result))
+                            })?;
+                            prep_code += &format!("{};\n", call);
+
+                            result
                         } else {
                             self.emit_call(name, args, true)?
                         }
@@ -1142,7 +1213,6 @@ impl CodeGenUnit<'_> {
             exprs.push(Ok("ctx".to_owned()));
         }
 
-        let mut prep_code = String::new();
         for (name, args) in &aliased_arrays {
             let names: Vec<_> = args.iter().map(|(i, _e)| format!("arg{i}")).collect();
             let idxs: Vec<_> = args.iter().map(|(_i, e)| e.clone()).collect();
@@ -2228,7 +2298,7 @@ impl<'a> CodeGen<'a> {
                     codegen: CodeGenUnit {
                         globan,
                         program,
-                        syms: SymbolTable(syms),
+                        syms: SymbolTable::new(syms),
                     },
                     ast: entry,
                 }
@@ -2267,7 +2337,7 @@ impl<'a> CodeGen<'a> {
                     codegen: CodeGenUnit {
                         globan,
                         program,
-                        syms: SymbolTable(syms),
+                        syms: SymbolTable::new(syms),
                     },
                     ast: statement_function,
                 }
@@ -2288,7 +2358,7 @@ impl<'a> CodeGen<'a> {
             shared: CodeGenUnit {
                 globan,
                 program,
-                syms: SymbolTable(shared_syms),
+                syms: SymbolTable::new(shared_syms),
             },
             entries,
             statement_functions,
@@ -2334,7 +2404,7 @@ impl<'a> CodeGen<'a> {
 
             for name in &darg_names {
                 let sym = codegen.syms.get(name)?;
-                code += &codegen.emit_initialiser(name, sym, false)?;
+                code += &codegen.emit_initialiser(name, &sym, false)?;
             }
 
             code += &statement_function
