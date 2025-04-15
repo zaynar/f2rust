@@ -133,7 +133,7 @@ impl ActualCharArray {
         self.data.chunks_mut(self.element_length)
     }
 
-    pub fn slice(&self, index: i32) -> CharArray {
+    pub fn subarray(&self, index: i32) -> CharArray {
         let offset = self.offset(index);
         CharArray {
             data: &self.data[offset..],
@@ -141,7 +141,7 @@ impl ActualCharArray {
         }
     }
 
-    pub fn slice_mut(&mut self, index: i32) -> CharArrayMut {
+    pub fn subarray_mut(&mut self, index: i32) -> CharArrayMut {
         let offset = self.offset(index);
         CharArrayMut {
             data: &mut self.data[offset..],
@@ -218,7 +218,7 @@ impl ActualCharArray2D {
         self.data.chunks_mut(self.element_length)
     }
 
-    pub fn slice(&self, index: [i32; 2]) -> CharArray {
+    pub fn subarray(&self, index: [i32; 2]) -> CharArray {
         let offset = self.offset(index);
         CharArray {
             data: &self.data[offset..],
@@ -226,7 +226,7 @@ impl ActualCharArray2D {
         }
     }
 
-    pub fn slice_mut(&mut self, index: [i32; 2]) -> CharArrayMut {
+    pub fn subarray_mut(&mut self, index: [i32; 2]) -> CharArrayMut {
         let offset = self.offset(index);
         CharArrayMut {
             data: &mut self.data[offset..],
@@ -295,7 +295,7 @@ impl<'a> DummyCharArray<'a> {
         &self.data[offset..offset + self.element_length]
     }
 
-    pub fn slice(&self, index: i32) -> CharArray {
+    pub fn subarray(&self, index: i32) -> CharArray {
         let offset = self.offset(index);
         CharArray {
             data: &self.data[offset..],
@@ -371,7 +371,7 @@ impl<'a> DummyCharArrayMut<'a> {
         &mut self.data[offset..offset + self.element_length]
     }
 
-    pub fn slice(&self, index: i32) -> CharArray {
+    pub fn subarray(&self, index: i32) -> CharArray {
         let offset = self.offset(index);
         CharArray {
             data: &self.data[offset..],
@@ -379,7 +379,7 @@ impl<'a> DummyCharArrayMut<'a> {
         }
     }
 
-    pub fn slice_mut(&mut self, index: i32) -> CharArrayMut {
+    pub fn subarray_mut(&mut self, index: i32) -> CharArrayMut {
         let offset = self.offset(index);
         CharArrayMut {
             data: &mut self.data[offset..],

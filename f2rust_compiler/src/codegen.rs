@@ -42,7 +42,7 @@ enum RustType {
 #[derive(Debug, Clone, Copy)]
 enum Ctx {
     Value,            // `X + 1`
-    ValueMut,         // `X.slice_mut()`
+    ValueMut,         // `X.subarray_mut()`
     ArgScalar,        // `F(X)` where F expects a scalar (primitive or string)
     ArgScalarMut,     // `F(&mut X)`
     ArgScalarAliased, // `F(&X.clone())`
@@ -515,9 +515,9 @@ impl CodeGenUnit<'_> {
                 // When passing a scalar as an array, need to convert T to &[T]
                 RustType::Primitive | RustType::PrimitiveMut => format!("&[{name}]"),
                 RustType::PrimitiveRefMut => format!("&[*{name}]"),
-                RustType::ActualArray => format!("&{name}"),
+                RustType::ActualArray => format!("{name}.as_slice()"),
                 RustType::ActualCharArray => format!("{name}.as_arg()"),
-                RustType::DummyArray | RustType::DummyArrayMut => format!("&{name}"),
+                RustType::DummyArray | RustType::DummyArrayMut => format!("{name}.as_slice()"),
                 RustType::DummyCharArray => format!("{name}.as_arg()"),
                 RustType::DummyCharArrayMut => format!("{name}.as_arg()"),
                 RustType::CharVec => format!("CharArray::from_ref(&{name})"),
@@ -526,12 +526,12 @@ impl CodeGenUnit<'_> {
                 }
                 RustType::SavePrimitive => format!("&[save.{name}]"),
                 RustType::SaveChar => format!("CharArray::from_ref(&save.{name})"),
-                RustType::SaveActualArray => format!("&save.{name}"),
+                RustType::SaveActualArray => format!("save.{name}.as_slice()"),
                 RustType::SaveActualCharArray => format!("save.{name}.as_arg()"),
                 RustType::Procedure => format!("&[{name}]"),
                 RustType::LocalDoVar => format!("&[{name}]"),
                 RustType::EquivArray | RustType::EquivArrayMut => format!(
-                    "&DummyArray::<{ty}>::from_equiv({}, {})",
+                    "DummyArray::<{ty}>::from_equiv({}, {}).as_slice()",
                     self.emit_symbol(sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArray)?,
                     self.emit_dims(sym)?
                 ),
@@ -540,18 +540,18 @@ impl CodeGenUnit<'_> {
                 // slice::from_mut converts &mut T to &mut [T]
                 RustType::PrimitiveMut => format!("std::slice::from_mut(&mut {name})"),
                 RustType::PrimitiveRefMut => format!("std::slice::from_mut({name})"),
-                RustType::ActualArray => format!("&mut {name}"),
+                RustType::ActualArray => format!("{name}.as_slice_mut()"),
                 RustType::ActualCharArray => format!("{name}.as_arg_mut()"),
-                RustType::DummyArrayMut => format!("&mut {name}"),
+                RustType::DummyArrayMut => format!("{name}.as_slice_mut()"),
                 RustType::DummyCharArrayMut => format!("{name}.as_arg_mut()"),
                 RustType::CharVec => format!("CharArrayMut::from_mut(&mut {name})"),
                 RustType::CharSliceMut => format!("CharArrayMut::from_mut({name})"),
                 RustType::SavePrimitive => format!("std::slice::from_mut(&mut save.{name})"),
                 RustType::SaveChar => format!("CharArrayMut::from_mut(&mut save.{name})"),
-                RustType::SaveActualArray => format!("&mut save.{name}"),
+                RustType::SaveActualArray => format!("save.{name}.as_slice_mut()"),
                 RustType::SaveActualCharArray => format!("save.{name}.as_arg_mut()"),
                 RustType::EquivArrayMut => format!(
-                    "&mut DummyArrayMut::<{ty}>::from_equiv({}, {})",
+                    "DummyArrayMut::<{ty}>::from_equiv({}, {}).as_slice_mut()",
                     self.emit_symbol(sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArrayMut)?,
                     self.emit_dims(sym)?
                 ),
@@ -994,11 +994,11 @@ impl CodeGenUnit<'_> {
                         }
                         let idx = self.emit_index(idx)?;
                         if darg.mutated {
-                            format!("{s}.slice_mut({idx})")
+                            format!("{s}.subarray_mut({idx})")
                         } else if aliased.contains(name.as_str()) {
-                            format!("&{s}.slice({idx}).to_vec()")
+                            format!("&{s}.subarray({idx}).to_vec()")
                         } else {
-                            format!("{s}.slice({idx})")
+                            format!("{s}.subarray({idx})")
                         }
                     }
                     Expression::Substring(..) => {

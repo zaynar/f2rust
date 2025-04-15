@@ -7,18 +7,14 @@
 //!
 //! In dummy arrays, the upper bound in the final dimension is optional.
 //!
-//! We implement Deref and Index for nicer syntax when accessing arrays.
+//! We implement Index for nicer syntax when accessing arrays.
 
-use std::ops::{Deref, DerefMut, Index, IndexMut, RangeBounds};
+use std::ops::{Index, IndexMut, RangeBounds};
 
 use crate::util::{offset_1d, offset_2d, parse_bounds};
 
 // TODO: implement N-dimensional arrays for N>2, using macros.
 // (SPICE needs up to 3D.)
-
-// TODO: Maybe remove the Deref trait, it's confusing since we define our own
-// methods with the same names as std::slice.
-// (Rename slice to subarray, add as_slice?)
 
 pub struct ActualArray<T> {
     data: Vec<T>,
@@ -84,14 +80,30 @@ impl<T> ActualArray<T> {
         self.data.first_mut().unwrap()
     }
 
-    pub fn slice(&self, index: i32) -> &[T] {
+    pub fn as_slice(&self) -> &[T] {
+        &self.data
+    }
+
+    pub fn as_slice_mut(&mut self) -> &mut [T] {
+        &mut self.data
+    }
+
+    pub fn subarray(&self, index: i32) -> &[T] {
         let offset = self.offset(index);
         &self.data[offset..]
     }
 
-    pub fn slice_mut(&mut self, index: i32) -> &mut [T] {
+    pub fn subarray_mut(&mut self, index: i32) -> &mut [T] {
         let offset = self.offset(index);
         &mut self.data[offset..]
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.data.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.data.iter_mut()
     }
 
     pub fn subscript(&self, index: i32) -> i32 {
@@ -138,14 +150,30 @@ impl<T> ActualArray2D<T> {
         self.data.first_mut().unwrap()
     }
 
-    pub fn slice(&self, index: [i32; 2]) -> &[T] {
+    pub fn as_slice(&self) -> &[T] {
+        &self.data
+    }
+
+    pub fn as_slice_mut(&mut self) -> &mut [T] {
+        &mut self.data
+    }
+
+    pub fn subarray(&self, index: [i32; 2]) -> &[T] {
         let offset = self.offset(index);
         &self.data[offset..]
     }
 
-    pub fn slice_mut(&mut self, index: [i32; 2]) -> &mut [T] {
+    pub fn subarray_mut(&mut self, index: [i32; 2]) -> &mut [T] {
         let offset = self.offset(index);
         &mut self.data[offset..]
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.data.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.data.iter_mut()
     }
 
     pub fn subscript(&self, index: [i32; 2]) -> i32 {
@@ -178,9 +206,17 @@ impl<'a, T> DummyArray<'a, T> {
         self.data.first().unwrap()
     }
 
-    pub fn slice(&self, index: i32) -> &[T] {
+    pub fn as_slice(&self) -> &[T] {
+        &self.data
+    }
+
+    pub fn subarray(&self, index: i32) -> &[T] {
         let offset = self.offset(index);
         &self.data[offset..]
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.data.iter()
     }
 
     pub fn subscript(&self, index: i32) -> i32 {
@@ -217,14 +253,30 @@ impl<'a, T> DummyArrayMut<'a, T> {
         self.data.first_mut().unwrap()
     }
 
-    pub fn slice(&self, index: i32) -> &[T] {
+    pub fn as_slice(&self) -> &[T] {
+        &self.data
+    }
+
+    pub fn as_slice_mut(&mut self) -> &mut [T] {
+        &mut self.data
+    }
+
+    pub fn subarray(&self, index: i32) -> &[T] {
         let offset = self.offset(index);
         &self.data[offset..]
     }
 
-    pub fn slice_mut(&mut self, index: i32) -> &mut [T] {
+    pub fn subarray_mut(&mut self, index: i32) -> &mut [T] {
         let offset = self.offset(index);
         &mut self.data[offset..]
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.data.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.data.iter_mut()
     }
 
     pub fn subscript(&self, index: i32) -> i32 {
@@ -296,9 +348,17 @@ impl<'a, T> DummyArray2D<'a, T> {
         self.data.first().unwrap()
     }
 
-    pub fn slice(&self, index: [i32; 2]) -> &[T] {
+    pub fn as_slice(&self) -> &[T] {
+        &self.data
+    }
+
+    pub fn subarray(&self, index: [i32; 2]) -> &[T] {
         let offset = self.offset(index);
         &self.data[offset..]
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.data.iter()
     }
 
     pub fn subscript(&self, index: [i32; 2]) -> i32 {
@@ -327,54 +387,34 @@ impl<'a, T> DummyArrayMut2D<'a, T> {
         self.data.first_mut().unwrap()
     }
 
-    pub fn slice(&self, index: [i32; 2]) -> &[T] {
+    pub fn as_slice(&self) -> &[T] {
+        &self.data
+    }
+
+    pub fn as_slice_mut(&mut self) -> &mut [T] {
+        &mut self.data
+    }
+
+    pub fn subarray(&self, index: [i32; 2]) -> &[T] {
         let offset = self.offset(index);
         &self.data[offset..]
     }
 
-    pub fn slice_mut(&mut self, index: [i32; 2]) -> &mut [T] {
+    pub fn subarray_mut(&mut self, index: [i32; 2]) -> &mut [T] {
         let offset = self.offset(index);
         &mut self.data[offset..]
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.data.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.data.iter_mut()
+    }
+
     pub fn subscript(&self, index: [i32; 2]) -> i32 {
         self.offset(index) as i32 + 1
-    }
-}
-
-impl<T> Deref for DummyArray<'_, T> {
-    type Target = [T];
-
-    fn deref(&self) -> &Self::Target {
-        self.data
-    }
-}
-
-impl<T> Deref for DummyArrayMut<'_, T> {
-    type Target = [T];
-
-    fn deref(&self) -> &Self::Target {
-        self.data
-    }
-}
-
-impl<T> DerefMut for DummyArrayMut<'_, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.data
-    }
-}
-
-impl<T> Deref for ActualArray<T> {
-    type Target = [T];
-
-    fn deref(&self) -> &Self::Target {
-        &self.data
-    }
-}
-
-impl<T> DerefMut for ActualArray<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.data
     }
 }
 
@@ -416,42 +456,6 @@ impl<T> IndexMut<i32> for DummyArrayMut<'_, T> {
     fn index_mut(&mut self, index: i32) -> &mut Self::Output {
         let offset = self.offset(index);
         &mut self.data[offset]
-    }
-}
-
-impl<T> Deref for DummyArray2D<'_, T> {
-    type Target = [T];
-
-    fn deref(&self) -> &Self::Target {
-        self.data
-    }
-}
-
-impl<T> Deref for DummyArrayMut2D<'_, T> {
-    type Target = [T];
-
-    fn deref(&self) -> &Self::Target {
-        self.data
-    }
-}
-
-impl<T> DerefMut for DummyArrayMut2D<'_, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.data
-    }
-}
-
-impl<T> Deref for ActualArray2D<T> {
-    type Target = [T];
-
-    fn deref(&self) -> &Self::Target {
-        &self.data
-    }
-}
-
-impl<T> DerefMut for ActualArray2D<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.data
     }
 }
 
