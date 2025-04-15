@@ -1,5 +1,5 @@
 [package]
-name = "ryu"
+name = "f2rust_ryu"
 version = "1.0.20"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
 categories = ["value-formatting", "no-std", "no-std::no-alloc"]

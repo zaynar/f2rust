@@ -122,3 +122,38 @@ pub use crate::buffer::{Buffer, Float};
 pub mod raw {
     pub use crate::pretty::{format32, format64};
 }
+
+// New API in the f2rust fork:
+
+pub use crate::d2s::FloatingDecimal64;
+pub use crate::f2s::FloatingDecimal32;
+
+pub fn d2d(val: f64) -> FloatingDecimal64 {
+    let bits = val.to_bits();
+    let ieee_mantissa = bits & ((1u64 << d2s::DOUBLE_MANTISSA_BITS) - 1);
+    let ieee_exponent =
+        (bits >> d2s::DOUBLE_MANTISSA_BITS) as u32 & ((1u32 << d2s::DOUBLE_EXPONENT_BITS) - 1);
+    if ieee_mantissa == 0 && ieee_exponent == 0 {
+        FloatingDecimal64 {
+            mantissa: 0,
+            exponent: 0,
+        }
+    } else {
+        d2s::d2d(ieee_mantissa, ieee_exponent)
+    }
+}
+
+pub fn f2d(val: f32) -> FloatingDecimal32 {
+    let bits = val.to_bits();
+    let ieee_mantissa = bits & ((1u32 << f2s::FLOAT_MANTISSA_BITS) - 1);
+    let ieee_exponent =
+        (bits >> f2s::FLOAT_MANTISSA_BITS) & ((1u32 << f2s::FLOAT_EXPONENT_BITS) - 1);
+    if ieee_mantissa == 0 && ieee_exponent == 0 {
+        FloatingDecimal32 {
+            mantissa: 0,
+            exponent: 0,
+        }
+    } else {
+        f2s::f2d(ieee_mantissa, ieee_exponent)
+    }
+}
