@@ -261,10 +261,10 @@ fn sequential_unformatted() -> Result<()> {
 
 #[test]
 fn internal_file() -> Result<()> {
-    let mut content = vec![b' '; 30];
+    let mut record = vec![b'x'; 30];
 
     {
-        let file = InternalFile::open(&mut content);
+        let file = InternalFile::open(&mut record);
         let mut w = ListDirectedWriter::new(Rc::clone(&file), None)?;
         w.start()?;
 
@@ -275,12 +275,12 @@ fn internal_file() -> Result<()> {
         w.finish()?;
     }
 
-    assert_eq!(content, b" Hello world           1      ");
+    assert_eq!(record, b" Hello world           1      ");
 
     {
         let mut buf = vec![b'x'; 20];
 
-        let file = InternalFile::open(&mut content);
+        let file = InternalFile::open(&mut record);
         let mut r = FormattedReader::new(Rc::clone(&file), None, b"(A12,I12)")?;
         r.start()?;
         r.read_str(&mut buf)?;
@@ -291,6 +291,26 @@ fn internal_file() -> Result<()> {
         r.start()?;
         assert!(matches!(r.read_str(&mut buf), Err(Error::EndOfFile)));
     }
+
+    Ok(())
+}
+
+#[test]
+fn formatted_seek() -> Result<()> {
+    let mut record = vec![b'x'; 20];
+
+    {
+        let file = InternalFile::open(&mut record);
+        let mut w = FormattedWriter::new(Rc::clone(&file), None, b"(4X,A,4X,A)")?;
+        w.start()?;
+
+        w.write_str(b"abcd")?;
+        w.write_str(b"hijk")?;
+
+        w.finish()?;
+    }
+
+    assert_eq!(record, b"    abcd    hijk    ");
 
     Ok(())
 }
