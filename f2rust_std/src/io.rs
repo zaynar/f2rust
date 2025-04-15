@@ -309,6 +309,7 @@ impl<'a> Unit<'a> {
 
 pub struct FileManager<'a> {
     units: HashMap<i32, Unit<'a>>,
+    filenames: HashMap<PathBuf, i32>,
     cwd: PathBuf,
 }
 
@@ -327,6 +328,7 @@ impl<'a> FileManager<'a> {
                     ),
                 ),
             ]),
+            filenames: HashMap::new(),
             cwd: PathBuf::new(),
         }
     }
@@ -368,9 +370,27 @@ impl<'a> FileManager<'a> {
                     *v = true;
                 }
 
+                if let Some(unit) = self.filenames.get(&path) {
+                    if let Some(v) = specs.opened {
+                        *v = true;
+                    }
+
+                    if let Some(v) = specs.number {
+                        *v = *unit;
+                    }
+
+                    // TODO: access, form, recl, nextrec, blank
+                    // (Currently codegen will bail if they are used)
+                } else {
+                    if let Some(v) = specs.opened {
+                        *v = false;
+                    }
+                }
+
                 if let Some(v) = specs.named {
                     *v = true;
                 }
+
                 if let Some(v) = specs.name {
                     fstr::assign(
                         v,
@@ -383,18 +403,6 @@ impl<'a> FileManager<'a> {
 
                 // TODO: sequential, direct, formatted, unformatted
                 // (Currently codegen will bail if they are used)
-
-                let opened = false; // TODO
-                if let Some(v) = specs.opened {
-                    *v = opened;
-                }
-                if opened {
-                    if let Some(v) = specs.number {
-                        *v = 0;
-                    }
-                    // TODO: access, form, recl, nextrec, blank
-                    // (Currently codegen will bail if they are used)
-                }
             } else {
                 if let Some(v) = specs.exist {
                     *v = false;
@@ -406,14 +414,41 @@ impl<'a> FileManager<'a> {
                 *v = unit >= 0;
             }
 
-            let opened = false;
-            if let Some(v) = specs.opened {
-                *v = opened;
-            }
-            if opened {
-                // TODO: number, named, name, access, sequential, direct, form,
-                // formatted unformatted, recl, nextrec, blank
+            if let Some(u) = self.units.get(&unit) {
+                if let Some(v) = specs.opened {
+                    *v = true;
+                }
+
+                if let Some(v) = specs.number {
+                    *v = unit;
+                }
+
+                if let Some(path) = &u.path {
+                    if let Some(v) = specs.named {
+                        *v = true;
+                    }
+
+                    if let Some(v) = specs.name {
+                        fstr::assign(
+                            v,
+                            path.as_os_str()
+                                .to_str()
+                                .ok_or(Error::NonUnicodePath)?
+                                .as_bytes(),
+                        );
+                    }
+                } else {
+                    if let Some(v) = specs.named {
+                        *v = false;
+                    }
+                }
+
+                // TODO: access, sequential, direct, form, formatted, unformatted, recl, nextrec, blank
                 // (Currently codegen will bail if they are used)
+            } else {
+                if let Some(v) = specs.opened {
+                    *v = false;
+                }
             }
         } else {
             // codegen should prevent this case
@@ -436,18 +471,19 @@ impl<'a> FileManager<'a> {
         // );
 
         if self.units.contains_key(&unit) {
-            panic!("TODO: OPEN of already-open unit");
+            panic!("TODO: OPEN of already-open unit {unit}");
         }
 
         enum Status {
             Old,
             New,
+            Scratch,
         }
 
         let status = match specs.status.unwrap_or(b"UNKNOWN").trim_ascii_end() {
             b"OLD" => Status::Old,
             b"NEW" => Status::New,
-            b"SCRATCH" => todo!(),
+            b"SCRATCH" => Status::Scratch,
             b"UNKNOWN" => todo!(),
             v => panic!("OPEN: invalid STATUS={}", String::from_utf8_lossy(v)),
         };
@@ -471,7 +507,15 @@ impl<'a> FileManager<'a> {
         };
 
         if let Some(file) = specs.file {
+            if matches!(status, Status::Scratch) {
+                panic!("OPEN: must not specify FILE with STATUS=SCRATCH")
+            }
+
             let path = self.path_from_fstr(file)?;
+
+            if self.filenames.contains_key(&path) {
+                panic!("TODO: OPEN of already-open file {}", path.display());
+            }
 
             let f = std::fs::OpenOptions::new()
                 .read(true)
@@ -482,12 +526,23 @@ impl<'a> FileManager<'a> {
             self.units.insert(
                 unit,
                 Unit::new(
-                    Some(path),
+                    Some(path.clone()),
                     FsRecFile::new(f, sequential, formatted, specs.recl),
                 ),
             );
+
+            self.filenames.insert(path, unit);
         } else {
-            panic!("TODO: OPEN with no FILE")
+            if !matches!(status, Status::Scratch) {
+                panic!("OPEN: must specify FILE unless STATUS=SCRATCH")
+            }
+
+            let f = tempfile::tempfile_in(&self.cwd)?;
+
+            self.units.insert(
+                unit,
+                Unit::new(None, FsRecFile::new(f, sequential, formatted, specs.recl)),
+            );
         }
 
         Ok(())
@@ -497,7 +552,7 @@ impl<'a> FileManager<'a> {
         let unit = specs.unit.expect("CLOSE must have UNIT");
 
         let delete = match specs.status.map(|s| s.trim_ascii_end()) {
-            None => false, // TODO: should DELETE if SCRATCH
+            None => false,
             Some(b"KEEP") => false,
             Some(b"DELETE") => true,
             Some(v) => panic!("CLOSE: invalid STATUS={}", String::from_utf8_lossy(v)),
@@ -506,10 +561,11 @@ impl<'a> FileManager<'a> {
         match self.units.get(&unit) {
             None => panic!("TODO: report missing unit"),
             Some(u) => {
-                if delete {
-                    if let Some(path) = &u.path {
+                if let Some(path) = &u.path {
+                    if delete {
                         std::fs::remove_file(path)?;
                     }
+                    self.filenames.remove(path);
                 }
                 self.units.remove(&unit);
             }

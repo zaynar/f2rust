@@ -5,7 +5,5 @@ edition = "2024"
 
 [dependencies]
 chrono = { version = "0.4.40", features = ["alloc", "now"] }
-thiserror = "2.0.12"
-
-[dev-dependencies]
 tempfile = "3.19.1"
+thiserror = "2.0.12"
