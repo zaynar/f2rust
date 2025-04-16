@@ -955,23 +955,31 @@ impl CodeGenUnit<'_> {
         // We also need to support cases like `CALL FOO (X(1), X(2))` which FORTRAN does allow
         // (since the aliasing restriction applies to the elements accessed, not the whole array),
         // but Rust doesn't (because it borrows the whole array). So we detect the specific
-        // case of mutable elements of the same array, and use get_disjoint_mut()
+        // case of mutable elements of the same array, and use get_disjoint_mut().
+
+        // List of argument indexes where a particular symbol is used
+        #[derive(Default)]
+        struct ArgUses {
+            used: Vec<usize>,
+            mutated: Vec<usize>,
+            mutated_element: Vec<usize>,
+        }
 
         // Value is (total occurrences, mutable occurrences, mutable array elt occurrences)
-        let mut sym_counts: HashMap<&str, (usize, usize, usize)> = HashMap::new();
-        for (darg, arg) in dargs.iter().zip(args.iter()) {
+        let mut sym_counts: HashMap<&str, ArgUses> = HashMap::new();
+        for (i, (darg, arg)) in dargs.iter().zip(args.iter()).enumerate() {
             match arg {
                 Expression::Symbol(s)
                 | Expression::ArrayElement(s, ..)
                 | Expression::Substring(s, ..)
                 | Expression::SubstringArrayElement(s, ..) => {
-                    let c = sym_counts.entry(s).or_insert((0, 0, 0));
-                    c.0 += 1;
+                    let c = sym_counts.entry(s).or_default();
+                    c.used.push(i);
                     if darg.mutated {
-                        c.1 += 1;
+                        c.mutated.push(i);
                     }
                     if matches!(arg, Expression::ArrayElement(..)) && !darg.is_array {
-                        c.2 += 1;
+                        c.mutated_element.push(i);
                     }
                 }
                 _ => (),
@@ -980,16 +988,16 @@ impl CodeGenUnit<'_> {
 
         let mut aliased = HashSet::new();
         let mut aliased_arrays: IndexMap<&str, Vec<(usize, String)>> = IndexMap::new();
-        for (sym, count) in sym_counts {
-            if count.0 >= 2 && count.1 >= 1 {
+        for (sym, count) in &sym_counts {
+            if count.used.len() >= 2 && !count.mutated.is_empty() {
                 // warn!(
                 //     "{}: Possible aliasing violation: symbol {sym} used twice in procedure call",
                 //     self.program.filename
                 // );
-                aliased.insert(sym);
+                aliased.insert(*sym);
             }
-            if count.1 >= 2 {
-                if count.2 == count.1 {
+            if count.mutated.len() >= 2 {
+                if count.mutated == count.mutated_element {
                     warn!("Possible aliasing violating: assuming array elements are disjoint");
                     aliased_arrays.insert(sym, Vec::new());
                 } else {
@@ -1150,6 +1158,8 @@ impl CodeGenUnit<'_> {
                             let mut args = args.clone();
                             args.push(Expression::Symbol(arg_name.clone()));
 
+                            // With the temporary symbol in place, construct the
+                            // `func(..., &mut argN);` call.
                             let (call, result) = self.syms.with_temp(&arg_name, arg_sym, || -> Result<_> {
                                 let call = self.emit_call(name, &args, false)?;
                                 let result = self.emit_symbol(&arg_name, Ctx::ArgScalar)?;
@@ -1205,12 +1215,28 @@ impl CodeGenUnit<'_> {
             };
 
             Ok(conversion)
-        }).collect::<Vec<_>>();
+        }).collect::<Result<Vec<_>>>()?;
 
         // Context gets passed as the final argument (which means it has the shortest
         // lifetime, reducing borrowing errors when other arguments use ctx too)
         if requires_ctx {
-            exprs.push(Ok("ctx".to_owned()));
+            exprs.push("ctx".to_owned());
+        }
+
+        // If a symbol has 1 mut and 1+ non-mut uses, the non-mut ones have been replaced with
+        // clones above. But Rust evaluates arguments left to right, so the non-mut ones must
+        // be cloned before we take the mut reference. Fix that.
+        for sym in &aliased {
+            let counts = &sym_counts[sym];
+            if let Some(first_mut) = counts.mutated.first() {
+                for i in &counts.used {
+                    if i > first_mut && !counts.mutated.contains(i) {
+                        let arg_name = format!("arg{i}");
+                        prep_code += &format!("let {arg_name} = {};\n", &exprs[*i]);
+                        exprs[*i] = arg_name;
+                    }
+                }
+            }
         }
 
         for (name, args) in &aliased_arrays {
@@ -1223,10 +1249,7 @@ impl CodeGenUnit<'_> {
             );
         }
 
-        Ok((
-            exprs.into_iter().collect::<Result<Vec<_>>>()?.join(", "),
-            prep_code,
-        ))
+        Ok((exprs.join(", "), prep_code))
     }
 
     /// Get the argument types for calling a procedure or intrinsic
