@@ -13,7 +13,10 @@ pub(crate) fn parse_bounds<B: RangeBounds<i32>>(b: B) -> (i32, i32) {
         std::ops::Bound::Excluded(n) => *n - 1,
         std::ops::Bound::Unbounded => i32::MAX,
     };
-    debug_assert!(lower <= upper, "upper bound cannot be below lower bound");
+    debug_assert!(
+        upper >= lower,
+        "upper bound {upper} must be >= lower bound {lower}"
+    );
 
     (lower, upper)
 }

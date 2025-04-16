@@ -39,7 +39,7 @@ macro_rules! define_array {
                 let bounds = [$(parse_bounds($bn)),+];
                 let size = bounds
                     .iter()
-                    .map(|(lower, upper)| upper - lower + 1)
+                    .map(|(lower, upper)| (upper - lower + 1).max(0))
                     .product::<i32>();
 
                 Self {
@@ -263,7 +263,7 @@ fn bounded_data<'a, T>(bounds: &[(i32, i32)], r: &'a [T]) -> &'a [T] {
     } else {
         let size = bounds
             .iter()
-            .map(|(lower, upper)| upper - lower + 1)
+            .map(|(lower, upper)| (upper - lower + 1).max(0))
             .product::<i32>();
         &r[0..size as usize]
     }
@@ -275,7 +275,7 @@ fn bounded_data_mut<'a, T>(bounds: &[(i32, i32)], r: &'a mut [T]) -> &'a mut [T]
     } else {
         let size = bounds
             .iter()
-            .map(|(lower, upper)| upper - lower + 1)
+            .map(|(lower, upper)| (upper - lower + 1).max(0))
             .product::<i32>();
         &mut r[0..size as usize]
     }
