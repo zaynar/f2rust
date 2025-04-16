@@ -1294,7 +1294,7 @@ impl CodeGenUnit<'_> {
             // Allow CALL if it returns Character, because `ast` has translated the return
             // value into an extra darg. Otherwise complain
             if !matches!(actual.return_type, DataType::Character) {
-                bail!("CALL to function, not subroutine: {}", name);
+                warn!("CALL to function, not subroutine: {}", name);
             }
         }
 
