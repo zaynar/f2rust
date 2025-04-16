@@ -11,6 +11,7 @@ use anyhow::{Result, bail};
 use log::warn;
 
 use crate::grammar;
+use crate::grammar::Statement;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct SourceLoc {
@@ -123,7 +124,7 @@ pub fn parse_fixed(path: &Path) -> Result<Vec<(SourceLoc, grammar::Statement)>> 
             let label = if label_str == "     " {
                 0
             } else if let Ok(n) = label_str.parse::<u32>() {
-                assert!(n != 0, "label must be non-zero");
+                assert_ne!(n, 0, "label must be non-zero");
                 n
             } else {
                 bail!("label must contain digits: {} - \"{}\"", loc, label_str);
@@ -227,4 +228,48 @@ where
             }
         })
         .collect::<Result<Vec<_>>>()
+}
+
+/// A source file may contain 1+ program units (PROGRAM/SUBROUTINE/FUNCTION).
+/// Split them up, and try to keep comments associated with the correct program unit.
+pub fn split_program_units(
+    source: Vec<(SourceLoc, grammar::Statement)>,
+) -> Vec<Vec<(SourceLoc, grammar::Statement)>> {
+    let mut progs = Vec::new();
+    let mut prog = Vec::new();
+    let mut comments = Vec::new();
+
+    for (loc, line) in source.into_iter() {
+        match line {
+            Statement::Comment(..) | Statement::Blank => {
+                // Collect comments, so we can decide later whether to attach them to
+                // the preceding or following program unit
+                comments.push((loc, line));
+            }
+            Statement::End => {
+                prog.append(&mut comments);
+                prog.push((loc, line));
+
+                // End the current program unit, prepare for a new one
+                progs.push(prog.clone());
+                prog.clear();
+            }
+            _ => {
+                // Move any preceding comments into the current program unit
+                prog.append(&mut comments);
+                prog.push((loc, line));
+            }
+        }
+    }
+
+    // In case a buggy file didn't end with END, or was exclusively comments,
+    // make sure we don't lose its data
+    if progs.is_empty() || !prog.is_empty() {
+        progs.push(prog);
+    }
+
+    // Deal with any trailing comments after the final program unit
+    progs.last_mut().unwrap().append(&mut comments);
+
+    progs
 }

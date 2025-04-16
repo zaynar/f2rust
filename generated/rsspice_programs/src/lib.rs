@@ -10,6 +10,7 @@ pub mod ckbrief;
 pub mod commnt;
 pub mod cookbook;
 pub mod dskbrief;
+pub mod dskexp;
 pub mod frmdiff;
 pub mod inspekt;
 pub mod mkdsk;

@@ -20,7 +20,7 @@ use walkdir::WalkDir;
 
 use f2rust_compiler::{
     ast,
-    file::{SourceLoc, parse_fixed},
+    file::{SourceLoc, parse_fixed, split_program_units},
     globan::{self, GlobalAnalysis},
     grammar,
 };
@@ -118,12 +118,12 @@ impl DepGraph {
         self.toposort_files
             .sort_by_key(|f| (-(self.transparents[f].len() as i32), f.clone()));
 
-        self.assign_files("spicelib-1a", "spicelib", |n| n == "pool.f");
+        self.assign_files("spicelib-1a", "spicelib", |n| n == "pool");
         self.assign_rest("spicelib-1b", "spicelib", &[]);
-        self.assign_files("spicelib-2a", "spicelib", |n| n == "spkgeo.f");
+        self.assign_files("spicelib-2a", "spicelib", |n| n == "spkgeo");
         self.assign_rest("spicelib-2b", "spicelib", &["spicelib-1a", "spicelib-1b"]);
         self.assign_files("spicelib-3a", "spicelib", |n| {
-            n == "keeper.f" || n.starts_with("ek") || n.starts_with("zzek")
+            n == "keeper" || n.starts_with("ek") || n.starts_with("zzek")
         });
         self.assign_rest(
             "spicelib-3b",
@@ -383,49 +383,10 @@ fn main() -> Result<()> {
                 Some("f") | Some("pgm")
             )
         })
-        .filter(|entry| {
-            // Skip these because they have multiple procedures in one file, which we don't support yet
-            ![
-                "f_nearpt.f",
-                "f_npedln.f",
-                "f_npelpt.f",
-                "f_ck06.f",
-                "f_xdda.f",
-                "f_zzlatbox.f",
-                "f_dasa2l.f",
-                "f_dascud.f",
-                "f_gfudb.f",
-                "f_gfuds.f",
-                "f_inelpl.f",
-                "f_slice.f",
-                "f_swapac.f",
-                "f_swapad.f",
-                "f_swapai.f",
-                "f_symtbi.f",
-                "f_term.f",
-                "f_zzgfrel.f",
-                "f_zzgfrelx.f",
-                "f_zzgfsolv.f",
-                "f_zzgfsolvx.f",
-                "f_zzocced.f",
-                "f_zzpdtbox.f",
-                "f_zzspkfun.f",
-                "f_zztanslv.f",
-                "f_insert.f",
-                "f_symtbc.f",
-                "f_symtbd.f",
-                "f_zzocced2.f",
-                "p_dasa2l.f",
-                "brief.pgm",
-                "dskexp.pgm",
-                "tspice.pgm",
-            ]
-            .contains(&entry.path().file_name().unwrap().to_str().unwrap())
-        })
         .map(|entry| entry.path())
         .chain(patches.iter().map(|p| p.as_path()))
         .par_bridge()
-        .map(|path| {
+        .map(|path| -> Result<Vec<Result<_>>> {
             let namespace = path
                 .parent()
                 .unwrap()
@@ -455,19 +416,49 @@ fn main() -> Result<()> {
             let mut patcher = GrammarPatcher::new();
             let parsed = patcher.patch(parsed);
 
-            let ast = ast::Parser::new()
-                .parse(parsed)
-                .context(format!("parsing {path:?}"))?;
+            Ok(split_program_units(parsed)
+                .into_iter()
+                .enumerate()
+                .map(|(i, parsed)| {
+                    let ast = ast::Parser::new()
+                        .parse(parsed)
+                        .context(format!("parsing {path:?}"))?;
 
-            let keywords = (namespace.clone(), filename.clone(), read_keywords(&path)?);
-            Ok((
-                globan::ProgramUnit::new(&namespace, &filename, ast),
-                keywords,
-            ))
+                    // Need to give each program unit a unique name
+                    let basename = filename
+                        .strip_suffix(".f")
+                        .or(filename.strip_suffix(".pgm"))
+                        .unwrap();
+                    let pu_filename = if i == 0 {
+                        basename.to_string()
+                    } else {
+                        format!("{basename}__{i}")
+                    };
+
+                    let keywords = (namespace.clone(), filename.clone(), read_keywords(&path)?);
+                    Ok((
+                        globan::ProgramUnit::new(&namespace, &pu_filename, ast),
+                        keywords,
+                    ))
+                })
+                .collect::<Vec<_>>())
         });
 
-    let (program_units, errs): (Vec<Result<_>>, Vec<Result<_>>) =
-        program_units.partition(|r| r.is_ok());
+    // Extract grammar parsing errors
+    let (program_units, errs): (Vec<_>, Vec<_>) = program_units.partition(|r| r.is_ok());
+
+    if !errs.is_empty() {
+        for err in errs {
+            error!("Failed: {:?}", err.err().unwrap());
+        }
+        bail!("Compilation failed");
+    }
+
+    // Extract AST parsing errors
+    let (program_units, errs): (Vec<_>, Vec<_>) = program_units
+        .into_iter()
+        .flat_map(|pu| pu.unwrap())
+        .partition(|r| r.is_ok());
 
     if !errs.is_empty() {
         for err in errs {
@@ -502,32 +493,32 @@ fn main() -> Result<()> {
     println!("Unassigned: {}", deps.deps.len() - deps.assigned.len());
 
     let mut sources = HashSet::new();
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_aaaaphsh.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_ab.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_bodvar.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_ckcov.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_ckgp.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_et2utc.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_euler.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_m2q.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_moved.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_pxform.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_q2m.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_sclk.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_str2et.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_vector3.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_vectorg.f".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_zzplat.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_aaaaphsh".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_ab".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_bodvar".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_ckcov".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_ckgp".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_et2utc".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_euler".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_m2q".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_moved".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_pxform".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_q2m".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_sclk".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_str2et".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_vector3".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_vectorg".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_zzplat".to_owned())].clone());
 
-    sources.extend(deps.trans[&("testutil".to_owned(), "tsetup.f".to_owned())].clone());
-    sources.extend(deps.trans[&("testutil".to_owned(), "tclose.f".to_owned())].clone());
+    sources.extend(deps.trans[&("testutil".to_owned(), "tsetup".to_owned())].clone());
+    sources.extend(deps.trans[&("testutil".to_owned(), "tclose".to_owned())].clone());
 
-    // Some old manual tests
-    sources.extend(deps.trans[&("spicelib".to_owned(), "ana.f".to_owned())].clone());
-    sources.extend(deps.trans[&("spicelib".to_owned(), "benum.f".to_owned())].clone());
-
-    // EQUIVALENCE aliasing
-    sources.extend(deps.trans[&("support".to_owned(), "lbrem_1.f".to_owned())].clone());
+    // // Some old manual tests
+    sources.extend(deps.trans[&("spicelib".to_owned(), "ana".to_owned())].clone());
+    sources.extend(deps.trans[&("spicelib".to_owned(), "benum".to_owned())].clone());
+    //
+    // // EQUIVALENCE aliasing
+    sources.extend(deps.trans[&("support".to_owned(), "lbrem_1".to_owned())].clone());
 
     let mut sources = Vec::from_iter(sources.iter());
     sources.sort();
@@ -671,7 +662,7 @@ fn main() -> Result<()> {
             let mut modnames = cratefiles
                 .iter()
                 .filter(|f| sources.contains(f))
-                .map(|f| f.1.strip_suffix(".f").or(f.1.strip_suffix(".pgm")).unwrap())
+                .map(|f| f.1.clone())
                 .collect::<Vec<_>>();
             modnames.sort();
             for name in &modnames {
