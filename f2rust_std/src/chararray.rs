@@ -152,6 +152,14 @@ impl ActualCharArray {
     pub fn subscript(&self, index: i32) -> i32 {
         offset_1d(self.bounds, index) as i32 + 1
     }
+
+    pub fn get_disjoint_mut_unwrap<const N: usize>(&mut self, indices: [i32; N]) -> [&mut [u8]; N] {
+        let offsets = indices.map(|index| self.offset(index));
+        let ranges = offsets.map(|n| n..n + self.element_length);
+        self.data
+            .get_disjoint_mut(ranges)
+            .expect("mutable array elements passed to function must have disjoint indexes")
+    }
 }
 
 impl ActualCharArray2D {
