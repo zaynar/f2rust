@@ -685,17 +685,16 @@ impl GlobalAnalysis {
                 is_array: darg.is_array,
                 mutated: darg.mutated,
             }));
-            args
+            (actual, args)
         });
 
         // Start with the first actual_proc, and try to fold in the rest
-        let mut unified = actual_args.next().unwrap();
-        for args in actual_args {
+        let (_, mut unified) = actual_args.next().unwrap();
+        for (actual, args) in actual_args {
             if args.len() != unified.len() {
                 // TODO: turn all these error!() into bail!(), when we fix the code that triggers it
                 error!(
-                    "symbol {name} actual procs {:?} have inconsistent arg counts:\n{args:?}\n{unified:?}",
-                    actual_procs
+                    "symbol {name} actual proc {actual} has inconsistent arg counts with other procs {actual_procs:?}:\n{args:?}\n{unified:?}"
                 );
                 return Ok(vec![]);
             }
@@ -731,6 +730,8 @@ impl GlobalAnalysis {
 
         let mut changes_type = Vec::new();
         let mut changes_mut = Vec::new();
+        let mut changes_ctx = Vec::new();
+        let mut changes_result = Vec::new();
 
         for (program_idx, program) in self.programs.iter().enumerate() {
             for (name, sym) in &program.symbols.0 {
@@ -766,6 +767,21 @@ impl GlobalAnalysis {
                         proc.returns_result
                     });
 
+                    // If any actual proc requires ctx etc, then all of them must take ctx
+                    // to keep the function types compatible
+                    sym.actual_procs.iter().for_each(|actual| {
+                        let proc = self.procedures.get(actual).unwrap();
+
+                        if requires_ctx && !proc.requires_ctx {
+                            changes_ctx.push(actual.clone());
+                            dirty = true;
+                        }
+                        if returns_result && !proc.returns_result {
+                            changes_result.push(actual.clone());
+                            dirty = true;
+                        }
+                    });
+
                     let ty = ast::DataType::Procedure {
                         requires_ctx,
                         returns_result,
@@ -787,6 +803,16 @@ impl GlobalAnalysis {
         for (program_idx, entry_name, name) in changes_mut {
             let sym = self.programs[program_idx].symbols.get_mut(&name).unwrap();
             sym.mutated.insert(entry_name);
+        }
+
+        for actual in changes_ctx {
+            let proc = self.procedures.get_mut(&actual).unwrap();
+            proc.requires_ctx = true;
+        }
+
+        for actual in changes_result {
+            let proc = self.procedures.get_mut(&actual).unwrap();
+            proc.returns_result = true;
         }
 
         Ok(dirty)
