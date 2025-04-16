@@ -302,8 +302,18 @@ mod tests {
     }
 
     #[test]
+    fn F_BODVAR() -> Result<()> {
+        tspice(tspice::F_BODVAR)
+    }
+
+    #[test]
     fn F_CKCOV() -> Result<()> {
         tspice(tspice::F_CKCOV)
+    }
+
+    #[test]
+    fn F_CKGP() -> Result<()> {
+        tspice(tspice::F_CKGP)
     }
 
     #[test]
@@ -327,8 +337,23 @@ mod tests {
     }
 
     #[test]
+    fn F_PXFORM() -> Result<()> {
+        tspice(tspice::F_PXFORM)
+    }
+
+    #[test]
     fn F_Q2M() -> Result<()> {
         tspice(tspice::F_Q2M)
+    }
+
+    #[test]
+    fn F_SCLK() -> Result<()> {
+        tspice(tspice::F_SCLK)
+    }
+
+    #[test]
+    fn F_STR2ET() -> Result<()> {
+        tspice(tspice::F_STR2ET)
     }
 
     #[test]

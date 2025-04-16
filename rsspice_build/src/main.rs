@@ -504,12 +504,17 @@ fn main() -> Result<()> {
     let mut sources = HashSet::new();
     sources.extend(deps.trans[&("tspice".to_owned(), "f_aaaaphsh.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_ab.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_bodvar.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_ckcov.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_ckgp.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_et2utc.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_euler.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_m2q.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_moved.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_pxform.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_q2m.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_sclk.f".to_owned())].clone());
+    sources.extend(deps.trans[&("tspice".to_owned(), "f_str2et.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_vector3.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_vectorg.f".to_owned())].clone());
     sources.extend(deps.trans[&("tspice".to_owned(), "f_zzplat.f".to_owned())].clone());
@@ -526,9 +531,6 @@ fn main() -> Result<()> {
 
     let mut sources = Vec::from_iter(sources.iter());
     sources.sort();
-
-    // TODO:
-    // str2et, scs2e, scencd, scdecd, spkpos, bodvrd, pxform, sctiks, ckgp, ...
 
     // let sources = deps.assigned.keys().collect::<Vec<_>>();
 
