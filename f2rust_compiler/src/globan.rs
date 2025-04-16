@@ -21,6 +21,7 @@ use anyhow::{Result, bail};
 use indexmap::IndexMap;
 use log::error;
 
+use crate::ast::DataType;
 use crate::{
     ast,
     codegen::{self, ProcedureArgs},
@@ -399,6 +400,12 @@ impl GlobalAnalysis {
                         sym.actual_procs.push(ns_name);
                     } else if intrinsics::exists(name) {
                         sym.actual_procs.push(Name::new("intrinsics", "", name));
+
+                        // Hack: codegen wants to know that CHAR() returns character_len=1, and we
+                        // don't have a good general way to provide that information, so do it here
+                        if sym.ast.character_len.is_none() {
+                            sym.ast.character_len = intrinsics::character_len(name);
+                        }
                     } else {
                         unresolved.push((
                             name,

@@ -1,4 +1,5 @@
 use crate::{
+    ast,
     ast::DataType,
     codegen::{self, CallSyntax},
     globan::DummyArg,
@@ -217,6 +218,13 @@ pub fn requires_ctx(name: &str) -> bool {
 
 pub fn returns_result(name: &str) -> bool {
     matches!(name, "EXIT" | "SYSTEM")
+}
+
+pub fn character_len(name: &str) -> Option<ast::LenSpecification> {
+    match name {
+        "CHAR" => Some(ast::LenSpecification::Integer(1)),
+        _ => None,
+    }
 }
 
 pub fn dummy_args(name: &str) -> Option<Vec<DummyArg>> {

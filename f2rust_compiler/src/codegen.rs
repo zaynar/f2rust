@@ -1138,7 +1138,7 @@ impl CodeGenUnit<'_> {
                             let len = match &sym.ast.character_len {
                                 Some(LenSpecification::Integer(c)) => c.to_string(),
                                 Some(LenSpecification::IntConstantExpr(e)) => self.emit_expression(e)?,
-                                _ => bail!("cannot use CHARACTER-returning function in argument, unless it has an explicit size"),
+                                _ => bail!("cannot use CHARACTER-returning function {name} in argument, unless it has an explicit size"),
                             };
 
                             // Create a temporary symbol to store the character data,
