@@ -1792,7 +1792,22 @@ impl Parser {
                     }
                     Some(grammar::SpecifierValue::Asterisk) => Some(Specifier::Asterisk),
                     Some(grammar::SpecifierValue::Expression(e)) => {
-                        Some(Specifier::Expression(Expression::from(&self.symbols, e)?))
+                        let e = Expression::from(&self.symbols, e)?;
+
+                        // When writing to internal files, set the variable as mutable
+                        if matches!(line, grammar::Statement::Write(..)) {
+                            match &e {
+                                Expression::Symbol(name) | Expression::ArrayElement(name, _) => {
+                                    if self.symbols.is_character(name) {
+                                        self.symbols
+                                            .set_assigned(name, &self.entry.as_ref().unwrap().name);
+                                    }
+                                }
+                                _ => (),
+                            }
+                        }
+
+                        Some(Specifier::Expression(e))
                     }
                 };
 
@@ -1800,7 +1815,8 @@ impl Parser {
                     None => None,
                     Some(grammar::SpecifierValue::Asterisk) => Some(Specifier::Asterisk),
                     Some(grammar::SpecifierValue::Expression(e)) => {
-                        Some(Specifier::Expression(Expression::from(&self.symbols, e)?))
+                        let e = Expression::from(&self.symbols, e)?;
+                        Some(Specifier::Expression(e))
                     }
                 };
 
