@@ -7,11 +7,11 @@ use std::{
     path::Path,
 };
 
-use anyhow::{Result, bail};
-use log::warn;
-
 use crate::grammar;
 use crate::grammar::Statement;
+use anyhow::{Result, bail};
+use log::warn;
+use relative_path::RelativePath;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct SourceLoc {
@@ -86,25 +86,17 @@ fn remove_f90_comments(s: &str) -> String {
 }
 
 // Do the whitespace-sensitive parsing (labels, comments, etc)
-pub fn parse_fixed(path: &Path) -> Result<Vec<(SourceLoc, grammar::Statement)>> {
-    let file = BufReader::new(File::open(path)?);
-
-    let parent = path
-        .parent()
-        .and_then(|p| p.file_name())
-        .and_then(|f| f.to_str());
-
-    let filename = format!(
-        "{}/{}",
-        parent.unwrap_or("."),
-        path.file_name().unwrap().to_string_lossy()
-    );
+pub fn parse_fixed(
+    path: &RelativePath,
+    root: &Path,
+) -> Result<Vec<(SourceLoc, grammar::Statement)>> {
+    let file = BufReader::new(File::open(path.to_path(root))?);
 
     let mut lines = Vec::new();
     for (line_no, line) in file.lines().enumerate() {
         let line = line?;
         let loc = SourceLoc {
-            file: filename.clone(),
+            file: path.to_string(),
             line: line_no + 1,
         };
 
@@ -150,30 +142,22 @@ pub fn parse_fixed(path: &Path) -> Result<Vec<(SourceLoc, grammar::Statement)>> 
         }
     }
 
-    parse_lines(path, lines, parse_fixed)
+    parse_lines(path, root, lines, parse_fixed)
 }
 
 // A very crude approximation of Fortran 90 free form; just a quick hack for tests.
 // TODO: implement this properly
-pub fn parse_free(path: &Path) -> Result<Vec<(SourceLoc, grammar::Statement)>> {
-    let file = BufReader::new(File::open(path)?);
-
-    let parent = path
-        .parent()
-        .and_then(|p| p.file_name())
-        .and_then(|f| f.to_str());
-
-    let filename = format!(
-        "{}/{}",
-        parent.unwrap_or("."),
-        path.file_name().unwrap().to_string_lossy()
-    );
+pub fn parse_free(
+    path: &RelativePath,
+    root: &Path,
+) -> Result<Vec<(SourceLoc, grammar::Statement)>> {
+    let file = BufReader::new(File::open(path.to_path(root))?);
 
     let mut lines = Vec::new();
     for (line_no, line) in file.lines().enumerate() {
         let line = line?;
         let loc = SourceLoc {
-            file: filename.clone(),
+            file: path.to_string(),
             line: line_no + 1,
         };
 
@@ -186,19 +170,20 @@ pub fn parse_free(path: &Path) -> Result<Vec<(SourceLoc, grammar::Statement)>> {
         }
     }
 
-    parse_lines(path, lines, parse_free)
+    parse_lines(path, root, lines, parse_free)
 }
 
 // After the fixed/free form processing, parse each line.
 // Also handle INCLUDE, by recursively parsing the included file.
 // (Please don't have any cyclic INCLUDEs.)
 fn parse_lines<F>(
-    path: &Path,
+    path: &RelativePath,
+    root: &Path,
     lines: Vec<Line>,
     parse_fxx: F,
 ) -> Result<Vec<(SourceLoc, grammar::Statement)>>
 where
-    F: Fn(&Path) -> Result<Vec<(SourceLoc, grammar::Statement)>>,
+    F: Fn(&RelativePath, &Path) -> Result<Vec<(SourceLoc, grammar::Statement)>>,
 {
     lines
         .into_iter()
@@ -214,7 +199,7 @@ where
                                 loc,
                                 grammar::Statement::Include(
                                     inc_file.clone(),
-                                    parse_fxx(&path.parent().unwrap().join(inc_file))?,
+                                    parse_fxx(&path.parent().unwrap().join(inc_file), root)?,
                                 ),
                             ))
                         } else {
@@ -222,7 +207,7 @@ where
                         }
                     }
                     Err(e) => {
-                        bail!("{loc}: parse error: \"{s}\": {e}");
+                        bail!("{loc} parse error: \"{s}\": {e}");
                     }
                 }
             }

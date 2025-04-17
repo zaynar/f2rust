@@ -1,22 +1,22 @@
 //! Simple compiler CLI command, for testing.
 //! This compiles a single, self-contained file (though it may use INCLUDE).
 
-use std::{io::Write, path::PathBuf};
-
 use anyhow::Result;
 use clap::Parser;
-
 use f2rust_compiler::{
     ast,
     file::{parse_fixed, parse_free},
     globan,
 };
+use relative_path::RelativePathBuf;
+use std::path::Path;
+use std::{io::Write, path::PathBuf};
 
 #[derive(clap::Parser)]
 #[command(version, about, long_about = None)]
 struct Cli {
     /// FORTRAN input file
-    input: PathBuf,
+    input: RelativePathBuf,
 
     /// Rust output file
     #[arg(short, long)]
@@ -42,26 +42,21 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let parsed = if cli.freeform {
-        parse_free(&cli.input)?
+        parse_free(&cli.input, Path::new("."))?
     } else {
-        parse_fixed(&cli.input)?
+        parse_fixed(&cli.input, Path::new("."))?
     };
     let ast = ast::Parser::new().parse(parsed)?;
 
     let namespace = "test".to_owned();
-    let filename = cli
-        .input
-        .file_name()
-        .unwrap()
-        .to_string_lossy()
-        .into_owned();
+    let filename = cli.input.file_name().unwrap();
 
-    let program_unit = globan::ProgramUnit::new(&namespace, &filename, ast);
+    let program_unit = globan::ProgramUnit::new(&namespace, filename, ast);
 
     let mut glob = globan::GlobalAnalysis::new(&[], vec![program_unit]);
     glob.analyse()?;
 
-    let code = glob.codegen(&namespace, &filename, cli.pretty)?;
+    let code = glob.codegen(&namespace, filename, cli.pretty)?;
 
     if let Some(output) = cli.output {
         std::fs::write(output, code.as_bytes())?;

@@ -7,6 +7,7 @@ edition = "2024"
 anyhow = "1.0.97"
 indexmap = "2.8.0"
 rayon = "1.10.0"
+relative-path = "1.9.3"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["fmt"] }
 walkdir = "2.5.0"

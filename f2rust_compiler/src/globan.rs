@@ -21,7 +21,6 @@ use anyhow::{Result, bail};
 use indexmap::IndexMap;
 use log::error;
 
-use crate::ast::DataType;
 use crate::{
     ast,
     codegen::{self, ProcedureArgs},
@@ -326,7 +325,7 @@ impl GlobalAnalysis {
                     uses_io: false,
                     uses_stop: false,
                 };
-                entry.body.iter().for_each(|s| s.walk(&mut visitor));
+                entry.body.iter().for_each(|(_loc, s)| s.walk(&mut visitor));
 
                 let proc = Procedure {
                     source: (program.namespace.clone(), program.filename.clone()),
@@ -487,7 +486,7 @@ impl GlobalAnalysis {
             // Find all the call arguments
             let mut visitor = CallVisitor::default();
             for entry in &program.ast.entries {
-                for statement in &entry.body {
+                for (_loc, statement) in &entry.body {
                     statement.walk(&mut visitor);
                 }
             }
@@ -554,7 +553,7 @@ impl GlobalAnalysis {
                 let name = Name::new(&program.namespace, "", &entry.name);
 
                 let mut visitor = CallVisitor::default();
-                for statement in &entry.body {
+                for (_loc, statement) in &entry.body {
                     statement.walk(&mut visitor);
                 }
 
@@ -607,7 +606,7 @@ impl GlobalAnalysis {
             for entry in &program.ast.entries {
                 // Find all the call arguments
                 let mut visitor = CallVisitor::default();
-                for statement in &entry.body {
+                for (_loc, statement) in &entry.body {
                     statement.walk(&mut visitor);
                 }
 

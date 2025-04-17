@@ -60,7 +60,7 @@ pub enum Statement {
     // es.len() == bodies.len(), except during construction.
     If {
         es: Vec<Option<Expression>>,
-        bodies: Vec<Vec<Statement>>,
+        bodies: Vec<Vec<(SourceLoc, Statement)>>,
     },
 
     Do {
@@ -68,12 +68,12 @@ pub enum Statement {
         e1: Expression,
         e2: Expression,
         e3: Option<Expression>,
-        body: Vec<Statement>,
+        body: Vec<(SourceLoc, Statement)>,
     },
 
     DoWhile {
         e: Expression,
-        body: Vec<Statement>,
+        body: Vec<(SourceLoc, Statement)>,
     },
 
     Stop,
@@ -131,13 +131,15 @@ pub enum ProgramUnitType {
 /// Represents an ENTRY, or the virtual one at the start of a procedure
 #[derive(Debug)]
 pub struct Entry {
+    pub loc: SourceLoc,
     pub name: String,
     pub dargs: Vec<String>,
-    pub body: Vec<Statement>,
+    pub body: Vec<(SourceLoc, Statement)>,
 }
 
 #[derive(Debug)]
 pub struct StatementFunction {
+    pub loc: SourceLoc,
     pub name: String,
     pub dargs: Vec<String>,
     pub captured: Vec<String>,
@@ -146,6 +148,8 @@ pub struct StatementFunction {
 
 #[derive(Debug)]
 pub struct DataStatement {
+    pub loc: SourceLoc,
+
     /// List of names to assign to
     pub nlist: Vec<Expression>,
 
@@ -403,7 +407,7 @@ impl Statement {
                     if let Some(e) = e {
                         e.walk(v);
                     }
-                    for s in body {
+                    for (_loc, s) in body {
                         s.walk(v);
                     }
                 }
@@ -421,13 +425,13 @@ impl Statement {
                 if let Some(e3) = e3 {
                     e3.walk(v);
                 }
-                for s in body {
+                for (_loc, s) in body {
                     s.walk(v);
                 }
             }
             Statement::DoWhile { e, body } => {
                 e.walk(v);
-                for s in body {
+                for (_loc, s) in body {
                     s.walk(v);
                 }
             }
@@ -589,6 +593,9 @@ impl Dimension {
 
 #[derive(Debug, Clone)]
 pub struct Symbol {
+    /// Source location where this was first declared
+    pub loc: SourceLoc,
+
     /// Type of value, or return type of procedure
     pub base_type: DataType,
 
@@ -691,6 +698,10 @@ impl Symbol {
 impl Default for Symbol {
     fn default() -> Self {
         Self {
+            loc: SourceLoc {
+                file: "(unknown)".to_owned(),
+                line: 0,
+            },
             base_type: DataType::Unknown,
             character_len: None,
             dims: Vec::new(),
@@ -745,6 +756,10 @@ impl SymbolTable {
 
         let sym = self.entry(name);
         sym.base_type = ty;
+    }
+
+    fn set_loc(&mut self, name: &str, loc: &SourceLoc) {
+        self.entry(name).loc = loc.clone();
     }
 
     fn set_darg(&mut self, name: &str) {
@@ -889,7 +904,7 @@ pub struct Parser {
     /// Top of stack is the currently-active scope. Statements are added there.
     /// IF/DO pushes a new scope onto the stack after the IF/DO statement,
     /// so END IF/DO etc can pop the stack then merge it into the last IF/DO statement
-    statements: Vec<Vec<Statement>>,
+    statements: Vec<Vec<(SourceLoc, Statement)>>,
 
     /// Used for detecting RETURN outside of IF blocks
     depth: i32,
@@ -944,12 +959,13 @@ impl Parser {
 
         let mut source_iter = source_complete.into_iter();
 
-        'LINES: for (_loc, line) in &mut source_iter {
+        'LINES: for (loc, line) in &mut source_iter {
             match line {
                 grammar::Statement::Comment(_) | grammar::Statement::Blank => (),
                 grammar::Statement::Program(name) => {
                     pu_ty = Some(ProgramUnitType::Program);
                     self.entry = Some(Entry {
+                        loc,
                         name,
                         dargs: Vec::new(),
                         body: Vec::new(),
@@ -983,7 +999,10 @@ impl Parser {
                         self.symbols.set_function(&name, ret_type);
                     }
 
+                    self.symbols.set_loc(&name, &loc);
+
                     self.entry = Some(Entry {
+                        loc,
                         name,
                         dargs,
                         body: Vec::new(),
@@ -1000,6 +1019,7 @@ impl Parser {
 
                     dargs.iter().for_each(|d| self.symbols.set_darg(d));
                     self.entry = Some(Entry {
+                        loc,
                         name,
                         dargs,
                         body: Vec::new(),
@@ -1056,7 +1076,7 @@ impl Parser {
                 entry_name: &entry.name,
                 symbols: &mut self.symbols,
             };
-            entry.body.iter().for_each(|s| s.walk(&mut v));
+            entry.body.iter().for_each(|(_loc, s)| s.walk(&mut v));
         }
 
         // Apply "SAVE" to relevant symbols
@@ -1140,11 +1160,7 @@ impl Parser {
             grammar::Statement::Program(..)
             | grammar::Statement::Function(..)
             | grammar::Statement::Subroutine(..) => {
-                bail!(
-                    "PROGRAM/FUNCTION/SUBROUTINE only valid at start: {}: {:?}",
-                    loc,
-                    line
-                );
+                bail!("{loc} PROGRAM/FUNCTION/SUBROUTINE only valid at start");
             }
 
             // FORMAT/ENTRY statements (but we don't support FORMAT)
@@ -1152,11 +1168,12 @@ impl Parser {
                 // We don't support entry into the middle of a function, because that's hard
                 // to emulate in sensible language
                 if self.entry.is_some() {
-                    bail!("ENTRY must be after an unconditional RETURN");
+                    bail!("{loc} ENTRY must be after an unconditional RETURN");
                 }
 
                 dargs.iter().for_each(|d| self.symbols.set_darg(d));
                 self.entry = Some(Entry {
+                    loc,
                     name: name.clone(),
                     dargs: dargs.clone(),
                     body: Vec::new(),
@@ -1168,7 +1185,7 @@ impl Parser {
             // PARAMETER statements
             grammar::Statement::Parameter(params) => {
                 if !matches!(self.state, ParseState::Implicit | ParseState::OtherSpec) {
-                    bail!("PARAMETER invalid here: {}: {:?}", loc, line);
+                    bail!("{loc} PARAMETER invalid here");
                 }
 
                 for (name, expr) in params {
@@ -1185,6 +1202,7 @@ impl Parser {
 
                 for grammar::DataLists { nlist, clist } in datas {
                     self.datas.push(DataStatement {
+                        loc: loc.clone(),
                         nlist: nlist
                             .iter()
                             .map(|n| Expression::from_dataname(&mut self.symbols, n))
@@ -1207,7 +1225,7 @@ impl Parser {
             // IMPLICIT statements
             grammar::Statement::ImplicitNone => {
                 if !matches!(self.state, ParseState::Implicit) {
-                    bail!("IMPLICIT invalid here: {}, {:?}", loc, line);
+                    bail!("{loc} IMPLICIT invalid here");
                 }
                 self.state = ParseState::OtherSpec;
 
@@ -1226,7 +1244,7 @@ impl Parser {
                     if matches!(self.state, ParseState::StatementFunction) {
                         // allow this, don't change state
                     } else {
-                        bail!("specification statements invalid here: {}: {:?}", loc, line);
+                        bail!("{loc} specification statements invalid here");
                     }
                 } else {
                     self.state = ParseState::OtherSpec;
@@ -1243,13 +1261,13 @@ impl Parser {
 
             grammar::Statement::Equivalence(nlist) => {
                 if !matches!(self.state, ParseState::Implicit | ParseState::OtherSpec) {
-                    bail!("specification statements invalid here: {}: {:?}", loc, line);
+                    bail!("{loc} specification statements invalid here");
                 } else {
                     self.state = ParseState::OtherSpec;
                 }
 
                 if nlist.len() != 1 || nlist[0].len() != 2 {
-                    bail!("EQUIVALENCE only supported between 2 variables");
+                    bail!("{loc} EQUIVALENCE only supported between 2 variables");
                 }
 
                 let ns = &nlist[0];
@@ -1265,7 +1283,7 @@ impl Parser {
                         let sym2 = self.symbols.get(s2).unwrap();
                         if !sym1.dims.is_empty() || sym1.base_type != sym2.base_type {
                             bail!(
-                                "EQUIVALENCE with array element only supported with scalar of same type"
+                                "{loc} EQUIVALENCE with array element only supported with scalar of same type"
                             );
                         }
                         let e2 = Expression::from_dataname(&mut self.symbols, &ns[1])?;
@@ -1292,7 +1310,7 @@ impl Parser {
 
                         // We've only bothered implementing this in DummyArray for now
                         if sym2.dims.len() != 1 {
-                            bail!("EQUIVALENCE only supported with a 1-dimensional array");
+                            bail!("{loc} EQUIVALENCE only supported with a 1-dimensional array");
                         }
 
                         // TODO: verify the sizes are the same, to avoid runtime errors
@@ -1300,14 +1318,16 @@ impl Parser {
                         self.symbols.set_equivalence(s2, s1);
                     }
                     _ => {
-                        bail!("EQUIVALENCE only supported between variables and array elements");
+                        bail!(
+                            "{loc} EQUIVALENCE only supported between variables and array elements"
+                        );
                     }
                 }
             }
 
             grammar::Statement::External(vs) => {
                 if !matches!(self.state, ParseState::Implicit | ParseState::OtherSpec) {
-                    bail!("specification statements invalid here: {}: {:?}", loc, line);
+                    bail!("{loc} specification statements invalid here");
                 } else {
                     self.state = ParseState::OtherSpec;
                 }
@@ -1319,7 +1339,7 @@ impl Parser {
 
             grammar::Statement::Type(ty, vs) => {
                 if !matches!(self.state, ParseState::Implicit | ParseState::OtherSpec) {
-                    bail!("specification statements invalid here: {}: {:?}", loc, line);
+                    bail!("{loc} specification statements invalid here");
                 } else {
                     self.state = ParseState::OtherSpec;
                 }
@@ -1343,12 +1363,13 @@ impl Parser {
 
                     self.symbols
                         .set_type(&v.name, DataType::from(&self.symbols, ty), &dims);
+                    self.symbols.set_loc(&v.name, &loc);
                 }
             }
 
             grammar::Statement::TypeCharacter(len, vs) => {
                 if !matches!(self.state, ParseState::Implicit | ParseState::OtherSpec) {
-                    bail!("specification statements invalid here: {}: {:?}", loc, line);
+                    bail!("{loc} specification statements invalid here");
                 } else {
                     self.state = ParseState::OtherSpec;
                 }
@@ -1378,6 +1399,7 @@ impl Parser {
                         .or(Some(grammar::LenSpecification::Integer(1)));
 
                     self.symbols.set_type(&v.name, DataType::Character, &dims);
+                    self.symbols.set_loc(&v.name, &loc);
 
                     self.symbols.set_character_len(
                         &v.name,
@@ -1402,7 +1424,7 @@ impl Parser {
                     .iter()
                     .map(|d| match d {
                         grammar::Expression::Symbol(s) => s.clone(),
-                        _ => panic!("non-symbol in statement function dargs"),
+                        _ => panic!("{loc} non-symbol in statement function dargs"),
                     })
                     .collect();
 
@@ -1453,6 +1475,7 @@ impl Parser {
                 self.symbols.set_statement_function(name, &captured);
 
                 self.statement_functions.push(StatementFunction {
+                    loc,
                     name: name.clone(),
                     dargs,
                     captured,
@@ -1477,8 +1500,8 @@ impl Parser {
             | grammar::Statement::Return(..) => {
                 self.state = ParseState::Executable;
 
-                if let Some(st) = self.parse_basic_statement(loc, line)? {
-                    self.statements.last_mut().unwrap().push(st);
+                if let Some(st) = self.parse_basic_statement(loc.clone(), line)? {
+                    self.statements.last_mut().unwrap().push((loc, st));
                 }
             }
 
@@ -1486,7 +1509,7 @@ impl Parser {
                 self.state = ParseState::Executable;
 
                 if label.is_some() {
-                    bail!("DO label not supported");
+                    bail!("{loc} DO label not supported");
                 }
 
                 let e1 = Expression::from(&self.symbols, e1)?;
@@ -1503,17 +1526,20 @@ impl Parser {
 
                 self.symbols.set_do_var(var);
                 if self.do_vars.contains(var) {
-                    bail!("can't use same DO-variable in nested loops");
+                    bail!("{loc} can't use same DO-variable in nested loops");
                 }
                 self.do_vars.push(var.clone());
 
-                self.statements.last_mut().unwrap().push(Statement::Do {
-                    var: var.clone(),
-                    e1,
-                    e2,
-                    e3,
-                    body: Vec::new(),
-                });
+                self.statements.last_mut().unwrap().push((
+                    loc,
+                    Statement::Do {
+                        var: var.clone(),
+                        e1,
+                        e2,
+                        e3,
+                        body: Vec::new(),
+                    },
+                ));
 
                 self.statements.push(Vec::new());
 
@@ -1524,7 +1550,7 @@ impl Parser {
                 self.state = ParseState::Executable;
 
                 if label.is_some() {
-                    bail!("DO WHILE label not supported");
+                    bail!("{loc} DO WHILE label not supported");
                 }
 
                 let e = Expression::from(&self.symbols, e)?;
@@ -1532,13 +1558,13 @@ impl Parser {
                 let mut visitor = DoVarVisitor::new(&self.do_vars, &mut self.symbols);
                 e.walk(&mut visitor);
 
-                self.statements
-                    .last_mut()
-                    .unwrap()
-                    .push(Statement::DoWhile {
+                self.statements.last_mut().unwrap().push((
+                    loc,
+                    Statement::DoWhile {
                         e,
                         body: Vec::new(),
-                    });
+                    },
+                ));
 
                 self.statements.push(Vec::new());
 
@@ -1550,14 +1576,14 @@ impl Parser {
 
                 let body = self.statements.pop().unwrap();
                 match self.statements.last_mut().unwrap().last_mut().unwrap() {
-                    Statement::Do { body: s_body, .. } => {
+                    (_loc, Statement::Do { body: s_body, .. }) => {
                         *s_body = body;
                         self.do_vars.pop();
                     }
-                    Statement::DoWhile { body: s_body, .. } => {
+                    (_loc, Statement::DoWhile { body: s_body, .. }) => {
                         *s_body = body;
                     }
-                    _ => bail!("END DO without matching DO"),
+                    _ => bail!("{loc} END DO without matching DO"),
                 }
 
                 self.depth -= 1;
@@ -1575,13 +1601,16 @@ impl Parser {
                 // Temporarily increment depth in case there's a RETURN in the body
                 self.depth += 1;
 
-                if let Some(st) = self.parse_basic_statement(loc, body)? {
-                    self.statements.last_mut().unwrap().push(Statement::If {
-                        es: vec![Some(e)],
-                        bodies: vec![vec![st]],
-                    });
+                if let Some(st) = self.parse_basic_statement(loc.clone(), body)? {
+                    self.statements.last_mut().unwrap().push((
+                        loc.clone(),
+                        Statement::If {
+                            es: vec![Some(e)],
+                            bodies: vec![vec![(loc, st)]],
+                        },
+                    ));
                 } else {
-                    bail!("failed to parse logical IF body");
+                    bail!("{loc} failed to parse logical IF body");
                 }
 
                 self.depth -= 1;
@@ -1595,10 +1624,13 @@ impl Parser {
                 let mut visitor = DoVarVisitor::new(&self.do_vars, &mut self.symbols);
                 e.walk(&mut visitor);
 
-                self.statements.last_mut().unwrap().push(Statement::If {
-                    es: vec![Some(e)],
-                    bodies: vec![],
-                });
+                self.statements.last_mut().unwrap().push((
+                    loc,
+                    Statement::If {
+                        es: vec![Some(e)],
+                        bodies: vec![],
+                    },
+                ));
 
                 self.statements.push(Vec::new());
 
@@ -1614,11 +1646,11 @@ impl Parser {
 
                 let body = self.statements.pop().unwrap();
                 match self.statements.last_mut().unwrap().last_mut().unwrap() {
-                    Statement::If { es, bodies } => {
+                    (_loc, Statement::If { es, bodies }) => {
                         es.push(Some(e));
                         bodies.push(body);
                     }
-                    _ => bail!("ELSE IF without matching IF"),
+                    _ => bail!("{loc} ELSE IF without matching IF"),
                 }
 
                 self.statements.push(Vec::new());
@@ -1628,11 +1660,11 @@ impl Parser {
 
                 let body = self.statements.pop().unwrap();
                 match self.statements.last_mut().unwrap().last_mut().unwrap() {
-                    Statement::If { es, bodies } => {
+                    (_loc, Statement::If { es, bodies }) => {
                         es.push(None);
                         bodies.push(body);
                     }
-                    _ => bail!("ELSE without matching IF"),
+                    _ => bail!("{loc} ELSE without matching IF"),
                 }
 
                 self.statements.push(Vec::new());
@@ -1642,10 +1674,10 @@ impl Parser {
 
                 let body = self.statements.pop().unwrap();
                 match self.statements.last_mut().unwrap().last_mut().unwrap() {
-                    Statement::If { bodies, .. } => {
+                    (_loc, Statement::If { bodies, .. }) => {
                         bodies.push(body);
                     }
-                    _ => bail!("END IF without matching IF"),
+                    _ => bail!("{loc} END IF without matching IF"),
                 }
 
                 self.depth -= 1;
@@ -1653,13 +1685,13 @@ impl Parser {
             }
 
             // INCLUDE should have been expanded already
-            grammar::Statement::Include(..) => panic!("unexpected INCLUDE"),
+            grammar::Statement::Include(..) => panic!("{loc} unexpected INCLUDE"),
 
             grammar::Statement::End => {
                 self.state = ParseState::End;
 
                 if self.depth != 0 {
-                    bail!("END while inside IF/DO");
+                    bail!("{loc} END while inside IF/DO");
                 }
 
                 if self.entry.is_some() {
@@ -1691,15 +1723,19 @@ impl Parser {
                     grammar::DataName::ArrayElement(s, _) => s,
                     grammar::DataName::Substring(s, _, _) => s,
                     grammar::DataName::SubstringArrayElement(s, _, _, _) => s,
-                    grammar::DataName::ImpliedDo(..) => bail!("implied-DO invalid in assignment"),
-                    grammar::DataName::Expression(..) => bail!("expression invalid in assignment"),
+                    grammar::DataName::ImpliedDo(..) => {
+                        bail!("{loc} implied-DO invalid in assignment")
+                    }
+                    grammar::DataName::Expression(..) => {
+                        bail!("{loc} expression invalid in assignment")
+                    }
                 };
 
                 self.symbols
                     .set_assigned(name_sym, &self.entry.as_ref().unwrap().name);
 
                 if self.do_vars.contains(name_sym) {
-                    bail!("assigning to active DO-variable");
+                    bail!("{loc} assigning to active DO-variable");
                 }
 
                 // Special case for functions that return CHARACTER: they output to an
@@ -1747,7 +1783,7 @@ impl Parser {
                 let unit = match specs.0.get("UNIT") {
                     None => {
                         if !matches!(line, grammar::Statement::Print(..)) {
-                            bail!("READ/WRITE statement must specify UNIT");
+                            bail!("{loc} READ/WRITE statement must specify UNIT");
                         }
                         None
                     }
@@ -1772,7 +1808,7 @@ impl Parser {
                     }
                     match v {
                         grammar::SpecifierValue::Asterisk => {
-                            bail!("asterisk specifier only allowed in UNIT=*")
+                            bail!("{loc} asterisk specifier only allowed in UNIT=*")
                         }
                         grammar::SpecifierValue::Expression(e) => {
                             let e = Expression::from(&self.symbols, e)?;
@@ -1785,7 +1821,9 @@ impl Parser {
                                             .set_assigned(name, &self.entry.as_ref().unwrap().name);
                                     }
                                     _ => {
-                                        bail!("IOSTAT must be an integer variable or array element")
+                                        bail!(
+                                            "{loc} IOSTAT must be an integer variable or array element"
+                                        )
                                     }
                                 }
                             }
@@ -1843,11 +1881,11 @@ impl Parser {
                 match unit {
                     None => {
                         if !matches!(line, grammar::Statement::Inquire(..)) {
-                            bail!("IO statement must specify UNIT");
+                            bail!("{loc} IO statement must specify UNIT");
                         }
                     }
                     Some(grammar::SpecifierValue::Asterisk) => {
-                        bail!("UNIT=* only allowed in READ, WRITE");
+                        bail!("{loc} UNIT=* only allowed in READ, WRITE");
                     }
                     Some(grammar::SpecifierValue::Expression(e)) => {
                         ast_specs.insert("UNIT".to_owned(), Expression::from(&self.symbols, e)?);
@@ -1861,7 +1899,7 @@ impl Parser {
                     }
                     match v {
                         grammar::SpecifierValue::Asterisk => {
-                            bail!("asterisk specifier only allowed in UNIT=*")
+                            bail!("{loc} asterisk specifier only allowed in UNIT=*")
                         }
                         grammar::SpecifierValue::Expression(e) => {
                             let e = Expression::from(&self.symbols, e)?;
@@ -1878,7 +1916,7 @@ impl Parser {
                                             .set_assigned(name, &self.entry.as_ref().unwrap().name);
                                     }
                                     _ => {
-                                        bail!("{k} must be a variable or array element")
+                                        bail!("{loc} {k} must be a variable or array element")
                                     }
                                 }
                             }
@@ -1918,7 +1956,7 @@ impl Parser {
 
             grammar::Statement::Return(label) => {
                 if label.is_some() {
-                    bail!("alternate returns are not supported");
+                    bail!("{loc} alternate returns are not supported");
                 }
 
                 if self.depth == 0 {
@@ -1934,7 +1972,7 @@ impl Parser {
                 }
             }
 
-            _ => bail!("unrecognised basic statement: {}: {:?}", loc, line),
+            _ => bail!("{loc} unrecognised basic statement"),
         })
     }
 

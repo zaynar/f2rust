@@ -4,6 +4,11 @@
 //! and extract into the workspace directory. (Be aware of its restrictions on distribution:
 //! https://naif.jpl.nasa.gov/naif/rules.html)
 
+use anyhow::{Context, Result, bail};
+use indexmap::IndexMap;
+use rayon::prelude::*;
+use relative_path::PathExt;
+use std::path::Path;
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
@@ -11,10 +16,6 @@ use std::{
     path::PathBuf,
     time::Instant,
 };
-
-use anyhow::{Context, Result, bail};
-use indexmap::IndexMap;
-use rayon::prelude::*;
 use tracing::{Level, error, info, span};
 use walkdir::WalkDir;
 
@@ -411,7 +412,8 @@ fn main() -> Result<()> {
                 path.to_path_buf()
             };
 
-            let parsed = parse_fixed(&path).context(format!("parsing {path:?}"))?;
+            let parsed = parse_fixed(&path.relative_to(".").unwrap(), Path::new("."))
+                .context(format!("parsing {path:?}"))?;
 
             let mut patcher = GrammarPatcher::new();
             let parsed = patcher.patch(parsed);
@@ -681,15 +683,6 @@ fn main() -> Result<()> {
 
     let mut succeeded = 0;
     for node @ (namespace, filename) in &sources {
-        let path = src_root.join(namespace).join(filename);
-
-        let _span = span!(
-            Level::INFO,
-            "codegen",
-            file = path.to_string_lossy().to_string()
-        )
-        .entered();
-
         // info!("Compiling");
 
         let code = glob.codegen(namespace, filename, PRETTY_PRINT);

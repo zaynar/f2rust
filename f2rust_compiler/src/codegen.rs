@@ -5,13 +5,13 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 
+use crate::ast::{DataType, Expression, LenSpecification, Specifier, Statement};
+use crate::file::SourceLoc;
+use crate::grammar::{BinaryOp, Constant, UnaryOp};
+use crate::{ast, globan, intrinsics};
 use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
 use log::{error, warn};
-
-use crate::ast::{DataType, Expression, LenSpecification, Specifier, Statement};
-use crate::grammar::{BinaryOp, Constant, UnaryOp};
-use crate::{ast, globan, intrinsics};
 
 /// The Rust representation of a symbol name or an expression, based on how it's
 /// used in the main body of the function. (It may have different representations
@@ -201,12 +201,12 @@ impl SymbolTable {
 
 impl Expression {
     /// Recursively determine the type of an expression
-    fn resolve_type(&self, syms: &SymbolTable) -> Result<DataType> {
+    fn resolve_type(&self, loc: &SourceLoc, syms: &SymbolTable) -> Result<DataType> {
         Ok(match self {
-            Expression::Unary(_op, e2) => e2.resolve_type(syms)?,
+            Expression::Unary(_op, e2) => e2.resolve_type(loc, syms)?,
             Expression::Binary(op, e1, e2) => {
-                let t1 = e1.resolve_type(syms)?;
-                let t2 = e2.resolve_type(syms)?;
+                let t1 = e1.resolve_type(loc, syms)?;
+                let t2 = e2.resolve_type(loc, syms)?;
                 match op {
                     BinaryOp::Add
                     | BinaryOp::Sub
@@ -225,14 +225,16 @@ impl Expression {
                                 DataType::Integer
                             }
                         } else {
-                            bail!("invalid types in arithmetic operator: {t1:?} {op:?} {t2:?}");
+                            bail!(
+                                "{loc} invalid types in arithmetic operator: {t1:?} {op:?} {t2:?}"
+                            );
                         }
                     }
                     BinaryOp::Concat => {
                         if t1 == DataType::Character && t2 == DataType::Character {
                             DataType::Character
                         } else {
-                            bail!("invalid types in CHARACTER concatenation: {t1:?} {t2:?}");
+                            bail!("{loc} invalid types in CHARACTER concatenation: {t1:?} {t2:?}");
                         }
                     }
                     BinaryOp::Lt
@@ -247,7 +249,9 @@ impl Expression {
                         {
                             DataType::Logical
                         } else {
-                            bail!("invalid types in relational operator: {t1:?} {op:?} {t2:?}");
+                            bail!(
+                                "{loc} invalid types in relational operator: {t1:?} {op:?} {t2:?}"
+                            );
                         }
                     }
 
@@ -255,7 +259,7 @@ impl Expression {
                         if t1 == DataType::Logical && t2 == DataType::Logical {
                             DataType::Logical
                         } else {
-                            bail!("invalid types in logical operator: {t1:?} {op:?} {t2:?}");
+                            bail!("{loc} invalid types in logical operator: {t1:?} {op:?} {t2:?}");
                         }
                     }
                 }
@@ -269,13 +273,13 @@ impl Expression {
                     let first_arg = args
                         .first()
                         .expect("intrinsic call must have some arguments")
-                        .resolve_type(syms)?;
+                        .resolve_type(loc, syms)?;
                     if let Some((ret_ty, _)) = intrinsics::call_info(name, Some(first_arg)) {
                         ret_ty
                     } else if intrinsics::exists(name) {
-                        bail!("calling intrinsic {name} with incorrect argument type");
+                        bail!("{loc} calling intrinsic {name} with incorrect argument type");
                     } else {
-                        bail!("calling non-intrinsic function {name} without declared type");
+                        bail!("{loc} calling non-intrinsic function {name} without declared type");
                     }
                 } else {
                     ty.clone()
@@ -294,7 +298,7 @@ impl Expression {
                 Constant::Bool(_) => DataType::Logical,
                 Constant::Character(_) => DataType::Character,
             },
-            Expression::ImpliedDo { .. } => bail!("cannot resolve type of implied-DO"),
+            Expression::ImpliedDo { .. } => bail!("{loc} cannot resolve type of implied-DO"),
             Expression::ImpliedDoVar(_) => DataType::Integer,
             // (Don't support REAL implied-DO-vars, that'd just be silly)
         })
@@ -456,7 +460,7 @@ impl CodeGenUnit<'_> {
     /// Emit a symbol in the appropriate form for its context.
     /// In FORTRAN everything is a pointer, but in Rust we have to explicitly
     /// convert between values, references, arrays, scalars, etc.
-    fn emit_symbol(&self, name: &str, ctx: Ctx) -> Result<String> {
+    fn emit_symbol(&self, loc: &SourceLoc, name: &str, ctx: Ctx) -> Result<String> {
         let sym = self.syms.get(name)?;
         let ty = emit_datatype(&sym.ast.base_type);
 
@@ -485,17 +489,17 @@ impl CodeGenUnit<'_> {
 
                 RustType::EquivArray | RustType::EquivArrayMut => format!(
                     "DummyArray::<{ty}>::from_equiv({}, {})",
-                    self.emit_symbol(sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArray)?,
-                    self.emit_dims(&sym)?
+                    self.emit_symbol(loc, sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArray)?,
+                    self.emit_dims(loc, &sym)?
                 ),
             },
             Ctx::ValueMut => match sym.rs_ty {
                 RustType::EquivArrayMut => format!(
                     "DummyArrayMut::<{ty}>::from_equiv({}, {})",
-                    self.emit_symbol(sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArrayMut)?,
-                    self.emit_dims(&sym)?
+                    self.emit_symbol(loc, sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArrayMut)?,
+                    self.emit_dims(loc, &sym)?
                 ),
-                _ => self.emit_symbol(name, Ctx::Value)?,
+                _ => self.emit_symbol(loc, name, Ctx::Value)?,
             },
             Ctx::ArgScalar => match sym.rs_ty {
                 // When passing an array as a scalar, we take the first element
@@ -509,7 +513,7 @@ impl CodeGenUnit<'_> {
                 RustType::SaveActualArray => format!("*save.{name}.first()"),
                 RustType::SaveActualCharArray => format!("save.{name}.first()"),
 
-                _ => self.emit_symbol(name, Ctx::Value)?,
+                _ => self.emit_symbol(loc, name, Ctx::Value)?,
             },
             Ctx::ArgScalarMut => match sym.rs_ty {
                 RustType::PrimitiveMut => format!("&mut {name}"),
@@ -533,7 +537,7 @@ impl CodeGenUnit<'_> {
                 | RustType::LocalDoVar
                 | RustType::EquivArray
                 | RustType::EquivArrayMut => {
-                    bail!("invalid context {ctx:?} for symbol {name}: {sym:?}")
+                    bail!("{loc} invalid context {ctx:?} for symbol {name}: {sym:?}")
                 }
             },
             Ctx::ArgScalarAliased => match sym.rs_ty {
@@ -543,7 +547,7 @@ impl CodeGenUnit<'_> {
                 RustType::CharSliceRef => format!("&{name}.to_vec()"),
                 RustType::CharSliceMut => format!("&{name}.to_vec()"),
                 RustType::SaveChar => format!("&save.{name}.to_vec()"),
-                _ => self.emit_symbol(name, Ctx::ArgScalar)?,
+                _ => self.emit_symbol(loc, name, Ctx::ArgScalar)?,
             },
             Ctx::ArgArray => match sym.rs_ty {
                 // When passing a scalar as an array, need to convert T to &[T]
@@ -566,8 +570,8 @@ impl CodeGenUnit<'_> {
                 RustType::LocalDoVar => format!("&[{name}]"),
                 RustType::EquivArray | RustType::EquivArrayMut => format!(
                     "DummyArray::<{ty}>::from_equiv({}, {}).as_slice()",
-                    self.emit_symbol(sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArray)?,
-                    self.emit_dims(&sym)?
+                    self.emit_symbol(loc, sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArray)?,
+                    self.emit_dims(loc, &sym)?
                 ),
             },
             Ctx::ArgArrayMut => match sym.rs_ty {
@@ -586,8 +590,8 @@ impl CodeGenUnit<'_> {
                 RustType::SaveActualCharArray => format!("save.{name}.as_arg_mut()"),
                 RustType::EquivArrayMut => format!(
                     "DummyArrayMut::<{ty}>::from_equiv({}, {}).as_slice_mut()",
-                    self.emit_symbol(sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArrayMut)?,
-                    self.emit_dims(&sym)?
+                    self.emit_symbol(loc, sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArrayMut)?,
+                    self.emit_dims(loc, &sym)?
                 ),
                 RustType::Primitive
                 | RustType::DummyArray
@@ -596,7 +600,7 @@ impl CodeGenUnit<'_> {
                 | RustType::Procedure
                 | RustType::LocalDoVar
                 | RustType::EquivArray => {
-                    bail!("invalid context {ctx:?} for symbol {name}: {sym:?}")
+                    bail!("{loc} invalid context {ctx:?} for symbol {name}: {sym:?}")
                 }
             },
             Ctx::ArgArrayAliased => match sym.rs_ty {
@@ -607,7 +611,7 @@ impl CodeGenUnit<'_> {
                 RustType::CharSliceRef => format!("&{name}.to_vec()"),
                 RustType::CharSliceMut => format!("&{name}.to_vec()"),
                 RustType::SaveChar => format!("&save.{name}.to_vec()"),
-                _ => self.emit_symbol(name, Ctx::ArgArray)?,
+                _ => self.emit_symbol(loc, name, Ctx::ArgArray)?,
             },
             Ctx::DummyArg => match sym.rs_ty {
                 // Used as Rust function parameters, i.e. the public API of our code,
@@ -634,7 +638,7 @@ impl CodeGenUnit<'_> {
                 | RustType::LocalDoVar
                 | RustType::EquivArray
                 | RustType::EquivArrayMut => {
-                    bail!("invalid context {ctx:?} for symbol {name}: {sym:?}")
+                    bail!("{loc} invalid context {ctx:?} for symbol {name}: {sym:?}")
                 }
             },
             Ctx::Assignment => match sym.rs_ty {
@@ -652,8 +656,8 @@ impl CodeGenUnit<'_> {
                 RustType::SaveActualArray | RustType::SaveActualCharArray => format!("save.{name}"),
                 RustType::EquivArrayMut => format!(
                     "DummyArrayMut::<{ty}>::from_equiv({}, {})",
-                    self.emit_symbol(sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArrayMut)?,
-                    self.emit_dims(&sym)?
+                    self.emit_symbol(loc, sym.ast.equivalence.as_ref().unwrap(), Ctx::ArgArrayMut)?,
+                    self.emit_dims(loc, &sym)?
                 ),
                 RustType::Primitive
                 | RustType::DummyArray
@@ -662,7 +666,7 @@ impl CodeGenUnit<'_> {
                 | RustType::Procedure
                 | RustType::LocalDoVar
                 | RustType::EquivArray => {
-                    bail!("invalid context {ctx:?} for symbol {name}: {sym:?}")
+                    bail!("{loc} invalid context {ctx:?} for symbol {name}: {sym:?}")
                 }
             },
             Ctx::SaveStruct => match sym.rs_ty {
@@ -676,14 +680,14 @@ impl CodeGenUnit<'_> {
                     1 => format!("{name}: ActualCharArray"),
                     n => format!("{name}: ActualCharArray{n}D"),
                 },
-                _ => bail!("invalid context {ctx:?} for symbol {name}: {sym:?}"),
+                _ => bail!("{loc} invalid context {ctx:?} for symbol {name}: {sym:?}"),
             },
             Ctx::SaveInit => match sym.rs_ty {
                 RustType::SaveChar => format!("&mut {name}"),
                 RustType::SavePrimitive
                 | RustType::SaveActualArray
                 | RustType::SaveActualCharArray => name.to_owned(),
-                _ => bail!("invalid context {ctx:?} for symbol {name}: {sym:?}"),
+                _ => bail!("{loc} invalid context {ctx:?} for symbol {name}: {sym:?}"),
             },
         };
 
@@ -691,41 +695,49 @@ impl CodeGenUnit<'_> {
         Ok(s)
     }
 
-    fn emit_expressions(&self, es: &[Expression], ctx: Ctx) -> Result<String> {
+    fn emit_expressions(&self, loc: &SourceLoc, es: &[Expression], ctx: Ctx) -> Result<String> {
         Ok(es
             .iter()
-            .map(|e| self.emit_expression_ctx(e, ctx))
+            .map(|e| self.emit_expression_ctx(loc, e, ctx))
             .collect::<Result<Vec<_>>>()?
             .join(", "))
     }
 
-    fn emit_binop_arith(&self, e1: &Expression, e2: &Expression, op: &str) -> Result<String> {
-        self.emit_binop_arith_rel(e1, e2, op, "", false)
+    fn emit_binop_arith(
+        &self,
+        loc: &SourceLoc,
+        e1: &Expression,
+        e2: &Expression,
+        op: &str,
+    ) -> Result<String> {
+        self.emit_binop_arith_rel(loc, e1, e2, op, "", false)
     }
 
     fn emit_binop_rel(
         &self,
+        loc: &SourceLoc,
         e1: &Expression,
         e2: &Expression,
         op: &str,
         op_str: &str,
     ) -> Result<String> {
-        self.emit_binop_arith_rel(e1, e2, op, op_str, true)
+        self.emit_binop_arith_rel(loc, e1, e2, op, op_str, true)
     }
 
     /// Common behaviour for arithmetic and relation operators
     fn emit_binop_arith_rel(
         &self,
+        loc: &SourceLoc,
         e1: &Expression,
         e2: &Expression,
         op: &str,
         op_str: &str,
         allow_char: bool,
     ) -> Result<String> {
-        let t1 = e1.resolve_type(&self.syms)?;
-        let t2 = e2.resolve_type(&self.syms)?;
-        let a = self.emit_expression(e1)?;
-        let b = self.emit_expression(e2)?;
+        let t1 = e1.resolve_type(loc, &self.syms)?;
+        let t2 = e2.resolve_type(loc, &self.syms)?;
+        let a = self.emit_expression(loc, e1)?;
+        let b = self.emit_expression(loc, e2)?;
 
         Ok(match (&t1, &t2) {
             (DataType::Integer, DataType::Integer)
@@ -750,15 +762,15 @@ impl CodeGenUnit<'_> {
                 format!("(({a} as f64) {op} {b})")
             }
 
-            _ => bail!("invalid types in binary op '{op}': {t1:?}, {t2:?}"),
+            _ => bail!("{loc} invalid types in binary op '{op}': {t1:?}, {t2:?}"),
         })
     }
 
-    fn emit_binop_pow(&self, e1: &Expression, e2: &Expression) -> Result<String> {
-        let t1 = e1.resolve_type(&self.syms)?;
-        let t2 = e2.resolve_type(&self.syms)?;
-        let a = self.emit_expression(e1)?;
-        let b = self.emit_expression(e2)?;
+    fn emit_binop_pow(&self, loc: &SourceLoc, e1: &Expression, e2: &Expression) -> Result<String> {
+        let t1 = e1.resolve_type(loc, &self.syms)?;
+        let t2 = e2.resolve_type(loc, &self.syms)?;
+        let a = self.emit_expression(loc, e1)?;
+        let b = self.emit_expression(loc, e2)?;
 
         Ok(match (&t1, &t2) {
             // Can't use i32::pow, because we need to support negative exponents
@@ -773,38 +785,49 @@ impl CodeGenUnit<'_> {
             (DataType::Double, DataType::Double) => format!("f64::powf({a}, {b})"),
             (DataType::Real, DataType::Double) => format!("f64::powf({a} as f64, {b})"),
             (DataType::Double, DataType::Real) => format!("f64::powf({a}, {b} as f64)"),
-            _ => bail!("invalid types in **: {t1:?}, {t2:?}"),
+            _ => bail!("{loc} invalid types in **: {t1:?}, {t2:?}"),
         })
     }
 
-    fn emit_binop_logic(&self, e1: &Expression, e2: &Expression, op: &str) -> Result<String> {
-        let t1 = e1.resolve_type(&self.syms)?;
-        let t2 = e2.resolve_type(&self.syms)?;
-        let a = self.emit_expression(e1)?;
-        let b = self.emit_expression(e2)?;
+    fn emit_binop_logic(
+        &self,
+        loc: &SourceLoc,
+        e1: &Expression,
+        e2: &Expression,
+        op: &str,
+    ) -> Result<String> {
+        let t1 = e1.resolve_type(loc, &self.syms)?;
+        let t2 = e2.resolve_type(loc, &self.syms)?;
+        let a = self.emit_expression(loc, e1)?;
+        let b = self.emit_expression(loc, e2)?;
 
         Ok(match (&t1, &t2) {
             (DataType::Logical, DataType::Logical) => format!("({a} {op} {b})"),
-            _ => bail!("invalid types in logical op '{op}': {t1:?}, {t2:?}"),
+            _ => bail!("{loc} invalid types in logical op '{op}': {t1:?}, {t2:?}"),
         })
     }
 
-    fn emit_binop_concat(&self, e1: &Expression, e2: &Expression) -> Result<String> {
-        let t1 = e1.resolve_type(&self.syms)?;
-        let t2 = e2.resolve_type(&self.syms)?;
-        let a = self.emit_expression_ctx(e1, Ctx::ArgScalar)?;
-        let b = self.emit_expression_ctx(e2, Ctx::ArgScalar)?;
+    fn emit_binop_concat(
+        &self,
+        loc: &SourceLoc,
+        e1: &Expression,
+        e2: &Expression,
+    ) -> Result<String> {
+        let t1 = e1.resolve_type(loc, &self.syms)?;
+        let t2 = e2.resolve_type(loc, &self.syms)?;
+        let a = self.emit_expression_ctx(loc, e1, Ctx::ArgScalar)?;
+        let b = self.emit_expression_ctx(loc, e2, Ctx::ArgScalar)?;
 
         Ok(match (&t1, &t2) {
             (DataType::Character, DataType::Character) => format!("&fstr::concat({a}, {b})"),
-            _ => bail!("invalid types in character op '//': {t1:?}, {t2:?}"),
+            _ => bail!("{loc} invalid types in character op '//': {t1:?}, {t2:?}"),
         })
     }
 
     /// Emit array index value. Since Rust requires this to be a single value, for N-dimensional
     /// arrays we use the syntax `a[[x, y]]` (similar to ndarray).
-    fn emit_index(&self, idx: &[Expression]) -> Result<String> {
-        let idx_ex = self.emit_expressions(idx, Ctx::Value)?;
+    fn emit_index(&self, loc: &SourceLoc, idx: &[Expression]) -> Result<String> {
+        let idx_ex = self.emit_expressions(loc, idx, Ctx::Value)?;
         if idx.len() == 1 {
             Ok(idx_ex)
         } else {
@@ -815,38 +838,39 @@ impl CodeGenUnit<'_> {
     /// Emit substring range: `A..=B` or `A..`
     fn emit_range(
         &self,
+        loc: &SourceLoc,
         e1: &Option<Box<Expression>>,
         e2: &Option<Box<Expression>>,
     ) -> Result<String> {
         Ok(match (e1, e2) {
             (None, None) => "1 ..".to_owned(),
             (Some(e1), None) => {
-                let e1 = self.emit_expression(e1)?;
+                let e1 = self.emit_expression(loc, e1)?;
                 format!("{e1} ..")
             }
             (None, Some(e2)) => {
-                let e2 = self.emit_expression(e2)?;
+                let e2 = self.emit_expression(loc, e2)?;
                 format!("1 ..= {e2}")
             }
             (Some(e1), Some(e2)) => {
-                let e1 = self.emit_expression(e1)?;
-                let e2 = self.emit_expression(e2)?;
+                let e1 = self.emit_expression(loc, e1)?;
+                let e2 = self.emit_expression(loc, e2)?;
                 format!("{e1} ..= {e2}")
             }
         })
     }
 
     /// Emit expression in default (Value) context
-    fn emit_expression(&self, e: &Expression) -> Result<String> {
-        self.emit_expression_ctx(e, Ctx::Value)
+    fn emit_expression(&self, loc: &SourceLoc, e: &Expression) -> Result<String> {
+        self.emit_expression_ctx(loc, e, Ctx::Value)
     }
 
     /// Emit expression in given context. (Mostly the context only applies to symbols;
     /// expressions involving operators will output like Value regardless.)
-    fn emit_expression_ctx(&self, e: &Expression, ctx: Ctx) -> Result<String> {
+    fn emit_expression_ctx(&self, loc: &SourceLoc, e: &Expression, ctx: Ctx) -> Result<String> {
         Ok(match e {
             Expression::Unary(op, e2) => {
-                let e2 = self.emit_expression(e2)?;
+                let e2 = self.emit_expression(loc, e2)?;
                 match op {
                     UnaryOp::Negate => format!("-{e2}"),
                     UnaryOp::Not => format!("!{e2}"),
@@ -855,33 +879,33 @@ impl CodeGenUnit<'_> {
             }
             Expression::Binary(op, e1, e2) => {
                 match op {
-                    BinaryOp::Add => self.emit_binop_arith(e1, e2, "+")?,
-                    BinaryOp::Sub => self.emit_binop_arith(e1, e2, "-")?,
-                    BinaryOp::Div => self.emit_binop_arith(e1, e2, "/")?,
-                    BinaryOp::Mul => self.emit_binop_arith(e1, e2, "*")?,
-                    BinaryOp::Pow => self.emit_binop_pow(e1, e2)?,
-                    BinaryOp::Concat => self.emit_binop_concat(e1, e2)?,
-                    BinaryOp::Lt => self.emit_binop_rel(e1, e2, "<", "lt")?,
-                    BinaryOp::Le => self.emit_binop_rel(e1, e2, "<=", "le")?,
-                    BinaryOp::Eq => self.emit_binop_rel(e1, e2, "==", "eq")?,
-                    BinaryOp::Ne => self.emit_binop_rel(e1, e2, "!=", "ne")?,
-                    BinaryOp::Gt => self.emit_binop_rel(e1, e2, ">", "gt")?,
-                    BinaryOp::Ge => self.emit_binop_rel(e1, e2, ">=", "ge")?,
-                    BinaryOp::And => self.emit_binop_logic(e1, e2, "&&")?,
-                    BinaryOp::Or => self.emit_binop_logic(e1, e2, "||")?,
-                    BinaryOp::Eqv => self.emit_binop_logic(e1, e2, "==")?,
-                    BinaryOp::Neqv => self.emit_binop_logic(e1, e2, "!=")?,
+                    BinaryOp::Add => self.emit_binop_arith(loc, e1, e2, "+")?,
+                    BinaryOp::Sub => self.emit_binop_arith(loc, e1, e2, "-")?,
+                    BinaryOp::Div => self.emit_binop_arith(loc, e1, e2, "/")?,
+                    BinaryOp::Mul => self.emit_binop_arith(loc, e1, e2, "*")?,
+                    BinaryOp::Pow => self.emit_binop_pow(loc, e1, e2)?,
+                    BinaryOp::Concat => self.emit_binop_concat(loc, e1, e2)?,
+                    BinaryOp::Lt => self.emit_binop_rel(loc, e1, e2, "<", "lt")?,
+                    BinaryOp::Le => self.emit_binop_rel(loc, e1, e2, "<=", "le")?,
+                    BinaryOp::Eq => self.emit_binop_rel(loc, e1, e2, "==", "eq")?,
+                    BinaryOp::Ne => self.emit_binop_rel(loc, e1, e2, "!=", "ne")?,
+                    BinaryOp::Gt => self.emit_binop_rel(loc, e1, e2, ">", "gt")?,
+                    BinaryOp::Ge => self.emit_binop_rel(loc, e1, e2, ">=", "ge")?,
+                    BinaryOp::And => self.emit_binop_logic(loc, e1, e2, "&&")?,
+                    BinaryOp::Or => self.emit_binop_logic(loc, e1, e2, "||")?,
+                    BinaryOp::Eqv => self.emit_binop_logic(loc, e1, e2, "==")?,
+                    BinaryOp::Neqv => self.emit_binop_logic(loc, e1, e2, "!=")?,
                 }
                 // TODO: would be nice to omit brackets when Rust precedence doesn't require it,
                 // and only keep the source's original ones from UnaryOp::Paren
             }
 
-            Expression::Symbol(name) => self.emit_symbol(name, ctx)?,
+            Expression::Symbol(name) => self.emit_symbol(loc, name, ctx)?,
 
             Expression::ArrayElement(name, idx) => {
-                let s = self.emit_symbol(name, Ctx::Value)?;
+                let s = self.emit_symbol(loc, name, Ctx::Value)?;
                 let sym = self.syms.get(name)?;
-                let idx_ex = self.emit_index(idx)?;
+                let idx_ex = self.emit_index(loc, idx)?;
                 if matches!(sym.ast.base_type, DataType::Character) {
                     format!("{s}.get({idx_ex})")
                 } else {
@@ -889,17 +913,17 @@ impl CodeGenUnit<'_> {
                 }
             }
 
-            Expression::Function(name, args) => self.emit_call(name, args, true)?,
+            Expression::Function(name, args) => self.emit_call(loc, name, args, true)?,
 
             Expression::Substring(name, e1, e2) => {
-                let s = self.emit_symbol(name, Ctx::Value)?;
-                let range = self.emit_range(e1, e2)?;
+                let s = self.emit_symbol(loc, name, Ctx::Value)?;
+                let range = self.emit_range(loc, e1, e2)?;
                 format!("fstr::substr({s}, {range})")
             }
             Expression::SubstringArrayElement(name, idx, e1, e2) => {
-                let s = self.emit_symbol(name, Ctx::Value)?;
-                let idx_ex = self.emit_expressions(idx, Ctx::Value)?;
-                let range = self.emit_range(e1, e2)?;
+                let s = self.emit_symbol(loc, name, Ctx::Value)?;
+                let idx_ex = self.emit_expressions(loc, idx, Ctx::Value)?;
+                let range = self.emit_range(loc, e1, e2)?;
 
                 // TODO: work out how to implement this properly
                 format!("fstr::substr({s}.get({idx_ex}), {range})")
@@ -925,7 +949,7 @@ impl CodeGenUnit<'_> {
                     format!("b\"{escaped}\"")
                 }
             },
-            Expression::ImpliedDo { .. } => bail!("cannot emit implied-DO"),
+            Expression::ImpliedDo { .. } => bail!("{loc} cannot emit implied-DO"),
             Expression::ImpliedDoVar(name) => name.clone(),
         })
     }
@@ -934,6 +958,7 @@ impl CodeGenUnit<'_> {
     /// plus some optional code to prepare those arguments before the call
     fn emit_args(
         &self,
+        loc: &SourceLoc,
         dargs: &[globan::DummyArg],
         args: &[Expression],
         requires_ctx: bool,
@@ -991,17 +1016,20 @@ impl CodeGenUnit<'_> {
         for (sym, count) in &sym_counts {
             if count.used.len() >= 2 && !count.mutated.is_empty() {
                 // warn!(
-                //     "{}: Possible aliasing violation: symbol {sym} used twice in procedure call",
-                //     self.program.filename
+                //     "{loc} Possible aliasing violation: symbol {sym} used twice in procedure call"
                 // );
                 aliased.insert(*sym);
             }
             if count.mutated.len() >= 2 {
                 if count.mutated == count.mutated_element {
-                    warn!("Possible aliasing violating: assuming array elements are disjoint");
+                    warn!(
+                        "{loc} Possible aliasing violating: assuming array elements are disjoint"
+                    );
                     aliased_arrays.insert(sym, Vec::new());
                 } else {
-                    error!("Aliasing violation: symbol {sym} used mutably twice in procedure call");
+                    error!(
+                        "{loc} Aliasing violation: symbol {sym} used mutably twice in procedure call"
+                    );
                 }
             }
         }
@@ -1017,38 +1045,38 @@ impl CodeGenUnit<'_> {
                     Expression::Function(..) |
                     Expression::Constant(..) => {
                         // Some code expects this to behave like an array of size 1
-                        warn!("passing expression to dummy argument expecting an array");
-                        let e = self.emit_expression(arg)?;
+                        warn!("{loc} passing expression to dummy argument expecting an array");
+                        let e = self.emit_expression(loc, arg)?;
                         format!("&[{e}]")
                     }
                     Expression::Symbol(name) => {
                         let sym = self.syms.get(name)?;
                         if sym.ast.base_type != darg.base_type {
-                            bail!("cannot convert array types: actual argument {name}={:?}, dummy argument {}={:?}", sym.ast.base_type, darg.name, darg.base_type);
+                            bail!("{loc} cannot convert array types: actual argument {name}={:?}, dummy argument {}={:?}", sym.ast.base_type, darg.name, darg.base_type);
                         }
 
                         if darg.mutated {
-                            self.emit_symbol(name, Ctx::ArgArrayMut)?
+                            self.emit_symbol(loc, name, Ctx::ArgArrayMut)?
                         } else if aliased.contains(name.as_str()) {
-                            self.emit_symbol(name, Ctx::ArgArrayAliased)?
+                            self.emit_symbol(loc, name, Ctx::ArgArrayAliased)?
                         } else {
-                            self.emit_symbol(name, Ctx::ArgArray)?
+                            self.emit_symbol(loc, name, Ctx::ArgArray)?
                         }
                     }
                     Expression::ArrayElement(name, idx) => {
                         let s = if darg.mutated {
-                            self.emit_symbol(name, Ctx::ValueMut)?
+                            self.emit_symbol(loc, name, Ctx::ValueMut)?
                         } else {
-                            self.emit_symbol(name, Ctx::Value)?
+                            self.emit_symbol(loc, name, Ctx::Value)?
                         };
                         let sym = self.syms.get(name)?;
                         if sym.ast.dims.is_empty() {
-                            bail!("cannot access element of non-array");
+                            bail!("{loc} cannot access element of non-array");
                         }
                         if sym.ast.base_type != darg.base_type {
-                            bail!("cannot convert array types: actual argument {name}={:?}, dummy argument {}={:?}", sym.ast.base_type, darg.name, darg.base_type);
+                            bail!("{loc} cannot convert array types: actual argument {name}={:?}, dummy argument {}={:?}", sym.ast.base_type, darg.name, darg.base_type);
                         }
-                        let idx = self.emit_index(idx)?;
+                        let idx = self.emit_index(loc, idx)?;
                         if darg.mutated {
                             format!("{s}.subarray_mut({idx})")
                         } else if aliased.contains(name.as_str()) {
@@ -1058,22 +1086,22 @@ impl CodeGenUnit<'_> {
                         }
                     }
                     Expression::Substring(name, e1, e2) => {
-                        let range = self.emit_range(e1, e2)?;
+                        let range = self.emit_range(loc, e1, e2)?;
 
                         if darg.mutated {
-                            let s = self.emit_symbol(name, Ctx::ArgScalarMut)?;
+                            let s = self.emit_symbol(loc, name, Ctx::ArgScalarMut)?;
                             format!("CharArrayMut::from_mut(fstr::substr_mut({s}, {range}))")
                         } else if aliased.contains(name.as_str()) {
-                            let s = self.emit_symbol(name, Ctx::ArgScalar)?;
+                            let s = self.emit_symbol(loc, name, Ctx::ArgScalar)?;
                             format!("CharArray::from_ref(&fstr::substr({s}, {range}).to_vec())")
                         } else {
-                            let s = self.emit_symbol(name, Ctx::ArgScalar)?;
+                            let s = self.emit_symbol(loc, name, Ctx::ArgScalar)?;
                             format!("CharArray::from_ref(fstr::substr({s}, {range}))")
                         }
                     }
                     Expression::SubstringArrayElement(..) => todo!(),
-                    Expression::ImpliedDo { .. } => bail!("cannot use implied-DO as array argument"),
-                    Expression::ImpliedDoVar(..) => bail!("cannot use implied-DO-variable as array argument"),
+                    Expression::ImpliedDo { .. } => bail!("{loc} cannot use implied-DO as array argument"),
+                    Expression::ImpliedDoVar(..) => bail!("{loc} cannot use implied-DO-variable as array argument"),
                 }
             } else {
                 // Function is expecting a scalar
@@ -1082,37 +1110,37 @@ impl CodeGenUnit<'_> {
                     Expression::Binary(..) |
                     Expression::Constant(..) => {
                         if darg.mutated {
-                            warn!("Passing expression or constant to mutable dummy argument - will be cloned");
-                            let e = self.emit_expression(arg)?;
+                            warn!("{loc} Passing expression or constant to mutable dummy argument - will be cloned");
+                            let e = self.emit_expression(loc, arg)?;
                             format!("&mut {e}.clone()")
                         } else {
-                            self.emit_expression(arg)?
+                            self.emit_expression(loc, arg)?
                         }
                     }
                     Expression::Symbol(name) => {
                         let sym = self.syms.get(name)?;
                         if sym.ast.base_type != darg.base_type {
-                            bail!("cannot convert types: actual argument {name}={:?}, dummy argument {}={:?}", sym.ast.base_type, darg.name, darg.base_type);
+                            bail!("{loc} cannot convert types: actual argument {name}={:?}, dummy argument {}={:?}", sym.ast.base_type, darg.name, darg.base_type);
                         }
 
                         if darg.mutated {
-                            self.emit_symbol(name, Ctx::ArgScalarMut)?
+                            self.emit_symbol(loc, name, Ctx::ArgScalarMut)?
                         } else if aliased.contains(name.as_str()) {
-                            self.emit_symbol(name, Ctx::ArgScalarAliased)?
+                            self.emit_symbol(loc, name, Ctx::ArgScalarAliased)?
                         } else {
-                            self.emit_symbol(name, Ctx::ArgScalar)?
+                            self.emit_symbol(loc, name, Ctx::ArgScalar)?
                         }
                     }
                     Expression::ArrayElement(name, idx) => {
-                        let s = self.emit_symbol(name, Ctx::Value)?;
+                        let s = self.emit_symbol(loc, name, Ctx::Value)?;
                         let sym = self.syms.get(name)?;
                         if sym.ast.dims.is_empty() {
-                            bail!("cannot access element of non-array");
+                            bail!("{loc} cannot access element of non-array");
                         }
                         if sym.ast.base_type != darg.base_type {
-                            bail!("cannot convert types: actual argument {name}={:?}, dummy argument {}={:?}", sym.ast.base_type, darg.name, darg.base_type);
+                            bail!("{loc} cannot convert types: actual argument {name}={:?}, dummy argument {}={:?}", sym.ast.base_type, darg.name, darg.base_type);
                         }
-                        let idx_ex = self.emit_index(idx)?;
+                        let idx_ex = self.emit_index(loc, idx)?;
 
                         let get = format!("{s}[{idx_ex}]");
 
@@ -1139,7 +1167,7 @@ impl CodeGenUnit<'_> {
                     }
                     Expression::Function(name, args) => {
                         if darg.mutated {
-                            bail!("cannot pass function return value to mutable dummy argument");
+                            bail!("{loc} cannot pass function return value to mutable dummy argument");
                         } else if darg.base_type == DataType::Character {
                             // CHARACTER functions write their output into an extra final darg.
                             // To use the function in an argument or expression, we need to
@@ -1147,8 +1175,8 @@ impl CodeGenUnit<'_> {
                             let sym = self.syms.get(name)?;
                             let len = match &sym.ast.character_len {
                                 Some(LenSpecification::Integer(c)) => c.to_string(),
-                                Some(LenSpecification::IntConstantExpr(e)) => self.emit_expression(e)?,
-                                _ => bail!("cannot use CHARACTER-returning function {name} in argument, unless it has an explicit size"),
+                                Some(LenSpecification::IntConstantExpr(e)) => self.emit_expression(loc, e)?,
+                                _ => bail!("{loc} cannot use CHARACTER-returning function {name} in argument, unless it has an explicit size"),
                             };
 
                             // Create a temporary symbol to store the character data,
@@ -1171,45 +1199,45 @@ impl CodeGenUnit<'_> {
                             // With the temporary symbol in place, construct the
                             // `func(..., &mut argN);` call.
                             let (call, result) = self.syms.with_temp(&arg_name, arg_sym, || -> Result<_> {
-                                let call = self.emit_call(name, &args, false)?;
-                                let result = self.emit_symbol(&arg_name, Ctx::ArgScalar)?;
+                                let call = self.emit_call(loc, name, &args, false)?;
+                                let result = self.emit_symbol(loc, &arg_name, Ctx::ArgScalar)?;
                                 Ok((call, result))
                             })?;
                             prep_code += &format!("{};\n", call);
 
                             result
                         } else {
-                            self.emit_call(name, args, true)?
+                            self.emit_call(loc, name, args, true)?
                         }
                     }
                     Expression::Substring(name, e1, e2) => {
-                        let range = self.emit_range(e1, e2)?;
+                        let range = self.emit_range(loc, e1, e2)?;
 
                         if darg.mutated {
-                            let s = self.emit_symbol(name, Ctx::ArgScalarMut)?;
+                            let s = self.emit_symbol(loc, name, Ctx::ArgScalarMut)?;
                             format!("fstr::substr_mut({s}, {range})")
                         } else if aliased.contains(name.as_str()) {
-                            let s = self.emit_symbol(name, Ctx::ArgScalar)?;
+                            let s = self.emit_symbol(loc, name, Ctx::ArgScalar)?;
                             format!("&fstr::substr({s}, {range}).to_vec()")
                         } else {
-                            let s = self.emit_symbol(name, Ctx::ArgScalar)?;
+                            let s = self.emit_symbol(loc, name, Ctx::ArgScalar)?;
                             format!("fstr::substr({s}, {range})")
                         }
                     }
                     Expression::SubstringArrayElement(name, idx, e1, e2) => {
-                        let s = self.emit_symbol(name, Ctx::Value)?;
+                        let s = self.emit_symbol(loc, name, Ctx::Value)?;
                         let sym = self.syms.get(name)?;
                         if sym.ast.dims.is_empty() {
-                            bail!("cannot access element of non-array");
+                            bail!("{loc} cannot access element of non-array");
                         }
                         if sym.ast.base_type != darg.base_type {
-                            bail!("cannot convert types: actual argument {name}={:?}, dummy argument {}={:?}", sym.ast.base_type, darg.name, darg.base_type);
+                            bail!("{loc} cannot convert types: actual argument {name}={:?}, dummy argument {}={:?}", sym.ast.base_type, darg.name, darg.base_type);
                         }
-                        let idx_ex = self.emit_index(idx)?;
+                        let idx_ex = self.emit_index(loc, idx)?;
 
                         let get = format!("{s}[{idx_ex}]");
 
-                        let range = self.emit_range(e1, e2)?;
+                        let range = self.emit_range(loc, e1, e2)?;
 
                         if darg.mutated {
                             format!("fstr::substr_mut(&mut {get}, {range})")
@@ -1219,8 +1247,8 @@ impl CodeGenUnit<'_> {
                             format!("fstr::substr(&{get}, {range})")
                         }
                     }
-                    Expression::ImpliedDo { .. } => bail!("cannot use implied-DO as argument"),
-                    Expression::ImpliedDoVar(..) => bail!("cannot use implied-DO-variable as argument"),
+                    Expression::ImpliedDo { .. } => bail!("{loc} cannot use implied-DO as argument"),
+                    Expression::ImpliedDoVar(..) => bail!("{loc} cannot use implied-DO-variable as argument"),
                 }
             };
 
@@ -1265,6 +1293,7 @@ impl CodeGenUnit<'_> {
     /// Get the argument types for calling a procedure or intrinsic
     fn procedure_args(
         &self,
+        loc: &SourceLoc,
         name: &str,
         actual_procs: &[globan::Name],
         args: &[Expression],
@@ -1273,7 +1302,7 @@ impl CodeGenUnit<'_> {
             // There is an intrinsic, but check that it has the correct types too
             let first_arg = args
                 .first()
-                .map(|e| e.resolve_type(&self.syms))
+                .map(|e| e.resolve_type(loc, &self.syms))
                 .transpose()?;
             if let Some((return_type, codegen)) = intrinsics::call_info(name, first_arg) {
                 return Ok(ProcedureArgs {
@@ -1286,7 +1315,7 @@ impl CodeGenUnit<'_> {
                                 .map(|arg| {
                                     Ok(globan::DummyArg {
                                         name: "_".to_owned(),
-                                        base_type: arg.resolve_type(&self.syms)?,
+                                        base_type: arg.resolve_type(loc, &self.syms)?,
                                         is_array: false,
                                         mutated: false,
                                     })
@@ -1301,7 +1330,7 @@ impl CodeGenUnit<'_> {
                 });
             } else {
                 warn!(
-                    "Call to {name} not interpreted as an intrinsic, because the types don't match"
+                    "{loc} Call to {name} not interpreted as an intrinsic, because the types don't match"
                 );
             }
         }
@@ -1310,30 +1339,36 @@ impl CodeGenUnit<'_> {
     }
 
     // Emit call to SUBROUTINE or FUNCTION or intrinsic
-    fn emit_call(&self, name: &str, args: &[Expression], is_function: bool) -> Result<String> {
+    fn emit_call(
+        &self,
+        loc: &SourceLoc,
+        name: &str,
+        args: &[Expression],
+        is_function: bool,
+    ) -> Result<String> {
         let sym = self.syms.get(name)?;
         let actual_procs = &sym.actual_procs;
         if actual_procs.is_empty() {
             // We need at least one, so we can figure out the argument conversions
-            bail!("call to symbol {name} with no known actual procedures");
+            bail!("{loc} call to symbol {name} with no known actual procedures");
         }
-        let actual = self.procedure_args(name, actual_procs, args)?;
+        let actual = self.procedure_args(loc, name, actual_procs, args)?;
 
         if matches!(actual.return_type, DataType::Unknown | DataType::Void) {
             if is_function {
-                bail!("called subroutine as function: {}", name);
+                bail!("{loc} called subroutine as function: {}", name);
             }
         } else if !is_function {
             // Allow CALL if it returns Character, because `ast` has translated the return
             // value into an extra darg. Otherwise complain
             if !matches!(actual.return_type, DataType::Character) {
-                warn!("CALL to function, not subroutine: {}", name);
+                warn!("{loc} CALL to function, not subroutine: {}", name);
             }
         }
 
         if args.len() != actual.dargs.len() {
             bail!(
-                "call to {name} with incorrect number of arguments (got {}, expected {})",
+                "{loc} call to {name} with incorrect number of arguments (got {}, expected {})",
                 args.len(),
                 actual.dargs.len()
             );
@@ -1342,7 +1377,7 @@ impl CodeGenUnit<'_> {
         let q = if actual.returns_result { "?" } else { "" };
 
         let (args_ex, args_prep) = self
-            .emit_args(&actual.dargs, args, actual.requires_ctx)
+            .emit_args(loc, &actual.dargs, args, actual.requires_ctx)
             .with_context(|| format!("failed args in call to {name}"))?;
 
         if !args_prep.is_empty() && is_function {
@@ -1356,7 +1391,7 @@ impl CodeGenUnit<'_> {
             Ok(format!("{args_prep}{name}({args_ex}){q}"))
         } else {
             let call = match actual.codegen {
-                CallSyntax::Unified => bail!("unexpected unified proc"),
+                CallSyntax::Unified => bail!("{loc} unexpected unified proc"),
                 CallSyntax::External(name) => {
                     let ns_name = if name.module == self.program.namespace {
                         name.local
@@ -1371,11 +1406,11 @@ impl CodeGenUnit<'_> {
                 CallSyntax::VarFunc(name) => format!("{name}(&[{args_ex}]){q}"),
                 CallSyntax::ArraySubscriptValue => match args.first() {
                     Some(Expression::ArrayElement(name, idx)) => {
-                        let s = self.emit_symbol(name, Ctx::Value)?;
-                        let idx_ex = self.emit_index(idx)?;
+                        let s = self.emit_symbol(loc, name, Ctx::Value)?;
+                        let idx_ex = self.emit_index(loc, idx)?;
                         format!("{s}.subscript({idx_ex})")
                     }
-                    _ => bail!("ArraySubscriptValue invalid args {args:?}"),
+                    _ => bail!("{loc} ArraySubscriptValue invalid args {args:?}"),
                 },
             };
             Ok(format!("{args_prep}{call}"))
@@ -1419,7 +1454,7 @@ impl CodeGenUnit<'_> {
             } else if sym.ast.called {
                 // Skip procedures
             } else {
-                code += &self.emit_initialiser(name, sym, sym.mutated)?;
+                code += &self.emit_initialiser(&sym.ast.loc, name, sym, sym.mutated)?;
             }
         }
 
@@ -1429,16 +1464,16 @@ impl CodeGenUnit<'_> {
     }
 
     /// Dimension declarator for an array
-    fn emit_dims(&self, sym: &Symbol) -> Result<String> {
+    fn emit_dims(&self, loc: &SourceLoc, sym: &Symbol) -> Result<String> {
         let dims = sym.ast.dims.iter().map(|dim| {
             let lower = match &dim.lower {
                 None => "1".to_owned(),
-                Some(e) => self.emit_expression(e)?,
+                Some(e) => self.emit_expression(loc, e)?,
             };
             match &dim.upper {
                 None => Ok(format!("{lower} .. ")),
                 Some(e) => {
-                    let e = self.emit_expression(e)?;
+                    let e = self.emit_expression(loc, e)?;
                     Ok(format!("{lower} ..= {e}"))
                 }
             }
@@ -1447,11 +1482,17 @@ impl CodeGenUnit<'_> {
     }
 
     /// Initialise local variables (including DummyArray accessors etc)
-    fn emit_initialiser(&self, name: &String, sym: &Symbol, is_mut: bool) -> Result<String> {
+    fn emit_initialiser(
+        &self,
+        loc: &SourceLoc,
+        name: &String,
+        sym: &Symbol,
+        is_mut: bool,
+    ) -> Result<String> {
         let mut code = String::new();
 
         if !sym.ast.dims.is_empty() {
-            let dims = self.emit_dims(sym)?;
+            let dims = self.emit_dims(loc, sym)?;
 
             // Find whether this is a Char array (with optional string length) or normal array
             let (char_label, char_len) = match sym.ast.base_type {
@@ -1460,7 +1501,7 @@ impl CodeGenUnit<'_> {
                         Some(LenSpecification::Asterisk) => None,
                         Some(LenSpecification::Integer(c)) => Some(c.to_string()),
                         Some(LenSpecification::IntConstantExpr(e)) => {
-                            Some(self.emit_expression(e)?)
+                            Some(self.emit_expression(loc, e)?)
                         }
                         _ => bail!("character array with undefined length"),
                     };
@@ -1537,7 +1578,7 @@ impl CodeGenUnit<'_> {
                         code += &format!("let {name} = &{mut_label}{name}[..{n}];\n");
                     }
                     LenSpecification::IntConstantExpr(e) => {
-                        let e = self.emit_expression(e)?;
+                        let e = self.emit_expression(loc, e)?;
                         let mut_label = if is_mut { "mut " } else { "" };
                         code += &format!("let {name} = &{mut_label}{name}[..{e} as usize];\n");
                     }
@@ -1555,7 +1596,7 @@ impl CodeGenUnit<'_> {
                         code += &format!("let {mut_label}{name} = vec![b' '; {n}];\n");
                     }
                     LenSpecification::IntConstantExpr(e) => {
-                        let e = self.emit_expression(e)?;
+                        let e = self.emit_expression(loc, e)?;
                         let mut_label = if is_mut { "mut " } else { "" };
                         code += &format!("let {mut_label}{name} = vec![b' '; {e} as usize];\n");
                     }
@@ -1585,6 +1626,7 @@ impl CodeGenUnit<'_> {
 
     /// Emit code for DATA, assigning a sequence of constant expressions to a sequence of names
     fn emit_data_init(&self, data: &ast::DataStatement) -> Result<String> {
+        let loc = &data.loc;
         let mut code = String::new();
 
         // Handle the simple case, assigning to a single scalar
@@ -1593,7 +1635,7 @@ impl CodeGenUnit<'_> {
                 let sym = self.syms.get(name)?;
                 if matches!(sym.rs_ty, RustType::SavePrimitive | RustType::SaveChar) {
                     if data.clist.len() != 1 {
-                        bail!("DATA {name} trying to assign wrong number of items to scalar");
+                        bail!("{loc} DATA {name} trying to assign wrong number of items to scalar");
                     }
                     let (reps, value) = data.clist.first().unwrap();
 
@@ -1601,7 +1643,7 @@ impl CodeGenUnit<'_> {
                     // and we can't evaluate constants, so skip any expression
                     if reps.is_none() {
                         let target = Expression::Symbol(name.clone());
-                        code += &self.emit_assignment(&target, value, Ctx::SaveInit)?;
+                        code += &self.emit_assignment(loc, &target, value, Ctx::SaveInit)?;
 
                         return Ok(code);
                     }
@@ -1631,9 +1673,9 @@ impl CodeGenUnit<'_> {
         let mut needs_into_iter = true;
 
         for (reps, value) in &data.clist {
-            let e = self.emit_expression(value)?;
+            let e = self.emit_expression(loc, value)?;
 
-            let val = match value.resolve_type(&self.syms)? {
+            let val = match value.resolve_type(loc, &self.syms)? {
                 DataType::Integer => format!("Val::I({e})"),
                 DataType::Real => format!("Val::R({e})"),
                 DataType::Double => format!("Val::D({e})"),
@@ -1643,7 +1685,7 @@ impl CodeGenUnit<'_> {
             };
 
             if let Some(reps) = reps {
-                let reps_ex = self.emit_expression(reps)?;
+                let reps_ex = self.emit_expression(loc, reps)?;
                 if needs_into_iter {
                     code += "    ].into_iter()";
                     needs_into_iter = false;
@@ -1662,7 +1704,7 @@ impl CodeGenUnit<'_> {
         } else {
             code += "  ]);\n\n";
         }
-        code += &self.emit_data_nlist::<NlistCallbackData>(&data.nlist, Ctx::SaveInit)?;
+        code += &self.emit_data_nlist::<NlistCallbackData>(loc, &data.nlist, Ctx::SaveInit)?;
         code += "\n";
         code += "  debug_assert!(clist.next().is_none(), \"DATA not fully initialised\");\n";
         code += "}\n";
@@ -1671,15 +1713,20 @@ impl CodeGenUnit<'_> {
     }
 
     // Used for DATA, READ, WRITE. Recursively handles implied-DO loops
-    fn emit_data_nlist<C: NlistCallback>(&self, nlist: &[Expression], ctx: Ctx) -> Result<String> {
+    fn emit_data_nlist<C: NlistCallback>(
+        &self,
+        loc: &SourceLoc,
+        nlist: &[Expression],
+        ctx: Ctx,
+    ) -> Result<String> {
         let mut code = String::new();
 
         for v in nlist {
             match v {
                 Expression::Symbol(name) => {
                     let sym = self.syms.get(name)?;
-                    let vt = v.resolve_type(&self.syms)?;
-                    let s = self.emit_symbol(name, ctx)?;
+                    let vt = v.resolve_type(loc, &self.syms)?;
+                    let s = self.emit_symbol(loc, name, ctx)?;
 
                     if !sym.ast.dims.is_empty() {
                         code += &C::array(&s, &vt)?;
@@ -1688,20 +1735,20 @@ impl CodeGenUnit<'_> {
                     }
                 }
                 Expression::ArrayElement(name, idx) => {
-                    let vt = v.resolve_type(&self.syms)?;
-                    let s = self.emit_symbol(name, ctx)?;
-                    let idx_ex = self.emit_index(idx)?;
+                    let vt = v.resolve_type(loc, &self.syms)?;
+                    let s = self.emit_symbol(loc, name, ctx)?;
+                    let idx_ex = self.emit_index(loc, idx)?;
                     code += &C::element(&s, &idx_ex, &vt)?;
                 }
                 Expression::Substring(name, e1, e2) => {
-                    let s = self.emit_symbol(name, ctx)?;
-                    let range = self.emit_range(e1, e2)?;
+                    let s = self.emit_symbol(loc, name, ctx)?;
+                    let range = self.emit_range(loc, e1, e2)?;
                     code += &C::substring(&s, &range)?;
                 }
                 Expression::SubstringArrayElement(name, idx, e1, e2) => {
-                    let s = self.emit_symbol(name, ctx)?;
-                    let idx_ex = self.emit_expressions(idx, Ctx::Value)?;
-                    let range = self.emit_range(e1, e2)?;
+                    let s = self.emit_symbol(loc, name, ctx)?;
+                    let idx_ex = self.emit_expressions(loc, idx, Ctx::Value)?;
+                    let range = self.emit_range(loc, e1, e2)?;
                     code += &C::substring_element(&s, &idx_ex, &range)?;
                 }
                 Expression::ImpliedDo {
@@ -1711,14 +1758,14 @@ impl CodeGenUnit<'_> {
                     e2,
                     e3,
                 } => {
-                    let m1 = self.emit_expression(e1)?;
-                    let m2 = self.emit_expression(e2)?;
+                    let m1 = self.emit_expression(loc, e1)?;
+                    let m2 = self.emit_expression(loc, e2)?;
                     let m3 = e3
                         .clone()
-                        .map_or_else(|| Ok("1".to_owned()), |e| self.emit_expression(&e))?;
+                        .map_or_else(|| Ok("1".to_owned()), |e| self.emit_expression(loc, &e))?;
 
                     code += &format!("for {do_var} in intrinsics::range({m1}, {m2}, {m3}) {{\n");
-                    code += &self.emit_data_nlist::<C>(data, ctx)?;
+                    code += &self.emit_data_nlist::<C>(loc, data, ctx)?;
                     code += "}\n";
                 }
 
@@ -1726,27 +1773,32 @@ impl CodeGenUnit<'_> {
                 | Expression::Binary(..)
                 | Expression::Function(..)
                 | Expression::Constant(..) => {
-                    let vt = v.resolve_type(&self.syms)?;
-                    let e = self.emit_expression(v)?;
+                    let vt = v.resolve_type(loc, &self.syms)?;
+                    let e = self.emit_expression(loc, v)?;
                     code += &C::value(&e, &vt)?;
                 }
-                Expression::ImpliedDoVar(_) => bail!("invalid expression in nlist"),
+                Expression::ImpliedDoVar(_) => bail!("{loc} invalid expression in nlist"),
             }
         }
 
         Ok(code)
     }
 
-    fn emit_statements(&self, entry: &ast::Entry, statements: &Vec<Statement>) -> Result<String> {
+    fn emit_statements(
+        &self,
+        entry: &ast::Entry,
+        statements: &Vec<(SourceLoc, Statement)>,
+    ) -> Result<String> {
         let mut code = String::new();
-        for statement in statements {
-            code += &self.emit_statement(entry, statement)?;
+        for (loc, statement) in statements {
+            code += &self.emit_statement(loc, entry, statement)?;
         }
         Ok(code)
     }
 
     fn emit_arith_conversion(
         &self,
+        loc: &SourceLoc,
         target: DataType,
         value: DataType,
         e: String,
@@ -1762,18 +1814,24 @@ impl CodeGenUnit<'_> {
             (DataType::Real, DataType::Double) => format!("{e} as f32"),
             (DataType::Double, DataType::Integer) => format!("{e} as f64"),
             (DataType::Double, DataType::Real) => format!("{e} as f64"),
-            _ => bail!("invalid arithmetic conversion from {target:?} to {value:?}"),
+            _ => bail!("{loc} invalid arithmetic conversion from {target:?} to {value:?}"),
         })
     }
 
-    fn emit_assignment(&self, target: &Expression, value: &Expression, ctx: Ctx) -> Result<String> {
+    fn emit_assignment(
+        &self,
+        loc: &SourceLoc,
+        target: &Expression,
+        value: &Expression,
+        ctx: Ctx,
+    ) -> Result<String> {
         let mut code = String::new();
 
-        let tt = target.resolve_type(&self.syms)?;
-        let e = self.emit_expression(value)?;
+        let tt = target.resolve_type(loc, &self.syms)?;
+        let e = self.emit_expression(loc, value)?;
         match target {
             Expression::Symbol(name) => {
-                let s = self.emit_symbol(name, ctx)?;
+                let s = self.emit_symbol(loc, name, ctx)?;
                 if matches!(tt, DataType::Character) {
                     let aliased = value.uses_symbol(name);
                     if aliased {
@@ -1783,13 +1841,18 @@ impl CodeGenUnit<'_> {
                         code += &format!("fstr::assign({s}, {e});\n");
                     }
                 } else {
-                    let e = self.emit_arith_conversion(tt, value.resolve_type(&self.syms)?, e)?;
+                    let e = self.emit_arith_conversion(
+                        loc,
+                        tt,
+                        value.resolve_type(loc, &self.syms)?,
+                        e,
+                    )?;
                     code += &format!("{s} = {e};\n");
                 }
             }
             Expression::ArrayElement(name, idx) => {
-                let s = self.emit_symbol(name, ctx)?;
-                let idx_ex = self.emit_index(idx)?;
+                let s = self.emit_symbol(loc, name, ctx)?;
+                let idx_ex = self.emit_index(loc, idx)?;
                 if matches!(tt, DataType::Character) {
                     let aliased = value.uses_symbol(name);
                     if aliased {
@@ -1799,13 +1862,18 @@ impl CodeGenUnit<'_> {
                         code += &format!("fstr::assign({s}.get_mut({idx_ex}), {e});\n");
                     }
                 } else {
-                    let e = self.emit_arith_conversion(tt, value.resolve_type(&self.syms)?, e)?;
+                    let e = self.emit_arith_conversion(
+                        loc,
+                        tt,
+                        value.resolve_type(loc, &self.syms)?,
+                        e,
+                    )?;
                     code += &format!("{s}[{idx_ex}] = {e};\n");
                 }
             }
             Expression::Substring(name, e1, e2) => {
-                let s = self.emit_symbol(name, ctx)?;
-                let range = self.emit_range(e1, e2)?;
+                let s = self.emit_symbol(loc, name, ctx)?;
+                let range = self.emit_range(loc, e1, e2)?;
 
                 let aliased = value.uses_symbol(name);
                 if aliased {
@@ -1816,9 +1884,9 @@ impl CodeGenUnit<'_> {
                 }
             }
             Expression::SubstringArrayElement(name, idx, e1, e2) => {
-                let s = self.emit_symbol(name, ctx)?;
-                let idx_ex = self.emit_expressions(idx, Ctx::Value)?;
-                let range = self.emit_range(e1, e2)?;
+                let s = self.emit_symbol(loc, name, ctx)?;
+                let idx_ex = self.emit_expressions(loc, idx, Ctx::Value)?;
+                let range = self.emit_range(loc, e1, e2)?;
 
                 let aliased = value.uses_symbol(name);
 
@@ -1833,17 +1901,22 @@ impl CodeGenUnit<'_> {
                     );
                 }
             }
-            _ => bail!("invalid assignment LHS"),
+            _ => bail!("{loc} invalid assignment LHS"),
         }
 
         Ok(code)
     }
 
-    fn emit_statement(&self, entry: &ast::Entry, statement: &Statement) -> Result<String> {
+    fn emit_statement(
+        &self,
+        loc: &SourceLoc,
+        entry: &ast::Entry,
+        statement: &Statement,
+    ) -> Result<String> {
         let mut code = String::new();
         match statement {
             Statement::Assignment(v, e) => {
-                code += &self.emit_assignment(v, e, Ctx::Assignment)?;
+                code += &self.emit_assignment(loc, v, e, Ctx::Assignment)?;
             }
             Statement::If { es, bodies } => {
                 for (i, (e, body)) in es.iter().zip(bodies.iter()).enumerate() {
@@ -1854,7 +1927,7 @@ impl CodeGenUnit<'_> {
                     let body = self.emit_statements(entry, body)?;
 
                     if let Some(e) = e {
-                        let e = self.emit_expression(e)?;
+                        let e = self.emit_expression(loc, e)?;
                         code += &format!("if {e} ");
                     }
 
@@ -1876,17 +1949,17 @@ impl CodeGenUnit<'_> {
                 assert!(var_sym.ast.do_var);
                 if var_sym.ast.base_type != DataType::Integer {
                     // TODO: maybe support reals/doubles (though it's obsolescent in Fortran 90)
-                    bail!("DO is currently only supported over INTEGER");
+                    bail!("{loc} DO is currently only supported over INTEGER");
                 }
 
-                let m1 = self.emit_expression(e1)?;
-                let m2 = self.emit_expression(e2)?;
+                let m1 = self.emit_expression(loc, e1)?;
+                let m2 = self.emit_expression(loc, e2)?;
                 let body = self.emit_statements(entry, body)?;
 
                 // Step defaults to 1
                 let m3 = e3
                     .clone()
-                    .map_or_else(|| Ok("1".to_owned()), |e| self.emit_expression(&e))?;
+                    .map_or_else(|| Ok("1".to_owned()), |e| self.emit_expression(loc, &e))?;
 
                 if var_sym.ast.outside_do {
                     // If the DO-var is accessed outside, we'll fall back to implementing the
@@ -1894,10 +1967,10 @@ impl CodeGenUnit<'_> {
                     code += &format!("let m1__: i32 = {m1};\n");
                     code += &format!("let m2__: i32 = {m2};\n");
                     code += &format!("let m3__: i32 = {m3};\n");
-                    code += &(self.emit_symbol(var, Ctx::Assignment)? + " = m1__;\n");
+                    code += &(self.emit_symbol(loc, var, Ctx::Assignment)? + " = m1__;\n");
                     code += "for _ in 0..((m2__ - m1__ + m3__) / m3__) as i32 {\n";
                     code += &body;
-                    code += &(self.emit_symbol(var, Ctx::Assignment)? + " += m3__;\n");
+                    code += &(self.emit_symbol(loc, var, Ctx::Assignment)? + " += m3__;\n");
                     code += "}\n";
                 } else if e3.is_some() {
                     code += &format!("for {var} in intrinsics::range({m1}, {m2}, {m3}) {{\n");
@@ -1910,7 +1983,7 @@ impl CodeGenUnit<'_> {
                 }
             }
             Statement::DoWhile { e, body } => {
-                let e = self.emit_expression(e)?;
+                let e = self.emit_expression(loc, e)?;
                 let body = self.emit_statements(entry, body)?;
                 code += &format!("while {e} {{\n{body}}}\n");
             }
@@ -1931,24 +2004,27 @@ impl CodeGenUnit<'_> {
                 let unit = match unit {
                     Specifier::Asterisk => "ctx.default_read_unit()?".to_owned(),
                     Specifier::Expression(e) => {
-                        if e.resolve_type(&self.syms)? != DataType::Integer {
-                            bail!("TODO: internal files not supported in READ");
+                        if e.resolve_type(loc, &self.syms)? != DataType::Integer {
+                            bail!("{loc} TODO: internal files not supported in READ");
                         }
                         format!(
                             "ctx.io_unit({})?",
-                            self.emit_expression_ctx(e, Ctx::ArgScalar)?
+                            self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?
                         )
                     }
                 };
                 let rec = match other.get("REC") {
-                    Some(e) => format!("Some({})", self.emit_expression_ctx(e, Ctx::ArgScalar)?),
+                    Some(e) => format!(
+                        "Some({})",
+                        self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?
+                    ),
                     None => "None".to_owned(),
                 };
 
                 code += "  let mut reader = ";
                 match fmt {
                     Some(ast::Specifier::Expression(e)) => {
-                        let fmt = self.emit_expression_ctx(e, Ctx::ArgScalar)?;
+                        let fmt = self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?;
                         code += &format!("io::FormattedReader::new({unit}, {rec}, {fmt})?;\n");
                     }
                     Some(ast::Specifier::Asterisk) => {
@@ -1961,16 +2037,16 @@ impl CodeGenUnit<'_> {
 
                 for name in other.keys() {
                     if !matches!(name.as_str(), "IOSTAT" | "REC") {
-                        bail!("unrecognised specifier {name} in READ");
+                        bail!("{loc} unrecognised specifier {name} in READ");
                     }
                 }
 
                 if let Some(iostat) = other.get("IOSTAT") {
-                    let e = self.emit_expression_ctx(iostat, Ctx::Assignment)?;
+                    let e = self.emit_expression_ctx(loc, iostat, Ctx::Assignment)?;
                     code += &format!("  {e} = io::capture_iostat(|| {{\n");
                 }
                 code += "    reader.start()?;\n";
-                code += &self.emit_data_nlist::<NlistCallbackRead>(iolist, Ctx::Assignment)?;
+                code += &self.emit_data_nlist::<NlistCallbackRead>(loc, iolist, Ctx::Assignment)?;
                 code += "    reader.finish()?;\n";
                 if other.contains_key("IOSTAT") {
                     code += "    Ok(())\n";
@@ -1990,29 +2066,32 @@ impl CodeGenUnit<'_> {
                 let unit = match unit {
                     Specifier::Asterisk => "ctx.default_write_unit()?".to_owned(),
                     Specifier::Expression(e) => {
-                        if e.resolve_type(&self.syms)? == DataType::Integer {
+                        if e.resolve_type(loc, &self.syms)? == DataType::Integer {
                             format!(
                                 "ctx.io_unit({})?",
-                                self.emit_expression_ctx(e, Ctx::ArgScalar)?
+                                self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?
                             )
                         } else {
                             code += &format!(
                                 "  let internal_file = io::InternalFile::open({});\n",
-                                self.emit_expression_ctx(e, Ctx::ArgScalarMut)?
+                                self.emit_expression_ctx(loc, e, Ctx::ArgScalarMut)?
                             );
                             "internal_file".to_owned()
                         }
                     }
                 };
                 let rec = match other.get("REC") {
-                    Some(e) => format!("Some({})", self.emit_expression_ctx(e, Ctx::ArgScalar)?),
+                    Some(e) => format!(
+                        "Some({})",
+                        self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?
+                    ),
                     None => "None".to_owned(),
                 };
 
                 code += "  let mut writer = ";
                 match fmt {
                     Some(ast::Specifier::Expression(e)) => {
-                        let fmt = self.emit_expression_ctx(e, Ctx::ArgScalar)?;
+                        let fmt = self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?;
                         code += &format!("io::FormattedWriter::new({unit}, {rec}, {fmt})?;\n");
                     }
                     Some(ast::Specifier::Asterisk) => {
@@ -2025,16 +2104,16 @@ impl CodeGenUnit<'_> {
 
                 for name in other.keys() {
                     if !matches!(name.as_str(), "IOSTAT" | "REC") {
-                        bail!("unrecognised specifier {name} in WRITE");
+                        bail!("{loc} unrecognised specifier {name} in WRITE");
                     }
                 }
 
                 if let Some(iostat) = other.get("IOSTAT") {
-                    let e = self.emit_expression_ctx(iostat, Ctx::Assignment)?;
+                    let e = self.emit_expression_ctx(loc, iostat, Ctx::Assignment)?;
                     code += &format!("  {e} = io::capture_iostat(|| {{\n");
                 }
                 code += "    writer.start()?;\n";
-                code += &self.emit_data_nlist::<NlistCallbackWrite>(iolist, Ctx::Value)?;
+                code += &self.emit_data_nlist::<NlistCallbackWrite>(loc, iolist, Ctx::Value)?;
                 code += "    writer.finish()?;\n";
                 if other.contains_key("IOSTAT") {
                     code += "    Ok(())\n";
@@ -2049,7 +2128,7 @@ impl CodeGenUnit<'_> {
                 code += "  let mut writer = ";
                 match fmt {
                     ast::Specifier::Expression(e) => {
-                        let fmt = self.emit_expression_ctx(e, Ctx::ArgScalar)?;
+                        let fmt = self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?;
                         code += &format!("io::FormattedWriter::new(ctx, None, None, {fmt})?;\n");
                     }
                     ast::Specifier::Asterisk => {
@@ -2057,7 +2136,7 @@ impl CodeGenUnit<'_> {
                     }
                 }
                 code += "  writer.start()?;\n";
-                code += &self.emit_data_nlist::<NlistCallbackWrite>(iolist, Ctx::Value)?;
+                code += &self.emit_data_nlist::<NlistCallbackWrite>(loc, iolist, Ctx::Value)?;
                 code += "  writer.finish()?;\n";
                 code += "}\n";
             }
@@ -2067,10 +2146,10 @@ impl CodeGenUnit<'_> {
                 code += "  let specs = io::OpenSpecs {\n";
 
                 match specs.get("UNIT") {
-                    None => bail!("OPEN must have UNIT"),
+                    None => bail!("{loc} OPEN must have UNIT"),
                     Some(e) => {
-                        if e.resolve_type(&self.syms)? != DataType::Integer {
-                            bail!("OPEN must not use internal files");
+                        if e.resolve_type(loc, &self.syms)? != DataType::Integer {
+                            bail!("{loc} OPEN must not use internal files");
                         }
                     }
                 }
@@ -2079,13 +2158,13 @@ impl CodeGenUnit<'_> {
                     match name.as_str() {
                         "IOSTAT" => (),
                         "UNIT" | "FILE" | "STATUS" | "ACCESS" | "FORM" | "RECL" => {
-                            let e = self.emit_expression_ctx(e, Ctx::ArgScalar)?;
+                            let e = self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?;
                             code += &format!("    {}: Some({e}),\n", name.to_ascii_lowercase());
                         }
                         "BLANK" => {
-                            bail!("TODO: OPEN has unsupported specifier {name}")
+                            bail!("{loc} TODO: OPEN has unsupported specifier {name}")
                         }
-                        _ => bail!("OPEN has invalid specifier {name}"),
+                        _ => bail!("{loc} OPEN has invalid specifier {name}"),
                     }
                 }
 
@@ -2093,7 +2172,7 @@ impl CodeGenUnit<'_> {
                 code += "  };\n";
 
                 if let Some(iostat) = specs.get("IOSTAT") {
-                    let e = self.emit_expression_ctx(iostat, Ctx::Assignment)?;
+                    let e = self.emit_expression_ctx(loc, iostat, Ctx::Assignment)?;
                     code += &format!("  {e} = io::capture_iostat(|| ctx.open(specs))?;\n");
                 } else {
                     code += "  ctx.open(specs)?;\n";
@@ -2106,10 +2185,10 @@ impl CodeGenUnit<'_> {
                 code += "  let specs = io::CloseSpecs {\n";
 
                 match specs.get("UNIT") {
-                    None => bail!("CLOSE must have UNIT"),
+                    None => bail!("{loc} CLOSE must have UNIT"),
                     Some(e) => {
-                        if e.resolve_type(&self.syms)? != DataType::Integer {
-                            bail!("CLOSE must not use internal files");
+                        if e.resolve_type(loc, &self.syms)? != DataType::Integer {
+                            bail!("{loc} CLOSE must not use internal files");
                         }
                     }
                 }
@@ -2118,10 +2197,10 @@ impl CodeGenUnit<'_> {
                     match name.as_str() {
                         "IOSTAT" => (),
                         "UNIT" | "STATUS" => {
-                            let e = self.emit_expression_ctx(e, Ctx::ArgScalar)?;
+                            let e = self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?;
                             code += &format!("    {}: Some({e}),\n", name.to_ascii_lowercase());
                         }
-                        _ => bail!("CLOSE has invalid specifier {name}"),
+                        _ => bail!("{loc} CLOSE has invalid specifier {name}"),
                     }
                 }
 
@@ -2129,7 +2208,7 @@ impl CodeGenUnit<'_> {
                 code += "  };\n";
 
                 if let Some(iostat) = specs.get("IOSTAT") {
-                    let e = self.emit_expression_ctx(iostat, Ctx::Assignment)?;
+                    let e = self.emit_expression_ctx(loc, iostat, Ctx::Assignment)?;
                     code += &format!("  {e} = io::capture_iostat(|| ctx.close(specs))?;\n");
                 } else {
                     code += "  ctx.close(specs)?;\n";
@@ -2144,15 +2223,15 @@ impl CodeGenUnit<'_> {
                 match specs.get("UNIT") {
                     None => {
                         if !specs.contains_key("FILE") {
-                            bail!("INQUIRE must have either FILE or UNIT");
+                            bail!("{loc} INQUIRE must have either FILE or UNIT");
                         }
                     }
                     Some(e) => {
-                        if e.resolve_type(&self.syms)? != DataType::Integer {
-                            bail!("INQUIRE must not use internal files");
+                        if e.resolve_type(loc, &self.syms)? != DataType::Integer {
+                            bail!("{loc} INQUIRE must not use internal files");
                         }
                         if specs.contains_key("FILE") {
-                            bail!("INQUIRE must not have both FILE and UNIT");
+                            bail!("{loc} INQUIRE must not have both FILE and UNIT");
                         }
                     }
                 }
@@ -2161,18 +2240,18 @@ impl CodeGenUnit<'_> {
                     match name.as_str() {
                         "IOSTAT" => (),
                         "UNIT" | "FILE" => {
-                            let e = self.emit_expression_ctx(e, Ctx::ArgScalar)?;
+                            let e = self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?;
                             code += &format!("    {}: Some({e}),\n", name.to_ascii_lowercase());
                         }
                         "EXIST" | "OPENED" | "NUMBER" | "NAMED" | "NAME" => {
-                            let e = self.emit_expression_ctx(e, Ctx::ArgScalarMut)?;
+                            let e = self.emit_expression_ctx(loc, e, Ctx::ArgScalarMut)?;
                             code += &format!("    {}: Some({e}),\n", name.to_ascii_lowercase());
                         }
                         "ACCESS" | "SEQUENTIAL" | "DIRECT" | "FORM" | "FORMATTED"
                         | "UNFORMATTED" | "RECL" | "NEXTREC" | "BLANK" => {
-                            bail!("TODO: INQUIRE has unsupported specifier {name}")
+                            bail!("{loc} TODO: INQUIRE has unsupported specifier {name}")
                         }
-                        _ => bail!("INQUIRE has invalid specifier {name}"),
+                        _ => bail!("{loc} INQUIRE has invalid specifier {name}"),
                     }
                 }
 
@@ -2180,7 +2259,7 @@ impl CodeGenUnit<'_> {
                 code += "  };\n";
 
                 if let Some(iostat) = specs.get("IOSTAT") {
-                    let e = self.emit_expression_ctx(iostat, Ctx::Assignment)?;
+                    let e = self.emit_expression_ctx(loc, iostat, Ctx::Assignment)?;
                     code += &format!("  {e} = io::capture_iostat(|| ctx.inquire(specs))?;\n");
                 } else {
                     code += "  ctx.inquire(specs)?;\n";
@@ -2200,7 +2279,7 @@ impl CodeGenUnit<'_> {
             }
             Statement::Call(name, args) => {
                 code += &self
-                    .emit_call(name, args, false)
+                    .emit_call(loc, name, args, false)
                     .with_context(|| format!("failed statement {:?}", statement))?;
                 code += ";\n";
             }
@@ -2212,7 +2291,7 @@ impl CodeGenUnit<'_> {
                 if matches!(self.program.ast.ty, ast::ProgramUnitType::Function)
                     && self.syms.get(&entry.name)?.ast.base_type != DataType::Character
                 {
-                    let name = self.emit_symbol(&entry.name, Ctx::Value)?;
+                    let name = self.emit_symbol(loc, &entry.name, Ctx::Value)?;
                     if returns_result {
                         code += &format!("return Ok({name});\n");
                     } else {
@@ -2235,18 +2314,22 @@ impl CodeGenUnit<'_> {
         let mut code = String::new();
 
         for (name, sym) in self.syms.iter() {
+            let loc = &sym.ast.loc;
+
             if let Some(param) = &sym.ast.parameter {
                 if let DataType::Character = &sym.ast.base_type {
                     let len = sym
                         .ast
                         .character_len
                         .as_ref()
-                        .expect("character sym must have len");
+                        .expect("{loc} character sym must have len");
 
-                    let param_exp = self.emit_expression(param)?;
+                    let param_exp = self.emit_expression(loc, param)?;
 
                     match len {
-                        LenSpecification::Unspecified => bail!("unspecified character length"),
+                        LenSpecification::Unspecified => {
+                            bail!("{loc} unspecified character length")
+                        }
                         LenSpecification::Asterisk => {
                             code += &format!("const {name}: &[u8] = {param_exp};\n",)
                         }
@@ -2257,7 +2340,7 @@ impl CodeGenUnit<'_> {
                             );
                         }
                         LenSpecification::IntConstantExpr(e) => {
-                            let e = self.emit_expression(e)?;
+                            let e = self.emit_expression(loc, e)?;
                             code += &format!(
                                 "const {name}: &[u8; {e} as usize] = &fstr::extend_const::<{{{e} as usize}}>({param_exp});\n"
                             );
@@ -2266,7 +2349,7 @@ impl CodeGenUnit<'_> {
                 } else {
                     let ty = emit_datatype(&sym.ast.base_type);
 
-                    let param_ex = self.emit_expression(param)?;
+                    let param_ex = self.emit_expression(loc, param)?;
                     code += &format!("const {name}: {ty} = {param_ex};\n");
                 }
             }
@@ -2292,8 +2375,8 @@ impl CodeGenUnit<'_> {
 
         // Declare struct's members
         code += "struct SaveVars {\n";
-        for (name, _sym) in &saved {
-            let decl = self.emit_symbol(name, Ctx::SaveStruct)?;
+        for (name, sym) in &saved {
+            let decl = self.emit_symbol(&sym.ast.loc, name, Ctx::SaveStruct)?;
             code += &format!("  {decl},\n");
         }
         code += "}\n\n";
@@ -2302,7 +2385,7 @@ impl CodeGenUnit<'_> {
         code += "impl SaveInit for SaveVars {\n";
         code += "  fn new() -> Self {\n";
         for (name, sym) in &saved {
-            code += &self.emit_initialiser(name, sym, true)?;
+            code += &self.emit_initialiser(&sym.ast.loc, name, sym, true)?;
         }
         code += "\n";
 
@@ -2420,6 +2503,7 @@ impl<'a> CodeGen<'a> {
 
         for statement_function in &self.statement_functions {
             let codegen = &statement_function.codegen;
+            let loc = &statement_function.ast.loc;
 
             let darg_names: Vec<_> = statement_function
                 .ast
@@ -2429,7 +2513,7 @@ impl<'a> CodeGen<'a> {
                 .collect();
             let dargs = darg_names
                 .iter()
-                .map(|darg| codegen.emit_symbol(darg, Ctx::DummyArg));
+                .map(|darg| codegen.emit_symbol(loc, darg, Ctx::DummyArg));
 
             let func_name = &statement_function.ast.name;
 
@@ -2448,21 +2532,21 @@ impl<'a> CodeGen<'a> {
 
             for name in &darg_names {
                 let sym = codegen.syms.get(name)?;
-                code += &codegen.emit_initialiser(name, &sym, false)?;
+                code += &codegen.emit_initialiser(loc, name, &sym, false)?;
             }
 
             code += &statement_function
                 .codegen
-                .emit_expression(&statement_function.ast.body)?;
+                .emit_expression(loc, &statement_function.ast.body)?;
             code += "\n}\n\n";
         }
 
         for entry in &self.entries {
-            let dargs = entry
-                .ast
-                .dargs
-                .iter()
-                .map(|darg| entry.codegen.emit_symbol(darg, Ctx::DummyArg));
+            let dargs = entry.ast.dargs.iter().map(|darg| {
+                entry
+                    .codegen
+                    .emit_symbol(&entry.ast.loc, darg, Ctx::DummyArg)
+            });
 
             let entry_name = &entry.ast.name;
 
@@ -2510,7 +2594,9 @@ impl<'a> CodeGen<'a> {
                     code += "Ok(())\n";
                 }
             } else {
-                let name = entry.codegen.emit_symbol(entry_name, Ctx::Value)?;
+                let name = entry
+                    .codegen
+                    .emit_symbol(&entry.ast.loc, entry_name, Ctx::Value)?;
                 if returns_result {
                     code += &format!("Ok({name})\n");
                 } else {
