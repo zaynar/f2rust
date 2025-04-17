@@ -447,6 +447,7 @@ pub enum CallSyntax {
     Func(&'static str),     // a(x)
     VarFunc(&'static str),  // a(&[x])  (used for variadic intrinsics)
     ArraySubscriptValue,    // special intrinsic
+    ArrayClone,             // special intrinsic
 }
 
 #[derive(Debug, Clone)]
@@ -1054,6 +1055,10 @@ impl CodeGenUnit<'_> {
             let conversion = if darg.is_array {
                 // Function is expecting an array
                 match arg {
+                    Expression::Function(name, ..) if intrinsics::returns_array(name) => {
+                        // Hack for ARRAY_CLONE
+                        self.emit_expression(loc, arg)?
+                    }
                     Expression::Unary(..) |
                     Expression::Binary(..) |
                     Expression::Function(..) |
@@ -1447,6 +1452,13 @@ impl CodeGenUnit<'_> {
                         format!("{s}.subscript({idx_ex})")
                     }
                     _ => bail!("{loc} ArraySubscriptValue invalid args {args:?}"),
+                },
+                CallSyntax::ArrayClone => match args.first() {
+                    Some(Expression::Symbol(name)) => {
+                        let s = self.emit_symbol(loc, name, Ctx::Value)?;
+                        format!("&mut {s}.data().to_vec()")
+                    }
+                    _ => bail!("{loc} ArrayClone invalid args {args:?}"),
                 },
             };
             Ok(format!("{args_prep}{call}"))

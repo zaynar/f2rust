@@ -168,6 +168,7 @@ const INTRINSICS: &[IntrinsicDef] = &[
 
     // Hacks:
     ("", "ARRAY_SUBSCRIPT_VALUE", DataType::Unknown, DataType::Integer, CallSyntax::ArraySubscriptValue),
+    ("", "ARRAY_CLONE", DataType::Unknown, DataType::Double, CallSyntax::ArrayClone),
 ];
 
 fn find_intrinsic(name: &str, first_arg: Option<DataType>) -> Option<&'static IntrinsicDef> {
@@ -195,7 +196,7 @@ pub fn exists(name: &str) -> bool {
 pub fn call_info(
     name: &str,
     first_arg: Option<DataType>,
-) -> Option<(DataType, codegen::CallSyntax)> {
+) -> Option<(DataType, CallSyntax)> {
     find_intrinsic(name, first_arg).map(|i| (i.3.clone(), i.4.clone()))
 }
 
@@ -218,6 +219,10 @@ pub fn requires_ctx(name: &str) -> bool {
 
 pub fn returns_result(name: &str) -> bool {
     matches!(name, "EXIT")
+}
+
+pub fn returns_array(name: &str) -> bool {
+    matches!(name, "ARRAY_CLONE")
 }
 
 pub fn character_len(name: &str) -> Option<ast::LenSpecification> {
