@@ -1057,9 +1057,19 @@ impl CodeGenUnit<'_> {
                             format!("{s}.subarray({idx})")
                         }
                     }
-                    Expression::Substring(..) => {
-                        warn!("TODO: emit_args Substring as array");
-                        "todo!()".to_owned()
+                    Expression::Substring(name, e1, e2) => {
+                        let range = self.emit_range(e1, e2)?;
+
+                        if darg.mutated {
+                            let s = self.emit_symbol(name, Ctx::ArgScalarMut)?;
+                            format!("CharArrayMut::from_mut(fstr::substr_mut({s}, {range}))")
+                        } else if aliased.contains(name.as_str()) {
+                            let s = self.emit_symbol(name, Ctx::ArgScalar)?;
+                            format!("CharArray::from_ref(&fstr::substr({s}, {range}).to_vec())")
+                        } else {
+                            let s = self.emit_symbol(name, Ctx::ArgScalar)?;
+                            format!("CharArray::from_ref(fstr::substr({s}, {range}))")
+                        }
                     }
                     Expression::SubstringArrayElement(..) => todo!(),
                     Expression::ImpliedDo { .. } => bail!("cannot use implied-DO as array argument"),

@@ -1,5 +1,5 @@
 //! CHARACTER arrays. These have peculiar behaviour in FORTRAN: they are stored in memory as
-//! a contiguous array of bytes, split into an array of fixed-length strings, but that length
+//! a contiguous array of bytes, split into an array of equal-length strings, but that length
 //! can vary.
 //!
 //! If a function declares a dummy argument as `CHARACTER*(*)`, it will use the same string
@@ -7,7 +7,7 @@
 //! the same bytes will be reinterpreted as strings of length `N`.
 //!
 //! To support this, the API uses `CharArray` which wraps a `&[u8]` slice and a string length.
-//! Implementations using `DummyCharArray` can either copy this length or replace it.
+//! Functions using `DummyCharArray` can either adopt this length or replace it.
 
 use std::ops::{Index, IndexMut, RangeBounds};
 
