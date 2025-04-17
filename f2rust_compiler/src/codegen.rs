@@ -1168,8 +1168,8 @@ impl CodeGenUnit<'_> {
                     Expression::Function(name, args) => {
                         if darg.mutated {
                             bail!("{loc} cannot pass function return value to mutable dummy argument");
-                        } else if darg.base_type == DataType::Character {
-                            // CHARACTER functions write their output into an extra final darg.
+                        } else if darg.base_type == DataType::Character && !intrinsics::exists(name) {
+                            // Non-intrinsic CHARACTER functions write their output into an extra final darg.
                             // To use the function in an argument or expression, we need to
                             // allocate some storage and pass it to the function.
                             let sym = self.syms.get(name)?;

@@ -1742,7 +1742,10 @@ impl Parser {
                 // extra final darg, so call them like a subroutine with the assignment target
                 // as that final argument
                 if let grammar::Expression::ArrayElementOrFunction(func_name, es) = e {
-                    if !self.symbols.is_array(func_name) && self.symbols.is_character(func_name) {
+                    if !self.symbols.is_array(func_name)
+                        && self.symbols.is_character(func_name)
+                        && !intrinsics::exists(func_name)
+                    {
                         self.symbols.set_called(func_name);
 
                         let target = Expression::from_dataname(&mut self.symbols, name)?;
