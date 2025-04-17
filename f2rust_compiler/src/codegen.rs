@@ -1821,7 +1821,7 @@ impl CodeGenUnit<'_> {
             (DataType::Real, DataType::Double) => format!("{e} as f32"),
             (DataType::Double, DataType::Integer) => format!("{e} as f64"),
             (DataType::Double, DataType::Real) => format!("{e} as f64"),
-            _ => bail!("{loc} invalid arithmetic conversion from {target:?} to {value:?}"),
+            _ => bail!("{loc} invalid arithmetic conversion from {value:?} to {target:?}"),
         })
     }
 
