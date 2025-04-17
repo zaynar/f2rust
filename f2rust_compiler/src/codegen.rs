@@ -281,6 +281,8 @@ impl Expression {
                     } else {
                         bail!("{loc} calling non-intrinsic function {name} without declared type");
                     }
+                } else if let DataType::Procedure { ret_args, .. } = ty {
+                    ret_args.first().unwrap().base_type.clone()
                 } else {
                     ty.clone()
                 }
