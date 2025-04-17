@@ -9,9 +9,9 @@
 //! To support this, the API uses `CharArray` which wraps a `&[u8]` slice and a string length.
 //! Functions using `DummyCharArray` can either adopt this length or replace it.
 
-use std::ops::{Index, IndexMut, RangeBounds};
-
 use crate::util::{offset_1d, offset_2d, parse_bounds};
+use std::ops::{Index, IndexMut, RangeBounds};
+use std::slice::GetDisjointMutError;
 
 // TODO: N-dimensional arrays for N>1
 
@@ -153,12 +153,13 @@ impl ActualCharArray {
         offset_1d(self.bounds, index) as i32 + 1
     }
 
-    pub fn get_disjoint_mut_unwrap<const N: usize>(&mut self, indices: [i32; N]) -> [&mut [u8]; N] {
+    pub fn get_disjoint_mut<const N: usize>(
+        &mut self,
+        indices: [i32; N],
+    ) -> Result<[&mut [u8]; N], GetDisjointMutError> {
         let offsets = indices.map(|index| self.offset(index));
         let ranges = offsets.map(|n| n..n + self.element_length);
-        self.data
-            .get_disjoint_mut(ranges)
-            .expect("mutable array elements passed to function must have disjoint indexes")
+        self.data.get_disjoint_mut(ranges)
     }
 }
 

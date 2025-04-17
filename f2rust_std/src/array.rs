@@ -9,24 +9,24 @@
 //!
 //! We implement Index for nicer syntax when accessing arrays.
 
-use std::ops::{Index, IndexMut, RangeBounds, RangeInclusive};
-
 use crate::util::{offset_1d, offset_2d, offset_3d, parse_bounds};
+use std::ops::{Index, IndexMut, RangeBounds, RangeInclusive};
+use std::slice::GetDisjointMutError;
 
 macro_rules! define_array {
     ($dims:expr, $actual:ident, $dummy:ident, $dummy_mut:ident, $offset:ident, $index:ty,
         ($($bn:ident: $Bn:ident),+)) => {
-        pub struct $actual<T> {
+        pub struct $actual<T: 'static> {
             data: Vec<T>,
             bounds: [(i32, i32); $dims],
         }
 
-        pub struct $dummy<'a, T> {
+        pub struct $dummy<'a, T: 'static> {
             data: &'a [T],
             bounds: [(i32, i32); $dims],
         }
 
-        pub struct $dummy_mut<'a, T> {
+        pub struct $dummy_mut<'a, T: 'static> {
             data: &'a mut [T],
             bounds: [(i32, i32); $dims],
         }
@@ -49,55 +49,6 @@ macro_rules! define_array {
             }
         }
 
-        impl<T> $actual<T> {
-            fn offset(&self, index: $index) -> usize {
-                $offset(self.bounds, index)
-            }
-
-            pub fn first(&self) -> &T {
-                self.data.first().unwrap()
-            }
-
-            pub fn first_mut(&mut self) -> &mut T {
-                self.data.first_mut().unwrap()
-            }
-
-            pub fn as_slice(&self) -> &[T] {
-                &self.data
-            }
-
-            pub fn as_slice_mut(&mut self) -> &mut [T] {
-                &mut self.data
-            }
-
-            pub fn subarray(&self, index: $index) -> &[T] {
-                let offset = self.offset(index);
-                &self.data[offset..]
-            }
-
-            pub fn subarray_mut(&mut self, index: $index) -> &mut [T] {
-                let offset = self.offset(index);
-                &mut self.data[offset..]
-            }
-
-            pub fn iter(&self) -> impl Iterator<Item = &T> {
-                self.data.iter()
-            }
-
-            pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
-                self.data.iter_mut()
-            }
-
-            pub fn subscript(&self, index: $index) -> i32 {
-                self.offset(index) as i32 + 1
-            }
-
-            pub fn get_disjoint_mut_unwrap<const N: usize>(&mut self, indices: [$index; N]) -> [&mut T; N] {
-                let offsets = indices.map(|index| self.offset(index));
-                self.data.get_disjoint_mut(offsets).expect("mutable array elements passed to function must have disjoint indexes")
-            }
-        }
-
         impl<'a, T> $dummy<'a, T> {
             // We need a separate generic RangeBounds for each dimension,
             // because we use a mixture of RangeInclusive and RangeFrom
@@ -108,31 +59,6 @@ macro_rules! define_array {
                     bounds,
                 }
             }
-
-            fn offset(&self, index: $index) -> usize {
-                $offset(self.bounds, index)
-            }
-
-            pub fn first(&self) -> &T {
-                self.data.first().unwrap()
-            }
-
-            pub fn as_slice(&self) -> &[T] {
-                &self.data
-            }
-
-            pub fn subarray(&self, index: $index) -> &[T] {
-                let offset = self.offset(index);
-                &self.data[offset..]
-            }
-
-            pub fn iter(&self) -> impl Iterator<Item = &T> {
-                self.data.iter()
-            }
-
-            pub fn subscript(&self, index: $index) -> i32 {
-                self.offset(index) as i32 + 1
-            }
         }
 
         impl<'a, T> $dummy_mut<'a, T> {
@@ -142,53 +68,6 @@ macro_rules! define_array {
                     data: bounded_data_mut(&bounds, r),
                     bounds,
                 }
-            }
-
-            fn offset(&self, index: $index) -> usize {
-                $offset(self.bounds, index)
-            }
-
-            pub fn first(&self) -> &T {
-                self.data.first().unwrap()
-            }
-
-            pub fn first_mut(&mut self) -> &mut T {
-                self.data.first_mut().unwrap()
-            }
-
-            pub fn as_slice(&self) -> &[T] {
-                &self.data
-            }
-
-            pub fn as_slice_mut(&mut self) -> &mut [T] {
-                &mut self.data
-            }
-
-            pub fn subarray(&self, index: $index) -> &[T] {
-                let offset = self.offset(index);
-                &self.data[offset..]
-            }
-
-            pub fn subarray_mut(&mut self, index: $index) -> &mut [T] {
-                let offset = self.offset(index);
-                &mut self.data[offset..]
-            }
-
-            pub fn iter(&self) -> impl Iterator<Item = &T> {
-                self.data.iter()
-            }
-
-            pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
-                self.data.iter_mut()
-            }
-
-            pub fn subscript(&self, index: $index) -> i32 {
-                self.offset(index) as i32 + 1
-            }
-
-            pub fn get_disjoint_mut_unwrap<const N: usize>(&mut self, indices: [$index; N]) -> [&mut T; N] {
-                let offsets = indices.map(|index| self.offset(index));
-                self.data.get_disjoint_mut(offsets).expect("mutable array elements passed to function must have disjoint indexes")
             }
         }
 
@@ -232,12 +111,139 @@ macro_rules! define_array {
                 &mut self.data[offset]
             }
         }
+
+        impl<T> ArrayOps<T, $index> for $actual<T> {
+            fn data(&self) -> &[T] {
+                &self.data
+            }
+
+            fn offset(&self, index: $index) -> usize {
+                $offset(self.bounds, index)
+            }
+        }
+
+        impl<T> ArrayOpsMut<T, $index> for $actual<T> {
+            fn data_mut(&mut self) -> &mut [T] {
+                &mut self.data
+            }
+        }
+
+        impl<T> ArrayOps<T, $index> for $dummy<'_, T> {
+            fn data(& self) -> &[T] {
+                self.data
+            }
+
+            fn offset(&self, index: $index) -> usize {
+                $offset(self.bounds, index)
+            }
+        }
+
+        impl<T> ArrayOps<T, $index> for $dummy_mut<'_, T> {
+            fn data(& self) -> &[T] {
+                self.data
+            }
+
+            fn offset(&self, index: $index) -> usize {
+                $offset(self.bounds, index)
+            }
+        }
+
+        impl<T> ArrayOpsMut<T, $index> for $dummy_mut<'_, T> {
+            fn data_mut(&mut self) -> &mut [T] {
+                self.data
+            }
+        }
     }
 }
 
 define_array!(1, ActualArray, DummyArray, DummyArrayMut, offset_1d, i32, (b0: B0));
 define_array!(2, ActualArray2D, DummyArray2D, DummyArrayMut2D, offset_2d, [i32; 2], (b0: B0, b1: B1));
 define_array!(3, ActualArray3D, DummyArray3D, DummyArrayMut3D, offset_3d, [i32; 3], (b0: B0, b1: B1, b2: B2));
+
+pub trait ArrayOps<T: 'static, I> {
+    fn data(&self) -> &[T];
+    fn offset(&self, index: I) -> usize;
+
+    fn first(&self) -> &T {
+        self.data().first().unwrap()
+    }
+
+    fn as_slice(&self) -> &[T] {
+        self.data()
+    }
+
+    fn subarray(&self, index: I) -> &[T] {
+        let offset = self.offset(index);
+        &self.data()[offset..]
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &T> {
+        self.data().iter()
+    }
+
+    fn subscript(&self, index: I) -> i32 {
+        self.offset(index) as i32 + 1
+    }
+}
+
+pub trait ArrayOpsMut<T: 'static, I>: ArrayOps<T, I> {
+    fn data_mut(&mut self) -> &mut [T];
+
+    fn first_mut(&mut self) -> &mut T {
+        self.data_mut().first_mut().unwrap()
+    }
+
+    fn as_slice_mut(&mut self) -> &mut [T] {
+        self.data_mut()
+    }
+
+    fn subarray_mut(&mut self, index: I) -> &mut [T] {
+        let offset = self.offset(index);
+        &mut self.data_mut()[offset..]
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.data_mut().iter_mut()
+    }
+
+    fn get_disjoint_mut<const N: usize>(
+        &mut self,
+        indices: [I; N],
+    ) -> Result<[&mut T; N], GetDisjointMutError> {
+        let offsets = indices.map(|index| self.offset(index));
+        self.data_mut().get_disjoint_mut(offsets)
+    }
+
+    /// Get slices starting at the given indices, each as large as possible without
+    /// overlapping.
+    fn get_disjoint_slices_mut<const N: usize>(
+        &mut self,
+        indices: [I; N],
+    ) -> Result<[&mut [T]; N], GetDisjointMutError> {
+        // First, sort the indices by increasing offset
+        let mut offsets: Vec<_> = indices
+            .into_iter()
+            .enumerate()
+            .map(|(i, index)| (i, self.offset(index)))
+            .collect();
+        offsets.sort_by_key(|(i, index)| (*index, *i));
+
+        // Add a dummy entry to represent the end of the list
+        offsets.push((0, self.data_mut().len()));
+
+        // Replace each offset, with a range from that offset until the next one
+        let mut ranges: Vec<_> = offsets
+            .windows(2)
+            .map(|w| (w[0].0, w[0].1..w[1].1))
+            .collect();
+
+        // Put them back into argument order
+        ranges.sort_by_key(|(i, _range)| *i);
+
+        let ranges: Vec<_> = ranges.into_iter().map(|(_i, range)| range).collect();
+        self.data_mut().get_disjoint_mut(ranges.try_into().unwrap())
+    }
+}
 
 impl<'a, T> DummyArray<'a, T>
 where
@@ -313,4 +319,59 @@ fn test_equivalence_val() {
     ints[2] = 0x40000000;
 
     assert_eq!(orig, 2.0);
+}
+
+#[test]
+fn test_disjoint_mut() {
+    let mut data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+    let mut arr = DummyArrayMut::new(&mut data, 1..);
+
+    assert_eq!(arr[1], 1);
+    assert_eq!(arr[2], 2);
+
+    let [d1, d5, d4] = arr.get_disjoint_mut([1, 5, 4]).unwrap();
+    assert_eq!(*d1, 1);
+    assert_eq!(*d5, 5);
+    assert_eq!(*d4, 4);
+    *d4 = 40;
+
+    assert_eq!(arr.as_slice(), [1, 2, 3, 40, 5, 6, 7, 8, 9, 10]);
+
+    assert_eq!(
+        arr.get_disjoint_mut([1, 5, 5]),
+        Err(GetDisjointMutError::OverlappingIndices)
+    );
+    assert_eq!(
+        arr.get_disjoint_mut([1, 20, 5]),
+        Err(GetDisjointMutError::IndexOutOfBounds)
+    );
+}
+
+#[test]
+fn test_disjoint_slice() {
+    let mut data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+    let mut arr = DummyArrayMut::new(&mut data, 1..);
+
+    assert_eq!(arr[1], 1);
+    assert_eq!(arr[2], 2);
+
+    let [d1, d5, d4] = arr.get_disjoint_slices_mut([1, 5, 4]).unwrap();
+    assert_eq!(d1, [1, 2, 3]);
+    assert_eq!(d5, [5, 6, 7, 8, 9, 10]);
+    assert_eq!(d4, [4]);
+    d4[0] = 40;
+
+    assert_eq!(arr.as_slice(), [1, 2, 3, 40, 5, 6, 7, 8, 9, 10]);
+
+    let [d1, d5a, d5b] = arr.get_disjoint_slices_mut([1, 5, 5]).unwrap();
+    assert_eq!(d1, [1, 2, 3, 40]);
+    assert_eq!(d5a, []);
+    assert_eq!(d5b, [5, 6, 7, 8, 9, 10]);
+
+    assert_eq!(
+        arr.get_disjoint_slices_mut([1, 20, 5]),
+        Err(GetDisjointMutError::IndexOutOfBounds)
+    );
 }

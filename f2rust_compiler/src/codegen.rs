@@ -991,6 +991,7 @@ impl CodeGenUnit<'_> {
             used: Vec<usize>,
             mutated: Vec<usize>,
             mutated_element: Vec<usize>,
+            mutated_slice: Vec<usize>,
         }
 
         // Value is (total occurrences, mutable occurrences, mutable array elt occurrences)
@@ -1006,8 +1007,12 @@ impl CodeGenUnit<'_> {
                     if darg.mutated {
                         c.mutated.push(i);
                     }
-                    if matches!(arg, Expression::ArrayElement(..)) && !darg.is_array {
-                        c.mutated_element.push(i);
+                    if matches!(arg, Expression::ArrayElement(..)) {
+                        if darg.is_array {
+                            c.mutated_slice.push(i);
+                        } else {
+                            c.mutated_element.push(i);
+                        }
                     }
                 }
                 _ => (),
@@ -1016,6 +1021,7 @@ impl CodeGenUnit<'_> {
 
         let mut aliased = HashSet::new();
         let mut aliased_arrays: IndexMap<&str, Vec<(usize, String)>> = IndexMap::new();
+        let mut aliased_slices: IndexMap<&str, Vec<(usize, String)>> = IndexMap::new();
         for (sym, count) in &sym_counts {
             if count.used.len() >= 2 && !count.mutated.is_empty() {
                 // warn!(
@@ -1029,6 +1035,11 @@ impl CodeGenUnit<'_> {
                         "{loc} Possible aliasing violating: assuming array elements are disjoint"
                     );
                     aliased_arrays.insert(sym, Vec::new());
+                } else if count.mutated.len()
+                    == count.mutated_element.len() + count.mutated_slice.len()
+                {
+                    warn!("{loc} Possible aliasing violating: assuming array slice are disjoint");
+                    aliased_slices.insert(sym, Vec::new());
                 } else {
                     error!(
                         "{loc} Aliasing violation: symbol {sym} used mutably twice in procedure call"
@@ -1083,13 +1094,18 @@ impl CodeGenUnit<'_> {
                         if sym.ast.base_type != darg.base_type {
                             bail!("{loc} cannot convert array types: actual argument {name}={:?}, dummy argument {}={:?}", sym.ast.base_type, darg.name, darg.base_type);
                         }
-                        let idx = self.emit_index(loc, idx)?;
+                        let idx_ex = self.emit_index(loc, idx)?;
                         if darg.mutated {
-                            format!("{s}.subarray_mut({idx})")
+                            if let Some(entry) = aliased_slices.get_mut(name.as_str()) {
+                                entry.push((i, idx_ex));
+                                format!("arg{i}")
+                            } else {
+                                format!("{s}.subarray_mut({idx_ex})")
+                            }
                         } else if aliased.contains(name.as_str()) {
-                            format!("&{s}.subarray({idx}).to_vec()")
+                            format!("&{s}.subarray({idx_ex}).to_vec()")
                         } else {
-                            format!("{s}.subarray({idx})")
+                            format!("{s}.subarray({idx_ex})")
                         }
                     }
                     Expression::Substring(name, e1, e2) => {
@@ -1152,7 +1168,10 @@ impl CodeGenUnit<'_> {
                         let get = format!("{s}[{idx_ex}]");
 
                         if darg.mutated {
-                            if let Some(entry) = aliased_arrays.get_mut(name.as_str()) {
+                            if let Some(entry) = aliased_slices.get_mut(name.as_str()) {
+                                entry.push((i, idx_ex));
+                                format!("arg{i}.first_mut().unwrap()")
+                            } else if let Some(entry) = aliased_arrays.get_mut(name.as_str()) {
                                 entry.push((i, idx_ex));
                                 format!("arg{i}")
                             } else {
@@ -1288,7 +1307,17 @@ impl CodeGenUnit<'_> {
             let names: Vec<_> = args.iter().map(|(i, _e)| format!("arg{i}")).collect();
             let idxs: Vec<_> = args.iter().map(|(_i, e)| e.clone()).collect();
             prep_code += &format!(
-                "let [{}] = {name}.get_disjoint_mut_unwrap([{}]);\n",
+                "let [{}] = {name}.get_disjoint_mut([{}]).expect(\"mutable array elements passed to function must have disjoint indexes\");\n",
+                names.join(", "),
+                idxs.join(", ")
+            );
+        }
+
+        for (name, args) in &aliased_slices {
+            let names: Vec<_> = args.iter().map(|(i, _e)| format!("arg{i}")).collect();
+            let idxs: Vec<_> = args.iter().map(|(_i, e)| e.clone()).collect();
+            prep_code += &format!(
+                "let [{}] = {name}.get_disjoint_slices_mut([{}]).unwrap();\n",
                 names.join(", "),
                 idxs.join(", ")
             );
