@@ -1,9 +1,4 @@
-use crate::{
-    ast,
-    ast::DataType,
-    codegen::{self, CallSyntax},
-    globan::DummyArg,
-};
+use crate::{ast, ast::DataType, codegen::CallSyntax, globan::DummyArg};
 
 // Save some typing for intrinsics following the pattern "XYZ" = f32::xyz, "DXYZ" = f64::xyz
 macro_rules! common_f32 {
@@ -193,21 +188,16 @@ pub fn exists(name: &str) -> bool {
 
 /// Get information for calling the given intrinsic. If it's the generic name,
 /// this will depend on the type of the first argument.
-pub fn call_info(
-    name: &str,
-    first_arg: Option<DataType>,
-) -> Option<(DataType, CallSyntax)> {
+pub fn call_info(name: &str, first_arg: Option<DataType>) -> Option<(DataType, CallSyntax)> {
     find_intrinsic(name, first_arg).map(|i| (i.3.clone(), i.4.clone()))
 }
 
 /// Whether the named intrinsic mutates the given argument (starting from 0).
 /// (None of the standard intrinsics mutate, only the UNIX extensions)
 pub fn arg_is_mutated(name: &str, idx: usize) -> bool {
-    match name {
-        "DATE_AND_TIME" => true,
-        "GETARG" | "GETENV" | "SYSTEM" => idx == 1,
-        _ => false,
-    }
+    dummy_args(name)
+        .and_then(|args| args.get(idx).map(|arg| arg.mutated))
+        .unwrap_or(false)
 }
 
 pub fn requires_ctx(name: &str) -> bool {
@@ -259,6 +249,54 @@ pub fn dummy_args(name: &str) -> Option<Vec<DummyArg>> {
                 name: "VALUES".to_owned(),
                 base_type: DataType::Integer,
                 is_array: true,
+                mutated: true,
+            },
+        ],
+        "EXIT" => vec![DummyArg {
+            name: "STATUS".to_owned(),
+            base_type: DataType::Integer,
+            is_array: false,
+            mutated: false,
+        }],
+        "GETARG" => vec![
+            DummyArg {
+                name: "POS".to_owned(),
+                base_type: DataType::Integer,
+                is_array: false,
+                mutated: false,
+            },
+            DummyArg {
+                name: "VALUE".to_owned(),
+                base_type: DataType::Character,
+                is_array: false,
+                mutated: true,
+            },
+        ],
+        "GETENV" => vec![
+            DummyArg {
+                name: "NAME".to_owned(),
+                base_type: DataType::Character,
+                is_array: false,
+                mutated: false,
+            },
+            DummyArg {
+                name: "VALUE".to_owned(),
+                base_type: DataType::Character,
+                is_array: false,
+                mutated: true,
+            },
+        ],
+        "SYSTEM" => vec![
+            DummyArg {
+                name: "COMMAND".to_owned(),
+                base_type: DataType::Character,
+                is_array: false,
+                mutated: false,
+            },
+            DummyArg {
+                name: "STATUS".to_owned(),
+                base_type: DataType::Integer,
+                is_array: false,
                 mutated: true,
             },
         ],
