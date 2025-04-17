@@ -217,7 +217,7 @@ pub fn requires_ctx(name: &str) -> bool {
 }
 
 pub fn returns_result(name: &str) -> bool {
-    matches!(name, "EXIT" | "SYSTEM")
+    matches!(name, "EXIT")
 }
 
 pub fn character_len(name: &str) -> Option<ast::LenSpecification> {

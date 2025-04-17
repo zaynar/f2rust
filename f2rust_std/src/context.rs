@@ -98,6 +98,22 @@ impl<'a> Context<'a> {
         values[7] = (now.nanosecond() / 1_000_000) as i32;
     }
 
+    pub fn system(&mut self, _command: &[u8], _status: &mut i32) {
+        todo!();
+    }
+
+    pub fn iargc(&self) -> i32 {
+        todo!();
+    }
+
+    pub fn getarg(&self, _pos: i32, _value: &mut [u8]) {
+        todo!();
+    }
+
+    pub fn getenv(&self, _name: &[u8], _value: &mut [u8]) {
+        todo!();
+    }
+
     pub fn default_read_unit(&mut self) -> Result<RecFileRef<'a>> {
         self.file_manager.io_unit(5)
     }
