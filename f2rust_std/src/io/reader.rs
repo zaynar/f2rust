@@ -145,18 +145,24 @@ impl Reader for FormattedReader<'_> {
     }
 }
 
-/*
+#[allow(dead_code)] // TODO
 pub struct ListDirectedReader<'a> {
-    file: Rc<RefCell<dyn ReadWriteSeek + 'a>>,
+    file: RecFileRef<'a>,
+
+    record: Option<Cursor<Vec<u8>>>,
+    recnum: Option<i32>,
+
     prev_char: bool,
 }
 
 impl<'a> ListDirectedReader<'a> {
-    pub fn new(ctx: &'a mut Context, unit: Option<i32>, _rec: Option<i32>) -> crate::Result<Self> {
-        let file = ctx.read_unit(unit)?;
-
+    pub fn new(file: RecFileRef<'a>, recnum: Option<i32>) -> crate::Result<Self> {
         Ok(Self {
             file,
+
+            record: None,
+            recnum,
+
             prev_char: false,
         })
     }
@@ -191,7 +197,6 @@ impl Reader for ListDirectedReader<'_> {
         todo!()
     }
 }
-*/
 
 pub struct UnformattedReader<'a> {
     file: RecFileRef<'a>,
