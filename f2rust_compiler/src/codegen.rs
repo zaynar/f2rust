@@ -505,11 +505,12 @@ impl CodeGenUnit<'_> {
             },
             Ctx::ArgScalar => match sym.rs_ty {
                 // When passing an array as a scalar, we take the first element
-                RustType::ActualArray
-                | RustType::ActualCharArray
-                | RustType::DummyArray
-                | RustType::DummyArrayMut => format!("*{name}.first()"),
-                RustType::DummyCharArray | RustType::DummyCharArrayMut => {
+                RustType::ActualArray | RustType::DummyArray | RustType::DummyArrayMut => {
+                    format!("*{name}.first()")
+                }
+                RustType::ActualCharArray
+                | RustType::DummyCharArray
+                | RustType::DummyCharArrayMut => {
                     format!("{name}.first()")
                 }
                 RustType::SaveActualArray => format!("*save.{name}.first()"),
@@ -1049,7 +1050,11 @@ impl CodeGenUnit<'_> {
                         // Some code expects this to behave like an array of size 1
                         warn!("{loc} passing expression to dummy argument expecting an array");
                         let e = self.emit_expression(loc, arg)?;
-                        format!("&[{e}]")
+                        if darg.base_type == DataType::Character {
+                            format!("CharArray::from_ref({e})")
+                        } else {
+                            format!("&[{e}]")
+                        }
                     }
                     Expression::Symbol(name) => {
                         let sym = self.syms.get(name)?;
@@ -2767,7 +2772,7 @@ impl NlistCallback for NlistCallbackRead {
 
     fn element(s: &str, idx: &str, vt: &DataType) -> Result<String> {
         if matches!(vt, DataType::Character) {
-            Ok(format!("reader.read_str(&{s}[{idx}])?;\n"))
+            Ok(format!("reader.read_str(&mut {s}[{idx}])?;\n"))
         } else {
             let ty = emit_datatype(vt);
             Ok(format!("{s}[{idx}] = reader.read_{ty}()?;\n"))

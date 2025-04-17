@@ -355,6 +355,10 @@ impl<'a> DummyCharArrayMut<'a> {
         &self.data[0..self.element_length]
     }
 
+    pub fn first_mut(&mut self) -> &mut [u8] {
+        &mut self.data[0..self.element_length]
+    }
+
     pub fn as_arg(&self) -> CharArray {
         CharArray {
             data: self.data,
