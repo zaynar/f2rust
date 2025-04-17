@@ -1083,7 +1083,7 @@ impl Parser {
         if self.save_all {
             for (_, sym) in &mut self.symbols.symbols {
                 // Can't save dargs, procedures, constants
-                if sym.darg || sym.called || sym.parameter.is_some() {
+                if sym.darg || sym.called || sym.external || sym.parameter.is_some() {
                     continue;
                 }
 
