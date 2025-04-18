@@ -2209,10 +2209,12 @@ impl CodeGenUnit<'_> {
                 match fmt {
                     ast::Specifier::Expression(e) => {
                         let fmt = self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?;
-                        code += &format!("io::FormattedWriter::new(ctx, None, None, {fmt})?;\n");
+                        code += &format!(
+                            "io::FormattedWriter::new(ctx.default_write_unit()?, None, {fmt})?;\n"
+                        );
                     }
                     ast::Specifier::Asterisk => {
-                        code += "io::ListDirectedWriter::new(ctx, None, None)?;\n";
+                        code += "io::ListDirectedWriter::new(ctx.default_write_unit()?, None)?;\n";
                     }
                 }
                 code += "  writer.start()?;\n";

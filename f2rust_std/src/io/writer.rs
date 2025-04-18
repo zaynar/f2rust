@@ -289,6 +289,9 @@ impl<'a> FormattedWriter<'a> {
                 *recnum += 1;
             }
         }
+
+        self.pos = 0;
+
         Ok(())
     }
 
