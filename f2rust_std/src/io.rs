@@ -597,7 +597,7 @@ impl<'a> FileManager<'a> {
         };
 
         match self.units.get(&unit) {
-            None => panic!("TODO: report missing unit"),
+            None => (), // closing a non-connected unit is permitted
             Some(u) => {
                 if let Some(path) = &u.path {
                     if delete {
