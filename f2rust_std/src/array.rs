@@ -35,6 +35,7 @@ macro_rules! define_array {
         where
             T: Default + Copy,
         {
+            // Use RangeInclusive instead of RangeBounds, to enforce an upper limit
             pub fn new($($bn: RangeInclusive<i32>),+) -> Self {
                 let bounds = [$(parse_bounds($bn)),+];
                 let size = bounds

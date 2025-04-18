@@ -2,7 +2,7 @@
 #[cfg(test)]
 mod tests {
     use approx::assert_abs_diff_eq;
-    use f2rust_std::{ActualCharArray, Context, Error, Result, fstr};
+    use f2rust_std::{ActualCharArray, CharArrayOpsMut, Context, Error, Result, fstr};
     use rsspice_spicelib::spicelib;
     use tempfile::TempDir;
     // use rsspice_support::support;
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn shellc() {
-        let mut input = ActualCharArray::new(10, 0..8);
+        let mut input = ActualCharArray::new(10, 0..=7);
         fstr::assign(&mut input[0], b"Hello");
         fstr::assign(&mut input[1], b"world");
         fstr::assign(&mut input[2], b"abc");
