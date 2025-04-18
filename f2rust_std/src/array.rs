@@ -9,7 +9,7 @@
 //!
 //! We implement Index for nicer syntax when accessing arrays.
 
-use crate::util::{offset_1d, offset_2d, offset_3d, parse_bounds};
+use crate::util::{offset_1d, offset_2d, offset_3d, offset_4d, parse_bounds};
 use std::ops::{Index, IndexMut, RangeBounds, RangeInclusive};
 use std::slice::GetDisjointMutError;
 
@@ -159,6 +159,7 @@ macro_rules! define_array {
 define_array!(1, ActualArray, DummyArray, DummyArrayMut, offset_1d, i32, (b0: B0));
 define_array!(2, ActualArray2D, DummyArray2D, DummyArrayMut2D, offset_2d, [i32; 2], (b0: B0, b1: B1));
 define_array!(3, ActualArray3D, DummyArray3D, DummyArrayMut3D, offset_3d, [i32; 3], (b0: B0, b1: B1, b2: B2));
+define_array!(4, ActualArray4D, DummyArray4D, DummyArrayMut4D, offset_4d, [i32; 4], (b0: B0, b1: B1, b2: B2, b3: B3));
 
 pub trait ArrayOps<T: 'static, I> {
     fn data(&self) -> &[T];

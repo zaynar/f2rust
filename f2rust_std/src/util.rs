@@ -43,3 +43,15 @@ pub(crate) fn offset_3d(bounds: [(i32, i32); 3], s: [i32; 3]) -> usize {
     let n = s[0] - bounds[0].0 + n * (bounds[0].1 - bounds[0].0 + 1);
     n as usize
 }
+
+pub(crate) fn offset_4d(bounds: [(i32, i32); 4], s: [i32; 4]) -> usize {
+    debug_assert!(s[0] >= bounds[0].0 && s[0] <= bounds[0].1);
+    debug_assert!(s[1] >= bounds[1].0 && s[1] <= bounds[1].1);
+    debug_assert!(s[2] >= bounds[2].0 && s[2] <= bounds[2].1);
+    debug_assert!(s[3] >= bounds[3].0 && s[3] <= bounds[3].1);
+    let n = s[3] - bounds[3].0;
+    let n = s[2] - bounds[2].0 + n * (bounds[2].1 - bounds[2].0 + 1);
+    let n = s[1] - bounds[1].0 + n * (bounds[1].1 - bounds[1].0 + 1);
+    let n = s[0] - bounds[0].0 + n * (bounds[0].1 - bounds[0].0 + 1);
+    n as usize
+}
