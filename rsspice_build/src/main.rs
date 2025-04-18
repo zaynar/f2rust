@@ -120,9 +120,14 @@ impl DepGraph {
             .sort_by_key(|f| (-(self.transparents[f].len() as i32), f.clone()));
 
         self.assign_files("spicelib-1a", "spicelib", |n| n == "pool");
-        self.assign_rest("spicelib-1b", "spicelib", &[]);
+        self.assign_rest("spicelib-1b", "spicelib", &[], None);
         self.assign_files("spicelib-2a", "spicelib", |n| n == "spkgeo");
-        self.assign_rest("spicelib-2b", "spicelib", &["spicelib-1a", "spicelib-1b"]);
+        self.assign_rest(
+            "spicelib-2b",
+            "spicelib",
+            &["spicelib-1a", "spicelib-1b"],
+            None,
+        );
         self.assign_files("spicelib-3a", "spicelib", |n| {
             n == "keeper" || n.starts_with("ek") || n.starts_with("zzek")
         });
@@ -130,6 +135,7 @@ impl DepGraph {
             "spicelib-3b",
             "spicelib",
             &["spicelib-1a", "spicelib-1b", "spicelib-2a", "spicelib-2b"],
+            None,
         );
 
         // for f in &self.toposort_files {
@@ -147,7 +153,32 @@ impl DepGraph {
         self.assign_all("spicelib-4", "spicelib");
         self.assign_all("support", "support");
         self.assign_all("testutil", "testutil");
-        self.assign_all("tspice", "tspice");
+
+        self.toposort_files = self
+            .deps
+            .keys()
+            .filter(|d| d.0 == "tspice")
+            .cloned()
+            .collect::<Vec<_>>();
+        self.toposort_files
+            .sort_by_key(|f| (-(self.transparents[f].len() as i32), f.clone()));
+
+        let deps = &[
+            "spicelib-1a",
+            "spicelib-1b",
+            "spicelib-2a",
+            "spicelib-2b",
+            "spicelib-3a",
+            "spicelib-3b",
+            "spicelib-4",
+            "support",
+            "testutil",
+        ];
+        self.assign_rest("tspice-1a", "tspice", deps, Some(100));
+        self.assign_rest("tspice-1b", "tspice", deps, Some(100));
+        self.assign_rest("tspice-1c", "tspice", deps, Some(100));
+        self.assign_rest("tspice-1d", "tspice", deps, Some(1000));
+        self.assign_all("tspice-2", "tspice");
 
         for ns in HashSet::<String>::from_iter(self.deps.keys().map(|d| d.0.clone())) {
             self.assign_all("programs", &ns);
@@ -158,6 +189,8 @@ impl DepGraph {
         }
     }
 
+    /// Assign a crate to all files matching the namespace and predicate,
+    /// plus all their transitive dependencies
     fn assign_files<P: Fn(&str) -> bool>(
         &mut self,
         cratename: &str,
@@ -181,7 +214,15 @@ impl DepGraph {
         }
     }
 
-    fn assign_rest(&mut self, cratename: &str, namespace: &str, deps: &[&str]) {
+    /// Assign a crate to all files matching the namespace, whose dependencies are
+    /// either in this crate or in `deps`. Stop when the crate size reaches some limit
+    fn assign_rest(
+        &mut self,
+        cratename: &str,
+        namespace: &str,
+        deps: &[&str],
+        limit: Option<usize>,
+    ) {
         for file in &self.toposort_files {
             if file.0 == namespace
                 && !self.assigned.contains_key(file)
@@ -198,9 +239,16 @@ impl DepGraph {
                     .or_default()
                     .push(file.clone());
             }
+
+            if let Some(limit) = limit {
+                if self.crates.get(cratename).is_some_and(|c| c.len() >= limit) {
+                    break;
+                }
+            }
         }
     }
 
+    /// Assign a crate to all files matching the namespace
     fn assign_all(&mut self, cratename: &str, namespace: &str) {
         for file in self.deps.keys() {
             if file.0 == namespace && !self.assigned.contains_key(file) {
@@ -573,7 +621,32 @@ fn main() -> Result<()> {
         ),
         ("support", vec!["spicelib"]),
         ("testutil", vec!["spicelib", "support"]),
-        ("tspice", vec!["spicelib", "support", "testutil"]),
+        ("tspice-1a", vec!["spicelib", "support", "testutil"]),
+        ("tspice-1b", vec!["spicelib", "support", "testutil"]),
+        ("tspice-1c", vec!["spicelib", "support", "testutil"]),
+        ("tspice-1d", vec!["spicelib", "support", "testutil"]),
+        (
+            "tspice-2",
+            vec![
+                "spicelib",
+                "support",
+                "testutil",
+                "tspice-1a",
+                "tspice-1b",
+                "tspice-1c",
+                "tspice-1d",
+            ],
+        ),
+        (
+            "tspice",
+            vec![
+                "tspice-1a",
+                "tspice-1b",
+                "tspice-1c",
+                "tspice-1d",
+                "tspice-2",
+            ],
+        ),
         ("programs", vec!["spicelib", "support", "testutil"]),
     ] {
         let cratename = format!("rsspice_{name}");
@@ -615,12 +688,12 @@ fn main() -> Result<()> {
         let mut librs = std::fs::File::create(path.join("src/lib.rs"))?;
         writeln!(librs, "//\n// GENERATED FILE\n//\n")?;
         writeln!(librs, "#![allow(unused_imports)]\n")?;
-        if name == "spicelib" {
+        if name == "spicelib" || name == "tspice" {
             writeln!(librs, "pub mod {name} {{")?;
             for d in &ds {
                 let dcrate = format!("rsspice_{d}");
                 let dmod = dcrate.replace("-", "_");
-                writeln!(librs, "    pub use {dmod}::spicelib::*;")?;
+                writeln!(librs, "    pub use {dmod}::{name}::*;")?;
             }
             writeln!(librs, "}}")?;
         } else {
@@ -664,6 +737,8 @@ fn main() -> Result<()> {
                 let dmod = dcrate.replace("-", "_");
                 if d.starts_with("spicelib") && ns.starts_with("spicelib") {
                     writeln!(modrs, "use {dmod}::spicelib::*;")?;
+                } else if d.starts_with("tspice") && ns.starts_with("tspice") {
+                    writeln!(modrs, "use {dmod}::tspice::*;")?;
                 } else {
                     writeln!(modrs, "use {dmod}::{d};")?;
                 }
@@ -710,7 +785,8 @@ fn main() -> Result<()> {
                 let src = path.join("src").join(namespace);
 
                 let mut file = File::create(src.join(file_root.with_extension("rs")))?;
-                file.write_all(b"use super::*;\n")?;
+                writeln!(file, "//\n// GENERATED FILE\n//\n")?;
+                writeln!(file, "use super::*;")?;
                 file.write_all(code.as_bytes())?;
 
                 succeeded += 1;
