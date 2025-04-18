@@ -2042,13 +2042,15 @@ impl CodeGenUnit<'_> {
                 if var_sym.ast.outside_do {
                     // If the DO-var is accessed outside, we'll fall back to implementing the
                     // loop as the standard describes it. (TODO: could make this much less ugly)
-                    code += &format!("let m1__: i32 = {m1};\n");
-                    code += &format!("let m2__: i32 = {m2};\n");
-                    code += &format!("let m3__: i32 = {m3};\n");
+                    code += "{\n";
+                    code += &format!("  let m1__: i32 = {m1};\n");
+                    code += &format!("  let m2__: i32 = {m2};\n");
+                    code += &format!("  let m3__: i32 = {m3};\n");
                     code += &(self.emit_symbol(loc, var, Ctx::Assignment)? + " = m1__;\n");
-                    code += "for _ in 0..((m2__ - m1__ + m3__) / m3__) as i32 {\n";
+                    code += "  for _ in 0..((m2__ - m1__ + m3__) / m3__) as i32 {\n";
                     code += &body;
                     code += &(self.emit_symbol(loc, var, Ctx::Assignment)? + " += m3__;\n");
+                    code += "  }\n";
                     code += "}\n";
                 } else if e3.is_some() {
                     code += &format!("for {var} in intrinsics::range({m1}, {m2}, {m3}) {{\n");

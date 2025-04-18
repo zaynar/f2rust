@@ -6,6 +6,8 @@ use std::path::Path;
 
 use anyhow::Context;
 use anyhow::Result;
+use relative_path::PathExt;
+
 use f2rust_compiler::ast;
 use f2rust_compiler::file::parse_free;
 use f2rust_compiler::globan;
@@ -59,7 +61,7 @@ fn main() -> Result<()> {
 }
 
 fn build(src: &Path, dst: &Path, filename: &str) -> Result<()> {
-    let parsed = parse_free(src)?;
+    let parsed = parse_free(&src.relative_to(".").unwrap(), Path::new("."))?;
 
     let ast = ast::Parser::new().parse(parsed)?;
 
