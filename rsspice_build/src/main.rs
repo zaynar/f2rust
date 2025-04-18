@@ -494,38 +494,44 @@ fn main() -> Result<()> {
     deps.dump();
     println!("Unassigned: {}", deps.deps.len() - deps.assigned.len());
 
-    let mut sources = HashSet::new();
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_aaaaphsh".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_ab".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_bodvar".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_ckcov".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_ckgp".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_et2utc".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_euler".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_m2q".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_moved".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_pxform".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_q2m".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_sclk".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_str2et".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_vector3".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_vectorg".to_owned())].clone());
-    sources.extend(deps.trans[&("tspice".to_owned(), "f_zzplat".to_owned())].clone());
-
-    sources.extend(deps.trans[&("testutil".to_owned(), "tsetup".to_owned())].clone());
-    sources.extend(deps.trans[&("testutil".to_owned(), "tclose".to_owned())].clone());
-
+    // let mut sources = HashSet::new();
+    // sources.extend(deps.trans[&("tspice".to_owned(), "f_aaaaphsh".to_owned())].clone());
+    // sources.extend(deps.trans[&("tspice".to_owned(), "f_ab".to_owned())].clone());
+    // sources.extend(deps.trans[&("tspice".to_owned(), "f_bodvar".to_owned())].clone());
+    // sources.extend(deps.trans[&("tspice".to_owned(), "f_ckcov".to_owned())].clone());
+    // sources.extend(deps.trans[&("tspice".to_owned(), "f_ckgp".to_owned())].clone());
+    // sources.extend(deps.trans[&("tspice".to_owned(), "f_et2utc".to_owned())].clone());
+    // sources.extend(deps.trans[&("tspice".to_owned(), "f_euler".to_owned())].clone());
+    // sources.extend(deps.trans[&("tspice".to_owned(), "f_gfuds".to_owned())].clone());
+    // sources.extend(deps.trans[&("tspice".to_owned(), "f_m2q".to_owned())].clone());
+    // sources.extend(deps.trans[&("tspice".to_owned(), "f_moved".to_owned())].clone());
+    // sources.extend(deps.trans[&("tspice".to_owned(), "f_pxform".to_owned())].clone());
+    // sources.extend(deps.trans[&("tspice".to_owned(), "f_q2m".to_owned())].clone());
+    // sources.extend(deps.trans[&("tspice".to_owned(), "f_sclk".to_owned())].clone());
+    // sources.extend(deps.trans[&("tspice".to_owned(), "f_str2et".to_owned())].clone());
+    // sources.extend(deps.trans[&("tspice".to_owned(), "f_term".to_owned())].clone());
+    // sources.extend(deps.trans[&("tspice".to_owned(), "f_vector3".to_owned())].clone());
+    // sources.extend(deps.trans[&("tspice".to_owned(), "f_vectorg".to_owned())].clone());
+    // sources.extend(deps.trans[&("tspice".to_owned(), "f_zzplat".to_owned())].clone());
+    //
+    // sources.extend(deps.trans[&("testutil".to_owned(), "tsetup".to_owned())].clone());
+    // sources.extend(deps.trans[&("testutil".to_owned(), "tclose".to_owned())].clone());
+    //
     // // Some old manual tests
-    sources.extend(deps.trans[&("spicelib".to_owned(), "ana".to_owned())].clone());
-    sources.extend(deps.trans[&("spicelib".to_owned(), "benum".to_owned())].clone());
+    // sources.extend(deps.trans[&("spicelib".to_owned(), "ana".to_owned())].clone());
+    // sources.extend(deps.trans[&("spicelib".to_owned(), "benum".to_owned())].clone());
     //
     // // EQUIVALENCE aliasing
-    sources.extend(deps.trans[&("support".to_owned(), "lbrem_1".to_owned())].clone());
+    // sources.extend(deps.trans[&("support".to_owned(), "lbrem_1".to_owned())].clone());
+    //
+    // sources.extend(deps.trans[&("testutil".to_owned(), "t_pck09".to_owned())].clone());
+    // sources.extend(deps.trans[&("spicelib".to_owned(), "zzgflong".to_owned())].clone());
+    //
+    // let mut sources = Vec::from_iter(sources.iter());
 
-    let mut sources = Vec::from_iter(sources.iter());
+    let mut sources = deps.assigned.keys().collect::<Vec<_>>();
+
     sources.sort();
-
-    // let sources = deps.assigned.keys().collect::<Vec<_>>();
 
     println!("Compiling {} files", sources.len());
 
@@ -648,6 +654,9 @@ fn main() -> Result<()> {
             writeln!(modrs, "#![allow(clippy::unnecessary_cast)]")?;
             writeln!(modrs, "#![allow(clippy::if_same_then_else)]")?;
             writeln!(modrs, "#![allow(clippy::needless_bool_assign)]")?;
+            writeln!(modrs, "#![allow(clippy::collapsible_if)]")?;
+            writeln!(modrs, "#![allow(clippy::too_many_arguments)]")?;
+            writeln!(modrs, "#![allow(clippy::type_complexity)]")?;
             writeln!(modrs)?;
 
             for d in &ds {
