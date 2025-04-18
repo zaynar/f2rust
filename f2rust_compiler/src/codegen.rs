@@ -547,6 +547,12 @@ impl CodeGenUnit<'_> {
             Ctx::ArgScalarAliased => match sym.rs_ty {
                 // This is the non-mutable copy of a variable that's also being passed as
                 // a mutable argument. If not pass-by-value, clone it
+                RustType::ActualCharArray
+                | RustType::DummyCharArray
+                | RustType::DummyCharArrayMut => {
+                    format!("&{name}.first().to_vec()")
+                }
+                RustType::SaveActualCharArray => format!("&save.{name}.first().to_vec()"),
                 RustType::CharVec => format!("&{name}.clone()"),
                 RustType::CharSliceRef => format!("&{name}.to_vec()"),
                 RustType::CharSliceMut => format!("&{name}.to_vec()"),
@@ -615,6 +621,12 @@ impl CodeGenUnit<'_> {
                 RustType::CharSliceRef => format!("&{name}.to_vec()"),
                 RustType::CharSliceMut => format!("&{name}.to_vec()"),
                 RustType::SaveChar => format!("&save.{name}.to_vec()"),
+                RustType::SaveActualArray => {
+                    format!("&save.{name}.as_slice().to_vec()")
+                }
+                RustType::SaveActualCharArray => {
+                    format!("&save.{name}.to_owned().to_arg()")
+                }
                 _ => self.emit_symbol(loc, name, Ctx::ArgArray)?,
             },
             Ctx::DummyArg => match sym.rs_ty {
@@ -911,7 +923,11 @@ impl CodeGenUnit<'_> {
                 let sym = self.syms.get(name)?;
                 let idx_ex = self.emit_index(loc, idx)?;
                 if matches!(sym.ast.base_type, DataType::Character) {
-                    format!("{s}.get({idx_ex})")
+                    if matches!(ctx, Ctx::ArgScalarMut) {
+                        format!("{s}.get_mut({idx_ex})")
+                    } else {
+                        format!("{s}.get({idx_ex})")
+                    }
                 } else {
                     format!("{s}[{idx_ex}]")
                 }
@@ -1108,7 +1124,11 @@ impl CodeGenUnit<'_> {
                                 format!("{s}.subarray_mut({idx_ex})")
                             }
                         } else if aliased.contains(name.as_str()) {
-                            format!("&{s}.subarray({idx_ex}).to_vec()")
+                            if darg.base_type == DataType::Character {
+                                format!("{s}.subarray({idx_ex}).to_owned().as_arg()")
+                            } else {
+                                format!("&{s}.subarray({idx_ex}).to_vec()")
+                            }
                         } else {
                             format!("{s}.subarray({idx_ex})")
                         }
@@ -1309,20 +1329,22 @@ impl CodeGenUnit<'_> {
         }
 
         for (name, args) in &aliased_arrays {
+            let obj = self.emit_symbol(loc, name, Ctx::ValueMut)?;
             let names: Vec<_> = args.iter().map(|(i, _e)| format!("arg{i}")).collect();
             let idxs: Vec<_> = args.iter().map(|(_i, e)| e.clone()).collect();
             prep_code += &format!(
-                "let [{}] = {name}.get_disjoint_mut([{}]).expect(\"mutable array elements passed to function must have disjoint indexes\");\n",
+                "let [{}] = {obj}.get_disjoint_mut([{}]).expect(\"mutable array elements passed to function must have disjoint indexes\");\n",
                 names.join(", "),
                 idxs.join(", ")
             );
         }
 
         for (name, args) in &aliased_slices {
+            let obj = self.emit_symbol(loc, name, Ctx::ValueMut)?;
             let names: Vec<_> = args.iter().map(|(i, _e)| format!("arg{i}")).collect();
             let idxs: Vec<_> = args.iter().map(|(_i, e)| e.clone()).collect();
             prep_code += &format!(
-                "let [{}] = {name}.get_disjoint_slices_mut([{}]).unwrap();\n",
+                "let [{}] = {obj}.get_disjoint_slices_mut([{}]).unwrap();\n",
                 names.join(", "),
                 idxs.join(", ")
             );

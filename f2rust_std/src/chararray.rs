@@ -29,6 +29,13 @@ impl<'a> CharArray<'a> {
             element_length,
         }
     }
+
+    pub fn to_owned(&self) -> OwnedCharArray {
+        OwnedCharArray {
+            data: self.data.to_vec(),
+            element_length: self.element_length,
+        }
+    }
 }
 
 /// Represents any mutable N-dimensional array of CHARACTER, in the Rust API.
@@ -43,6 +50,34 @@ impl<'a> CharArrayMut<'a> {
         Self {
             data,
             element_length,
+        }
+    }
+
+    pub fn to_owned(&self) -> OwnedCharArray {
+        OwnedCharArray {
+            data: self.data.to_vec(),
+            element_length: self.element_length,
+        }
+    }
+}
+
+pub struct OwnedCharArray {
+    data: Vec<u8>,
+    element_length: usize,
+}
+
+impl OwnedCharArray {
+    pub fn as_arg(&self) -> CharArray {
+        CharArray {
+            data: &self.data,
+            element_length: self.element_length,
+        }
+    }
+
+    pub fn as_arg_mut(&mut self) -> CharArrayMut {
+        CharArrayMut {
+            data: &mut self.data,
+            element_length: self.element_length,
         }
     }
 }
