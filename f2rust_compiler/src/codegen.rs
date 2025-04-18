@@ -1171,7 +1171,15 @@ impl CodeGenUnit<'_> {
                             bail!("{loc} cannot convert types: actual argument {name}={:?}, dummy argument {}={:?}", sym.ast.base_type, darg.name, darg.base_type);
                         }
 
-                        if darg.mutated {
+                        if !sym.ast.darg && matches!(sym.ast.base_type, DataType::Procedure {..}) {
+                            assert_eq!(sym.actual_procs.len(), 1);
+                            let proc = sym.actual_procs.first().unwrap();
+                            if proc.module == self.program.namespace {
+                                proc.local.clone()
+                            } else {
+                                format!("{}::{}", proc.module, proc.local)
+                            }
+                        } else if darg.mutated {
                             self.emit_symbol(loc, name, Ctx::ArgScalarMut)?
                         } else if aliased.contains(name.as_str()) {
                             self.emit_symbol(loc, name, Ctx::ArgScalarAliased)?
