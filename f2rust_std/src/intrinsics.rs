@@ -88,7 +88,17 @@ pub fn INDEX(a1: &[u8], a2: &[u8]) -> i32 {
     0
 }
 
-// TODO: ISHFT, ISHFTC
+pub fn ISHFT(i: i32, shift: i32) -> i32 {
+    // Fortran 90 requires SHIFT < BIT_SIZE(I), which matches Rust's
+    // overflow rules for shifts, so we don't need to handle that case specially
+    if shift > 0 {
+        i << shift
+    } else {
+        ((i as u32) >> -shift) as i32
+    }
+}
+
+// TODO: ISHFTC
 // TODO: IBITS
 // TODO: MVBITS
 // TODO: BTEST
