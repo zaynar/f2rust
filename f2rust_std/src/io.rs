@@ -227,6 +227,12 @@ impl FsRecFile {
     fn write_direct(&mut self, recnum: i32, record: &[u8]) -> Result<()> {
         let recl = self.recl;
 
+        assert!(
+            record.len() as i32 <= recl,
+            "record length {} exceeded RECL {recl}",
+            record.len()
+        );
+
         // Get the cached file size, or compute it
         let numrecs = match self.numrecs {
             Some(n) => n,
@@ -253,6 +259,9 @@ impl FsRecFile {
         let w = self.writer()?;
         w.seek(SeekFrom::Start((recnum - 1) as u64 * recl as u64))?;
         w.write_all(record)?;
+        if record.len() < recl as usize {
+            w.write_all(&vec![0u8; recl as usize - record.len()])?;
+        }
 
         self.numrecs = Some(numrecs.max(recnum as u64));
 

@@ -1,7 +1,7 @@
 use crate::format;
 use crate::format::{EditDescriptor, Nonrepeatable, ParsedFormatSpecIter, Repeatable};
 use crate::io::RecFileRef;
-use std::io::{Cursor, SeekFrom, Write};
+use std::io::{SeekFrom, Write};
 use std::iter::repeat_n;
 
 pub trait Writer {
@@ -294,7 +294,7 @@ impl<'a> FormattedWriter<'a> {
 
     fn write_all(&mut self, buf: &[u8]) {
         let pos = self.pos as usize;
-        let record = self.record.get_or_insert_with(|| Vec::new());
+        let record = self.record.get_or_insert_with(Vec::new);
 
         if pos == record.len() {
             record.extend(buf);
@@ -493,7 +493,7 @@ impl Writer for ListDirectedWriter<'_> {
 
 pub struct UnformattedWriter<'a> {
     file: RecFileRef<'a>,
-    record: Option<Cursor<Vec<u8>>>,
+    record: Option<Vec<u8>>,
     recnum: Option<i32>,
 }
 
@@ -508,9 +508,7 @@ impl<'a> UnformattedWriter<'a> {
 
     fn flush(&mut self) -> crate::Result<()> {
         if let Some(record) = self.record.take() {
-            self.file
-                .borrow_mut()
-                .write(self.recnum, &record.into_inner())?;
+            self.file.borrow_mut().write(self.recnum, &record)?;
 
             if let Some(recnum) = &mut self.recnum {
                 *recnum += 1;
@@ -519,8 +517,8 @@ impl<'a> UnformattedWriter<'a> {
         Ok(())
     }
 
-    fn record(&mut self) -> &mut Cursor<Vec<u8>> {
-        self.record.get_or_insert_with(|| Cursor::new(Vec::new()))
+    fn record(&mut self) -> &mut Vec<u8> {
+        self.record.get_or_insert_with(Vec::new)
     }
 }
 
