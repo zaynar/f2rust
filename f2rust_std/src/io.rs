@@ -99,8 +99,10 @@ impl FsRecFile {
         assert_eq!(
             recl.is_some(),
             !sequential,
-            "recl must be specified iff direct"
+            "RECL must be specified iff DIRECT"
         );
+
+        assert!(recl.unwrap_or(1) > 0, "RECL must be positive");
 
         Self {
             reader: Some(BufReader::new(file)),
@@ -211,6 +213,8 @@ impl FsRecFile {
 
     fn read_direct(&mut self, recnum: i32) -> Result<Vec<u8>> {
         let recl = self.recl;
+
+        assert!(recnum > 0, "REC must be positive");
 
         let r = self.reader()?;
         r.seek(SeekFrom::Start((recnum - 1) as u64 * recl as u64))?;
