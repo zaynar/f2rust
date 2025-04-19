@@ -4,10 +4,10 @@ mod tests {
     use approx::assert_abs_diff_eq;
     use f2rust_std::{ActualCharArray, CharArrayOpsMut, Context, Error, Result, fstr};
     use rsspice_spicelib::spicelib;
-    use tempfile::TempDir;
-    // use rsspice_support::support;
     use rsspice_testutil::testutil;
     use rsspice_tspice::tspice;
+    use std::io::Write;
+    use tempfile::TempDir;
 
     #[test]
     fn vadd() {
@@ -284,9 +284,15 @@ mod tests {
 
         let mut ok = false;
         testcase(&mut ok, &mut ctx)?;
-        assert!(ok);
 
         testutil::TCLOSE(&mut ctx)?;
+        drop(ctx);
+
+        if !ok {
+            std::io::stdout().write_all(&stdout)?;
+        }
+
+        assert!(ok, "test case failed");
 
         Ok(())
     }
