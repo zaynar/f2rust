@@ -127,7 +127,14 @@ fn format_f(n: f64, w: usize, d: usize, plus: Option<bool>) -> Vec<u8> {
     Vec::from_iter(repeat_n(b' ', w - out.len()).chain(out.into_bytes()))
 }
 
-fn format_e(n: f64, w: usize, d: usize, e: Option<usize>, plus: Option<bool>) -> Vec<u8> {
+fn format_ed(
+    echar: char,
+    n: f64,
+    w: usize,
+    d: usize,
+    e: Option<usize>,
+    plus: Option<bool>,
+) -> Vec<u8> {
     if e.is_some() {
         todo!("Ew.dEe not supported");
     }
@@ -145,13 +152,13 @@ fn format_e(n: f64, w: usize, d: usize, e: Option<usize>, plus: Option<bool>) ->
     let fraction = dec.mantissa.to_string();
 
     let exp = if dec.mantissa == 0 {
-        "E+00".to_owned()
+        format!("{echar}+00")
     } else {
         let e = dec.exponent + fraction.len() as i32;
         if e.abs() <= 99 {
-            format!("E{e:+03}")
+            format!("{echar}{e:+03}")
         } else {
-            format!("E{e:+04}")
+            format!("{echar}{e:+04}")
         }
     };
 
@@ -237,7 +244,10 @@ fn test_e() {
         (0.5e-90, "  0.5000E-90"),
         (0.5e-100, " 0.5000E-100"),
     ] {
-        assert_eq!(String::from_utf8_lossy(&format_e(n, 12, 4, None, None)), s);
+        assert_eq!(
+            String::from_utf8_lossy(&format_ed('E', n, 12, 4, None, None)),
+            s
+        );
     }
 
     for (n, w, d, s) in [
@@ -246,7 +256,10 @@ fn test_e() {
         (0.1, 6, 1, ".1E+00"),
         (0.1, 5, 1, "*****"),
     ] {
-        assert_eq!(String::from_utf8_lossy(&format_e(n, w, d, None, None)), s);
+        assert_eq!(
+            String::from_utf8_lossy(&format_ed('E', n, w, d, None, None)),
+            s
+        );
     }
 }
 
@@ -384,8 +397,8 @@ impl Writer for FormattedWriter<'_> {
     fn write_f64(&mut self, n: f64) -> crate::Result<()> {
         let str = match self.awaiting.take() {
             Some(Repeatable::F { w, d }) => format_f(n, w, d, self.plus),
-            Some(Repeatable::E { w, d, e }) => format_e(n, w, d, e, self.plus),
-            Some(Repeatable::D { .. }) => todo!(),
+            Some(Repeatable::E { w, d, e }) => format_ed('E', n, w, d, e, self.plus),
+            Some(Repeatable::D { w, d }) => format_ed('D', n, w, d, None, self.plus),
             Some(Repeatable::G { .. }) => todo!(),
             _ => panic!("write_f64: expecting {:?}", self.awaiting),
         };
