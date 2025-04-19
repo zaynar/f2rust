@@ -18,6 +18,8 @@ pub enum Error {
     CorruptedRecord,
     #[error("invalid record number: {0}")]
     InvalidRecordNumber(i32),
+    #[error("READ non-existent record number: {0}")]
+    NonExistentRecord(i32),
     #[error("OPEN of filename that is already open: {0:?}")]
     FileAlreadyOpen(std::path::PathBuf),
 }

@@ -17,7 +17,8 @@ pub fn capture_iostat<F: FnOnce() -> Result<()>>(f: F) -> Result<i32> {
         Err(Error::EndOfFile) => Ok(-1),
         Err(Error::IO(err)) => Ok(err.raw_os_error().unwrap_or(i32::MAX)),
         Err(Error::InvalidRecordNumber(..)) => Ok(10000),
-        Err(Error::FileAlreadyOpen(..)) => Ok(10001),
+        Err(Error::NonExistentRecord(..)) => Ok(10001),
+        Err(Error::FileAlreadyOpen(..)) => Ok(10002),
 
         // All other errors should be propagated
         Err(e) => Err(e),
@@ -228,8 +229,29 @@ impl FsRecFile {
         r.seek(SeekFrom::Start((recnum - 1) as u64 * recl as u64))?;
 
         let mut buf = vec![0; recl as usize];
-        r.read_exact(&mut buf)?;
-        Ok(buf)
+
+        // To match gfortran, as required by ZZASCII:
+        // If this record is entirely after EOF, return an error.
+        // If this record is interrupted by EOF, return the partial record;
+        // the rest of the buffer will have undefined contents (with no indication
+        // to the application of how much was actually read, which seems dangerous?)
+
+        let mut read = 0;
+        while read < buf.len() {
+            let n = r.read(&mut buf[read..])?;
+            read += n;
+
+            // Abort on EOF
+            if n == 0 {
+                break;
+            }
+        }
+
+        if read == 0 {
+            Err(Error::NonExistentRecord(recnum))
+        } else {
+            Ok(buf)
+        }
     }
 
     fn write_direct(&mut self, recnum: i32, record: &[u8]) -> Result<()> {
