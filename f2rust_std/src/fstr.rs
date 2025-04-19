@@ -67,6 +67,7 @@ pub fn gt(a1: &[u8], a2: &[u8]) -> bool {
     cmp(a1, a2).is_gt()
 }
 
+/// Returns inclusive lower bound, exclusive upper bound
 fn substr_bounds<R: RangeBounds<i32>>(range: R) -> (usize, Option<usize>) {
     let lower = match range.start_bound() {
         std::ops::Bound::Included(n) => *n,
@@ -76,29 +77,28 @@ fn substr_bounds<R: RangeBounds<i32>>(range: R) -> (usize, Option<usize>) {
     assert!(lower >= 1, "substring lower bound must be positive");
 
     let upper = match range.end_bound() {
-        std::ops::Bound::Included(n) => Some(*n),
-        std::ops::Bound::Excluded(n) => Some(*n - 1),
+        std::ops::Bound::Included(n) => Some(*n + 1),
+        std::ops::Bound::Excluded(n) => Some(*n),
         std::ops::Bound::Unbounded => None,
     };
 
-    if let Some(upper) = upper {
-        assert!(lower <= upper, "substring must have non-zero positive size");
-    }
+    // FORTRAN 77 requires 1 <= e1 <= e2 <= len, so the minimum string length is 1.
+    // Fortran 90 allows e1 > e2, giving a substring with length 0, so implement that
 
-    (lower as usize - 1, upper.map(|n| n as usize - 1))
+    (lower as usize - 1, upper.map(|n| n.max(lower) as usize - 1))
 }
 
 pub fn substr<R: RangeBounds<i32>>(a: &[u8], range: R) -> &[u8] {
     match substr_bounds(range) {
         (lower, None) => &a[lower..],
-        (lower, Some(upper)) => &a[lower..=upper],
+        (lower, Some(upper)) => &a[lower..upper],
     }
 }
 
 pub fn substr_mut<R: RangeBounds<i32>>(a: &mut [u8], range: R) -> &mut [u8] {
     match substr_bounds(range) {
         (lower, None) => &mut a[lower..],
-        (lower, Some(upper)) => &mut a[lower..=upper],
+        (lower, Some(upper)) => &mut a[lower..upper],
     }
 }
 
@@ -131,10 +131,15 @@ mod tests {
         assert!(fstr::ne(b"test", b" test"));
     }
 
+    #[allow(clippy::reversed_empty_ranges)]
     #[test]
     fn substr() {
         assert_eq!(fstr::substr(b"test", 2..=3), b"es");
         assert_eq!(fstr::substr(b"test", 2..), b"est");
+
+        assert_eq!(fstr::substr(b"test", 2..=2), b"e");
+        assert_eq!(fstr::substr(b"test", 2..=1), b"");
+        assert_eq!(fstr::substr(b"test", 2..=-10), b"");
     }
 
     #[test]
