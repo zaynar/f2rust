@@ -103,7 +103,8 @@ impl<'a> Context<'a> {
     }
 
     pub fn iargc(&self) -> i32 {
-        todo!();
+        // TODO: implement this properly
+        0
     }
 
     pub fn getarg(&self, _pos: i32, _value: &mut [u8]) {
