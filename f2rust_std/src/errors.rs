@@ -16,6 +16,10 @@ pub enum Error {
     EndOfFile,
     #[error("file record corrupted (head/tail length mismatch)")]
     CorruptedRecord,
+    #[error("invalid record number: {0}")]
+    InvalidRecordNumber(i32),
+    #[error("OPEN of filename that is already open: {0:?}")]
+    FileAlreadyOpen(std::path::PathBuf),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

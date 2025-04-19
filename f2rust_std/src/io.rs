@@ -12,8 +12,14 @@ use std::{cell::RefCell, rc::Rc};
 pub fn capture_iostat<F: FnOnce() -> Result<()>>(f: F) -> Result<i32> {
     match f() {
         Ok(()) => Ok(0),
-        Err(Error::IO(err)) => Ok(err.raw_os_error().unwrap_or(i32::MAX)),
+
+        // Recoverable IO-related errors should be captured by IOSTAT
         Err(Error::EndOfFile) => Ok(-1),
+        Err(Error::IO(err)) => Ok(err.raw_os_error().unwrap_or(i32::MAX)),
+        Err(Error::InvalidRecordNumber(..)) => Ok(10000),
+        Err(Error::FileAlreadyOpen(..)) => Ok(10001),
+
+        // All other errors should be propagated
         Err(e) => Err(e),
     }
 }
@@ -214,7 +220,9 @@ impl FsRecFile {
     fn read_direct(&mut self, recnum: i32) -> Result<Vec<u8>> {
         let recl = self.recl;
 
-        assert!(recnum > 0, "REC must be positive");
+        if recnum <= 0 {
+            return Err(Error::InvalidRecordNumber(recnum));
+        }
 
         let r = self.reader()?;
         r.seek(SeekFrom::Start((recnum - 1) as u64 * recl as u64))?;
@@ -561,7 +569,7 @@ impl<'a> FileManager<'a> {
             let path = self.path_from_fstr(file)?;
 
             if self.filenames.contains_key(&path) {
-                panic!("TODO: OPEN of already-open file {}", path.display());
+                return Err(Error::FileAlreadyOpen(path));
             }
 
             let f = std::fs::OpenOptions::new()
