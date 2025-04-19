@@ -16,9 +16,10 @@ pub fn capture_iostat<F: FnOnce() -> Result<()>>(f: F) -> Result<i32> {
         // Recoverable IO-related errors should be captured by IOSTAT
         Err(Error::EndOfFile) => Ok(-1),
         Err(Error::IO(err)) => Ok(err.raw_os_error().unwrap_or(i32::MAX)),
-        Err(Error::InvalidRecordNumber(..)) => Ok(10000),
-        Err(Error::NonExistentRecord(..)) => Ok(10001),
-        Err(Error::FileAlreadyOpen(..)) => Ok(10002),
+        Err(Error::UnitNotConnected(..)) => Ok(10000),
+        Err(Error::InvalidRecordNumber(..)) => Ok(10001),
+        Err(Error::NonExistentRecord(..)) => Ok(10002),
+        Err(Error::FileAlreadyOpen(..)) => Ok(10003),
 
         // All other errors should be propagated
         Err(e) => Err(e),
@@ -62,6 +63,12 @@ pub struct CloseSpecs<'a> {
     pub status: Option<&'a [u8]>,
 }
 
+// BACKSPACE, ENDFILE, REWIND
+#[derive(Default)]
+pub struct PosSpecs {
+    pub unit: Option<i32>,
+}
+
 // Sequential IO:
 // Records are arbitrary length, terminated with '\n' (if formatted),
 // or preceded  *and* followed with u32 LE length (if unformatted).
@@ -81,6 +88,9 @@ pub struct CloseSpecs<'a> {
 pub trait RecFile {
     fn read(&mut self, recnum: Option<i32>) -> Result<Vec<u8>>;
     fn write(&mut self, recnum: Option<i32>, record: &[u8]) -> Result<()>;
+    fn backspace(&mut self) -> Result<()>;
+    fn endfile(&mut self) -> Result<()>;
+    fn rewind(&mut self) -> Result<()>;
 }
 
 pub type RecFileRef<'a> = Rc<RefCell<dyn RecFile + 'a>>;
@@ -319,6 +329,26 @@ impl RecFile for FsRecFile {
             self.write_seq(record)
         }
     }
+
+    fn backspace(&mut self) -> Result<()> {
+        todo!("BACKSPACE not implemented");
+    }
+
+    fn endfile(&mut self) -> Result<()> {
+        panic!("ENDFILE not supported");
+    }
+
+    fn rewind(&mut self) -> Result<()> {
+        if let Some(w) = &mut self.writer {
+            w.seek(SeekFrom::Start(0))?;
+        }
+
+        if let Some(r) = &mut self.reader {
+            r.seek(SeekFrom::Start(0))?;
+        }
+
+        Ok(())
+    }
 }
 
 // RecFile wrapper for an arbitrary Write type (particularly stdout)
@@ -335,6 +365,18 @@ impl<W: Write> RecFile for WriterRecFile<W> {
         self.writer.write_all(record)?;
         self.writer.write_all(b"\n")?;
         Ok(())
+    }
+
+    fn backspace(&mut self) -> Result<()> {
+        todo!();
+    }
+
+    fn endfile(&mut self) -> Result<()> {
+        todo!();
+    }
+
+    fn rewind(&mut self) -> Result<()> {
+        todo!();
     }
 }
 
@@ -375,6 +417,18 @@ impl<'a> RecFile for InternalFile<'a> {
         } else {
             Err(Error::EndOfFile)
         }
+    }
+
+    fn backspace(&mut self) -> Result<()> {
+        panic!("cannot BACKSPACE internal files");
+    }
+
+    fn endfile(&mut self) -> Result<()> {
+        panic!("cannot ENDFILE internal files");
+    }
+
+    fn rewind(&mut self) -> Result<()> {
+        panic!("cannot REWIND internal files");
     }
 }
 
@@ -429,7 +483,7 @@ impl<'a> FileManager<'a> {
 
     pub fn io_unit(&mut self, unit: i32) -> Result<RecFileRef<'a>> {
         match self.units.get(&unit) {
-            None => panic!("TODO: report missing unit"),
+            None => Err(Error::UnitNotConnected(unit)),
             Some(u) => Ok(Rc::clone(&u.file)),
         }
     }
@@ -649,5 +703,32 @@ impl<'a> FileManager<'a> {
         }
 
         Ok(())
+    }
+
+    pub fn backspace(&mut self, specs: PosSpecs) -> Result<()> {
+        let unit = specs.unit.expect("BACKSPACE must have UNIT");
+
+        match self.units.get(&unit) {
+            None => Err(Error::UnitNotConnected(unit)),
+            Some(u) => Ok(u.file.borrow_mut().backspace()?),
+        }
+    }
+
+    pub fn endfile(&mut self, specs: PosSpecs) -> Result<()> {
+        let unit = specs.unit.expect("ENDFILE must have UNIT");
+
+        match self.units.get(&unit) {
+            None => Err(Error::UnitNotConnected(unit)),
+            Some(u) => Ok(u.file.borrow_mut().endfile()?),
+        }
+    }
+
+    pub fn rewind(&mut self, specs: PosSpecs) -> Result<()> {
+        let unit = specs.unit.expect("REWIND must have UNIT");
+
+        match self.units.get(&unit) {
+            None => Err(Error::UnitNotConnected(unit)),
+            Some(u) => Ok(u.file.borrow_mut().rewind()?),
+        }
     }
 }

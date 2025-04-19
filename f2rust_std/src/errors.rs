@@ -16,6 +16,8 @@ pub enum Error {
     EndOfFile,
     #[error("file record corrupted (head/tail length mismatch)")]
     CorruptedRecord,
+    #[error("IO unit {0} not connected")]
+    UnitNotConnected(i32),
     #[error("invalid record number: {0}")]
     InvalidRecordNumber(i32),
     #[error("READ non-existent record number: {0}")]

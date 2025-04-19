@@ -48,7 +48,7 @@ pub enum Specifier {
     Expression(Expression),
 }
 
-type Specifiers = IndexMap<String, Expression>;
+pub type Specifiers = IndexMap<String, Expression>;
 
 /// Executable statements
 #[derive(Debug, Clone)]

@@ -2348,16 +2348,15 @@ impl CodeGenUnit<'_> {
                 }
                 code += "}\n";
             }
-            Statement::Backspace(_) => {
-                // NOTE: UNIT must be external file identifier
-                code += "todo!(); /* BACKSPACE */\n";
+            Statement::Backspace(specs) => {
+                code +=
+                    &self.emit_io_statement(loc, specs, "BACKSPACE", "PosSpecs", "backspace")?;
             }
-            Statement::Endfile(_) => {
-                // Not used by SPICE
-                code += "todo!(); /* ENDFILE */\n";
+            Statement::Endfile(specs) => {
+                code += &self.emit_io_statement(loc, specs, "ENDFILE", "PosSpecs", "endfile")?;
             }
-            Statement::Rewind(_) => {
-                code += "todo!(); /* REWIND */\n";
+            Statement::Rewind(specs) => {
+                code += &self.emit_io_statement(loc, specs, "REWIND", "PosSpecs", "rewind")?;
             }
             Statement::Call(name, args) => {
                 code += &self
@@ -2388,6 +2387,55 @@ impl CodeGenUnit<'_> {
                 };
             }
         }
+
+        Ok(code)
+    }
+
+    // TODO: refactor this to support the more complex IO commands
+    fn emit_io_statement(
+        &self,
+        loc: &SourceLoc,
+        specs: &ast::Specifiers,
+        statement: &str,
+        specs_name: &str,
+        method: &str,
+    ) -> Result<String> {
+        let mut code = String::new();
+
+        code += "{\n";
+        code += "  use f2rust_std::io;\n\n";
+        code += &format!("  let specs = io::{specs_name} {{\n");
+
+        match specs.get("UNIT") {
+            None => bail!("{loc} {statement} must have UNIT"),
+            Some(e) => {
+                if e.resolve_type(loc, &self.syms)? != DataType::Integer {
+                    bail!("{loc} {statement} must not use internal files");
+                }
+            }
+        }
+
+        for (name, e) in specs {
+            match name.as_str() {
+                "IOSTAT" => (),
+                "UNIT" => {
+                    let e = self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?;
+                    code += &format!("    {}: Some({e}),\n", name.to_ascii_lowercase());
+                }
+                _ => bail!("{loc} {statement} has invalid specifier {name}"),
+            }
+        }
+
+        code += "    ..Default::default()\n";
+        code += "  };\n";
+
+        if let Some(iostat) = specs.get("IOSTAT") {
+            let e = self.emit_expression_ctx(loc, iostat, Ctx::Assignment)?;
+            code += &format!("  {e} = io::capture_iostat(|| ctx.{method}(specs))?;\n");
+        } else {
+            code += &format!("  ctx.{method}(specs)?;\n");
+        }
+        code += "}\n";
 
         Ok(code)
     }

@@ -137,6 +137,18 @@ impl<'a> Context<'a> {
     pub fn close(&mut self, specs: io::CloseSpecs) -> Result<()> {
         self.file_manager.close(specs)
     }
+
+    pub fn backspace(&mut self, specs: io::PosSpecs) -> Result<()> {
+        self.file_manager.backspace(specs)
+    }
+
+    pub fn endfile(&mut self, specs: io::PosSpecs) -> Result<()> {
+        self.file_manager.endfile(specs)
+    }
+
+    pub fn rewind(&mut self, specs: io::PosSpecs) -> Result<()> {
+        self.file_manager.rewind(specs)
+    }
 }
 
 impl Default for Context<'_> {
