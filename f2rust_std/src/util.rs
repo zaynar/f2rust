@@ -2,6 +2,7 @@
 
 use std::ops::RangeBounds;
 
+/// Returns the inclusive bounds
 pub(crate) fn parse_bounds<B: RangeBounds<i32>>(b: B) -> (i32, i32) {
     let lower = match b.start_bound() {
         std::ops::Bound::Included(n) => *n,
@@ -13,10 +14,10 @@ pub(crate) fn parse_bounds<B: RangeBounds<i32>>(b: B) -> (i32, i32) {
         std::ops::Bound::Excluded(n) => *n - 1,
         std::ops::Bound::Unbounded => i32::MAX,
     };
-    debug_assert!(
-        upper >= lower,
-        "upper bound {upper} must be >= lower bound {lower}"
-    );
+
+    // FORTRAN 77 says upper must be >= lower.
+    // But Fortran 90 says upper < lower is allowed, and will result
+    // in an array of zero size, so we allow that here
 
     (lower, upper)
 }

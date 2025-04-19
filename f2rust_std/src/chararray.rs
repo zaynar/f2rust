@@ -113,7 +113,7 @@ macro_rules! define_array {
                 let bounds = [$(parse_bounds($bn)),+];
                 let size = bounds
                     .iter()
-                    .map(|(lower, upper)| upper - lower + 1)
+                    .map(|(lower, upper)| (upper - lower + 1).max(0))
                     .product::<i32>();
 
                 let len = element_length as usize;
@@ -147,7 +147,7 @@ macro_rules! define_array {
                 } else {
                     let size = bounds
                         .iter()
-                        .map(|(lower, upper)| upper - lower + 1)
+                        .map(|(lower, upper)| (upper - lower + 1).max(0))
                         .product::<i32>();
                     Self {
                         data: &r.data[0..len * size as usize],
@@ -179,7 +179,7 @@ macro_rules! define_array {
                 } else {
                     let size = bounds
                         .iter()
-                        .map(|(lower, upper)| upper - lower + 1)
+                        .map(|(lower, upper)| (upper - lower + 1).max(0))
                         .product::<i32>();
                     Self {
                         data: &mut r.data[0..len * size as usize],
