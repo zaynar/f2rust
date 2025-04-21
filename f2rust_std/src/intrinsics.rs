@@ -2,30 +2,37 @@
 
 // TODO: implement all the rest of the intrinsics
 
+#[inline]
 pub fn ICHAR(a: &[u8]) -> i32 {
     a[0] as i32
 }
 
+#[inline]
 pub fn CHAR(a: i32) -> [u8; 1] {
     [a as u8]
 }
 
+#[inline]
 pub fn NINT(a: f32) -> i32 {
     a.round() as i32
 }
 
+#[inline]
 pub fn IDNINT(a: f64) -> i32 {
     a.round() as i32
 }
 
+#[inline]
 pub fn MOD(a1: i32, a2: i32) -> i32 {
     a1 % a2
 }
 
+#[inline]
 pub fn AMOD(a1: f32, a2: f32) -> f32 {
     a1 % a2
 }
 
+#[inline]
 pub fn DMOD(a1: f64, a2: f64) -> f64 {
     a1 % a2
 }
@@ -33,46 +40,57 @@ pub fn DMOD(a1: f64, a2: f64) -> f64 {
 // TODO: IDIM, DIM, DDIM
 // TODO: DPROD
 
+#[inline]
 pub fn MAX0(n: &[i32]) -> i32 {
     n.iter().copied().reduce(i32::max).unwrap()
 }
 
+#[inline]
 pub fn AMAX1(n: &[f32]) -> f32 {
     n.iter().copied().reduce(f32::max).unwrap()
 }
 
+#[inline]
 pub fn DMAX1(n: &[f64]) -> f64 {
     n.iter().copied().reduce(f64::max).unwrap()
 }
 
+#[inline]
 pub fn AMAX0(n: &[i32]) -> f32 {
     n.iter().copied().reduce(i32::max).unwrap() as f32
 }
 
+#[inline]
 pub fn MAX1(n: &[f32]) -> i32 {
     n.iter().copied().reduce(f32::max).unwrap() as i32
 }
 
+#[inline]
 pub fn MIN0(n: &[i32]) -> i32 {
     n.iter().copied().reduce(i32::min).unwrap()
 }
 
+#[inline]
 pub fn AMIN1(n: &[f32]) -> f32 {
     n.iter().copied().reduce(f32::min).unwrap()
 }
 
+#[inline]
 pub fn DMIN1(n: &[f64]) -> f64 {
     n.iter().copied().reduce(f64::min).unwrap()
 }
 
+#[inline]
 pub fn AMIN0(n: &[i32]) -> f32 {
     n.iter().copied().reduce(i32::min).unwrap() as f32
 }
 
+#[inline]
 pub fn MIN1(n: &[f32]) -> i32 {
     n.iter().copied().reduce(f32::min).unwrap() as i32
 }
 
+#[inline]
 pub fn LEN(a: &[u8]) -> i32 {
     a.len() as i32
 }
@@ -88,6 +106,7 @@ pub fn INDEX(a1: &[u8], a2: &[u8]) -> i32 {
     0
 }
 
+#[inline]
 pub fn ISHFT(i: i32, shift: i32) -> i32 {
     // Fortran 90 requires SHIFT < BIT_SIZE(I), which matches Rust's
     // overflow rules for shifts, so we don't need to handle that case specially
@@ -105,6 +124,7 @@ pub fn ISHFT(i: i32, shift: i32) -> i32 {
 // TODO: IBSET, IBCLR
 
 /// Implement the `**` operator for (possibly negative) integers
+#[inline]
 pub const fn pow(i1: i32, i2: i32) -> i32 {
     if i2 < 0 {
         1 / i1.pow(i2.unsigned_abs())
