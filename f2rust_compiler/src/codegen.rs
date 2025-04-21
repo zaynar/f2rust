@@ -272,9 +272,9 @@ impl Expression {
                 if matches!(ty, DataType::Unknown) {
                     let first_arg = args
                         .first()
-                        .expect("intrinsic call must have some arguments")
-                        .resolve_type(loc, syms)?;
-                    if let Some((ret_ty, _)) = intrinsics::call_info(name, Some(first_arg)) {
+                        .map(|a| a.resolve_type(loc, syms))
+                        .transpose()?;
+                    if let Some((ret_ty, _)) = intrinsics::call_info(name, first_arg) {
                         ret_ty
                     } else if intrinsics::exists(name) {
                         bail!("{loc} calling intrinsic {name} with incorrect argument type");
@@ -1124,7 +1124,7 @@ impl CodeGenUnit<'_> {
                 // Function is expecting an array
                 match arg {
                     Expression::Function(name, ..) if intrinsics::returns_array(name) => {
-                        // Hack for ARRAY_CLONE
+                        // Hack for F2RUST_ARRAY_CLONE
                         self.emit_expression(loc, arg)?
                     }
                     Expression::Unary(..) |
@@ -1747,7 +1747,9 @@ impl CodeGenUnit<'_> {
                                 "let {mut_label}{name} = {vec_label}[b' '; {expr} as usize];\n"
                             );
                         } else {
-                            bail!("{loc} cannot evaluate CHARACTER length as integer constant expression");
+                            bail!(
+                                "{loc} cannot evaluate CHARACTER length as integer constant expression"
+                            );
                         }
                     }
                 }

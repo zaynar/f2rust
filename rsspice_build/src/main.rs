@@ -367,11 +367,11 @@ impl GrammarPatcher {
 
                 let new_args = vec![
                     grammar::Expression::ArrayElementOrFunction(
-                        "ARRAY_SUBSCRIPT_VALUE".to_owned(),
+                        "F2RUST_ARRAY_SUBSCRIPT_VALUE".to_owned(),
                         vec![args[0].clone()],
                     ),
                     grammar::Expression::ArrayElementOrFunction(
-                        "ARRAY_SUBSCRIPT_VALUE".to_owned(),
+                        "F2RUST_ARRAY_SUBSCRIPT_VALUE".to_owned(),
                         vec![args[1].clone()],
                     ),
                     grammar::Expression::Symbol(s0.to_owned()),

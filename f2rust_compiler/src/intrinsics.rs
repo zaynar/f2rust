@@ -162,8 +162,10 @@ const INTRINSICS: &[IntrinsicDef] = &[
     ("SYSTEM", "", DataType::Character, DataType::Void, CallSyntax::Func("ctx.system")),
 
     // Hacks:
-    ("", "ARRAY_SUBSCRIPT_VALUE", DataType::Unknown, DataType::Integer, CallSyntax::ArraySubscriptValue),
-    ("", "ARRAY_CLONE", DataType::Unknown, DataType::Double, CallSyntax::ArrayClone),
+    ("", "F2RUST_ARRAY_SUBSCRIPT_VALUE", DataType::Unknown, DataType::Integer, CallSyntax::ArraySubscriptValue),
+    ("", "F2RUST_ARRAY_CLONE", DataType::Unknown, DataType::Double, CallSyntax::ArrayClone),
+    ("", "F2RUST_GET_FAILED", DataType::Unknown, DataType::Logical, CallSyntax::Func("ctx.get_spice_failed")),
+    ("", "F2RUST_SET_FAILED", DataType::Logical, DataType::Unknown, CallSyntax::Func("ctx.set_spice_failed")),
 ];
 
 fn find_intrinsic(name: &str, first_arg: Option<DataType>) -> Option<&'static IntrinsicDef> {
@@ -203,7 +205,14 @@ pub fn arg_is_mutated(name: &str, idx: usize) -> bool {
 pub fn requires_ctx(name: &str) -> bool {
     matches!(
         name,
-        "DATE_AND_TIME" | "EXIT" | "GETARG" | "GETENV" | "IARGC" | "SYSTEM"
+        "DATE_AND_TIME"
+            | "EXIT"
+            | "GETARG"
+            | "GETENV"
+            | "IARGC"
+            | "SYSTEM"
+            | "F2RUST_GET_FAILED"
+            | "F2RUST_SET_FAILED"
     )
 }
 
@@ -212,7 +221,7 @@ pub fn returns_result(name: &str) -> bool {
 }
 
 pub fn returns_array(name: &str) -> bool {
-    matches!(name, "ARRAY_CLONE")
+    matches!(name, "F2RUST_ARRAY_CLONE")
 }
 
 pub fn character_len(name: &str) -> Option<ast::LenSpecification> {

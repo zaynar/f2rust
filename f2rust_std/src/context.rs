@@ -33,6 +33,10 @@ pub struct Context<'a> {
     data: HashMap<TypeId, Rc<dyn Any>>,
 
     file_manager: Box<dyn FileManager<'a> + 'a>,
+
+    // HACK: See override/seterr.f. This is an inelegant optimisation for
+    // SPICE's very-frequently-called FAILED() function
+    spice_failed: bool,
 }
 
 impl<'a> Context<'a> {
@@ -40,6 +44,7 @@ impl<'a> Context<'a> {
         Self {
             data: HashMap::new(),
             file_manager: Box::new(FsFileManager::new()),
+            spice_failed: false,
         }
     }
 
@@ -153,6 +158,14 @@ impl<'a> Context<'a> {
 
     pub fn rewind(&mut self, specs: io::PosSpecs) -> Result<()> {
         self.file_manager.rewind(specs)
+    }
+
+    pub fn get_spice_failed(&self) -> bool {
+        self.spice_failed
+    }
+
+    pub fn set_spice_failed(&mut self, value: bool) {
+        self.spice_failed = value;
     }
 }
 
