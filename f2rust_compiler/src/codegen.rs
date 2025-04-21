@@ -306,6 +306,58 @@ impl Expression {
         })
     }
 
+    fn eval_constant(&self, syms: &SymbolTable) -> Result<Option<i32>> {
+        Ok(match self {
+            Expression::Unary(op, e2) => {
+                if let Some(e2) = e2.eval_constant(syms)? {
+                    match op {
+                        UnaryOp::Negate => Some(-e2),
+                        UnaryOp::Not => None,
+                        UnaryOp::Paren => Some(e2),
+                    }
+                } else {
+                    None
+                }
+            }
+            Expression::Binary(op, e1, e2) => {
+                if let (Some(e1), Some(e2)) = (e1.eval_constant(syms)?, e2.eval_constant(syms)?) {
+                    match op {
+                        BinaryOp::Add => Some(e1 + e2),
+                        BinaryOp::Sub => Some(e1 - e2),
+                        BinaryOp::Div => Some(e1 / e2),
+                        BinaryOp::Mul => Some(e1 * e2),
+                        BinaryOp::Pow => {
+                            if e2 < 0 {
+                                Some(1 / e1.pow(e2.unsigned_abs()))
+                            } else {
+                                Some(e1.pow(e2 as u32))
+                            }
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            }
+            Expression::Symbol(s) => {
+                if let Some(p) = &syms.get(s)?.ast.parameter {
+                    p.eval_constant(syms)?
+                } else {
+                    None
+                }
+            }
+            Expression::Constant(Constant::Integer(n)) => Some(*n),
+            Expression::Constant(..) => None,
+
+            Expression::ArrayElement(..)
+            | Expression::Function(..)
+            | Expression::Substring(..)
+            | Expression::SubstringArrayElement(..)
+            | Expression::ImpliedDo { .. }
+            | Expression::ImpliedDoVar(..) => None,
+        })
+    }
+
     fn uses_symbol(&self, s: &str) -> bool {
         struct SymVisitor<'a> {
             s: &'a str,
@@ -1532,7 +1584,7 @@ impl CodeGenUnit<'_> {
             } else if sym.ast.called {
                 // Skip procedures
             } else {
-                code += &self.emit_initialiser(&sym.ast.loc, name, sym, sym.mutated)?;
+                code += &self.emit_initialiser(&sym.ast.loc, name, sym, &self.syms, sym.mutated)?;
             }
         }
 
@@ -1565,6 +1617,7 @@ impl CodeGenUnit<'_> {
         loc: &SourceLoc,
         name: &String,
         sym: &Symbol,
+        syms: &SymbolTable,
         is_mut: bool,
     ) -> Result<String> {
         let mut code = String::new();
@@ -1662,6 +1715,8 @@ impl CodeGenUnit<'_> {
                     }
                 }
             } else {
+                let stack_alloc_threshold = 2048;
+
                 match len {
                     LenSpecification::Unspecified => bail!("unspecified character length"),
                     LenSpecification::Asterisk => {
@@ -1669,14 +1724,31 @@ impl CodeGenUnit<'_> {
                     }
 
                     LenSpecification::Integer(n) => {
-                        // TODO: maybe we should stack-allocate instead of Vec, for performance
                         let mut_label = if is_mut { "mut " } else { "" };
-                        code += &format!("let {mut_label}{name} = vec![b' '; {n}];\n");
+                        let vec_label = if *n <= stack_alloc_threshold && !sym.ast.save {
+                            ""
+                        } else {
+                            "vec!"
+                        };
+
+                        code += &format!("let {mut_label}{name} = {vec_label}[b' '; {n}];\n");
                     }
                     LenSpecification::IntConstantExpr(e) => {
-                        let e = self.emit_expression(loc, e)?;
-                        let mut_label = if is_mut { "mut " } else { "" };
-                        code += &format!("let {mut_label}{name} = vec![b' '; {e} as usize];\n");
+                        if let Some(n) = e.eval_constant(syms)? {
+                            let expr = self.emit_expression(loc, e)?;
+                            let mut_label = if is_mut { "mut " } else { "" };
+                            let vec_label = if n <= stack_alloc_threshold && !sym.ast.save {
+                                ""
+                            } else {
+                                "vec!"
+                            };
+
+                            code += &format!(
+                                "let {mut_label}{name} = {vec_label}[b' '; {expr} as usize];\n"
+                            );
+                        } else {
+                            bail!("{loc} cannot evaluate CHARACTER length as integer constant expression");
+                        }
                     }
                 }
             }
@@ -2023,7 +2095,7 @@ impl CodeGenUnit<'_> {
                 e3,
                 body,
             } => {
-                let var_sym = self.syms.get(var).unwrap();
+                let var_sym = self.syms.get(var)?;
 
                 assert!(var_sym.ast.do_var);
                 if var_sym.ast.base_type != DataType::Integer {
@@ -2516,7 +2588,7 @@ impl CodeGenUnit<'_> {
         code += "impl SaveInit for SaveVars {\n";
         code += "  fn new() -> Self {\n";
         for (name, sym) in &saved {
-            code += &self.emit_initialiser(&sym.ast.loc, name, sym, true)?;
+            code += &self.emit_initialiser(&sym.ast.loc, name, sym, &self.syms, true)?;
         }
         code += "\n";
 
@@ -2663,7 +2735,13 @@ impl<'a> CodeGen<'a> {
 
             for name in &darg_names {
                 let sym = codegen.syms.get(name)?;
-                code += &codegen.emit_initialiser(loc, name, &sym, false)?;
+                code += &codegen.emit_initialiser(
+                    loc,
+                    name,
+                    &sym,
+                    &statement_function.codegen.syms,
+                    false,
+                )?;
             }
 
             code += &statement_function
