@@ -22,7 +22,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::io::{FileManager, RecFileRef};
+use crate::io::{FileManager, FsFileManager, RecFileRef, VirtualFileManager};
 use crate::{Error, Result, fstr, io};
 
 pub trait SaveInit {
@@ -32,14 +32,14 @@ pub trait SaveInit {
 pub struct Context<'a> {
     data: HashMap<TypeId, Rc<dyn Any>>,
 
-    file_manager: FileManager<'a>,
+    file_manager: Box<dyn FileManager<'a> + 'a>,
 }
 
 impl<'a> Context<'a> {
     pub fn new() -> Self {
         Self {
             data: HashMap::new(),
-            file_manager: FileManager::new(),
+            file_manager: Box::new(FsFileManager::new()),
         }
     }
 
@@ -52,12 +52,16 @@ impl<'a> Context<'a> {
         Rc::downcast::<RefCell<T>>(Rc::clone(obj)).unwrap()
     }
 
-    pub fn set_stdout<W: std::io::Write + 'a>(&mut self, stdout: W) {
-        self.file_manager.set_stdout(stdout);
+    pub fn capture_stdout(&mut self, stdout: &'a mut Vec<u8>) {
+        self.file_manager.capture_stdout(stdout);
     }
 
     pub fn set_cwd<P: AsRef<std::path::Path>>(&mut self, path: P) {
         self.file_manager.set_cwd(path.as_ref().to_path_buf());
+    }
+
+    pub fn enable_vfs(&mut self) {
+        self.file_manager = Box::new(VirtualFileManager::new());
     }
 
     /// STOP statement
@@ -116,15 +120,15 @@ impl<'a> Context<'a> {
     }
 
     pub fn default_read_unit(&mut self) -> Result<RecFileRef<'a>> {
-        self.file_manager.io_unit(5)
+        Ok(Rc::clone(self.file_manager.unit(5)?))
     }
 
     pub fn default_write_unit(&mut self) -> Result<RecFileRef<'a>> {
-        self.file_manager.io_unit(6)
+        Ok(Rc::clone(self.file_manager.unit(6)?))
     }
 
     pub fn io_unit(&mut self, unit: i32) -> Result<RecFileRef<'a>> {
-        self.file_manager.io_unit(unit)
+        Ok(Rc::clone(self.file_manager.unit(unit)?))
     }
 
     pub fn inquire(&mut self, specs: io::InquireSpecs) -> Result<()> {

@@ -1762,6 +1762,7 @@ impl CodeGenUnit<'_> {
                 _ => bail!("invalid type in DATA clist"),
             };
 
+            // TODO: could generate more efficient code here
             if let Some(reps) = reps {
                 let reps_ex = self.emit_expression(loc, reps)?;
                 if needs_into_iter {

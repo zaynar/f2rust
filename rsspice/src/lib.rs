@@ -6,8 +6,9 @@ mod tests {
     use rsspice_spicelib::spicelib;
     use rsspice_testutil::testutil;
     use rsspice_tspice::tspice;
-    use std::io::Write;
     use tempfile::TempDir;
+
+    const USE_VIRTUAL_FILESYSTEM: bool = true;
 
     #[test]
     fn vadd() {
@@ -188,7 +189,7 @@ mod tests {
     fn chk() -> Result<()> {
         let mut stdout = vec![];
         let mut ctx = Context::new();
-        ctx.set_stdout(&mut stdout);
+        ctx.capture_stdout(&mut stdout);
 
         spicelib::CHKIN(b"TEST", &mut ctx)?;
         spicelib::SETMSG(b"Test message.", &mut ctx);
@@ -256,22 +257,26 @@ mod tests {
     where
         F: FnOnce(&mut bool, &mut Context) -> Result<()>,
     {
-        let mut stdout = vec![];
         let mut ctx = Context::new();
-        ctx.set_stdout(&mut stdout);
-        let tmp = TempDir::with_prefix("rsspice-")?;
 
-        ctx.set_cwd(tmp.path());
+        let tmp; // declare in outer scope, so it's dropped after the test completes
 
-        if verbose {
-            println!("Temp path: {}", tmp.path().display());
+        if USE_VIRTUAL_FILESYSTEM {
+            ctx.enable_vfs();
+        } else {
+            tmp = TempDir::with_prefix("rsspice-")?;
+            ctx.set_cwd(tmp.path());
 
-            // Prevent TempDir deleting the path
-            let _ = tmp.into_path();
+            if verbose {
+                println!("Temp path: {}", tmp.path().display());
+
+                // Prevent TempDir deleting the path
+                let _ = tmp.into_path();
+            }
         }
 
         let mut cmline = if verbose {
-            b"-v".to_vec()
+            b"-C".to_vec()
         } else {
             b" ".to_vec()
         };
@@ -287,10 +292,6 @@ mod tests {
 
         testutil::TCLOSE(&mut ctx)?;
         drop(ctx);
-
-        if !ok {
-            std::io::stdout().write_all(&stdout)?;
-        }
 
         assert!(ok, "test case failed");
 

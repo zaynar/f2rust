@@ -22,8 +22,13 @@ pub enum Error {
     InvalidRecordNumber(i32),
     #[error("READ non-existent record number: {0}")]
     NonExistentRecord(i32),
-    #[error("OPEN of filename that is already open: {0:?}")]
-    FileAlreadyOpen(std::path::PathBuf),
+    #[error("OPEN of filename that is already open: {0}")]
+    FileAlreadyOpen(String),
+    #[error("OPEN STATUS=NEW of filename that already exists: {0}")]
+    FileAlreadyExists(String),
+    #[error("OPEN STATUS=OLD of filename that does not exist: {0}")]
+    FileNotFound(String),
+    // NOTE: New IO errors need to be added to capture_iostat
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
