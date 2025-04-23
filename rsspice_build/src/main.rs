@@ -26,6 +26,9 @@ use f2rust_compiler::{
     grammar,
 };
 
+// This reduces build times by ~50% (and even better if there are lots of build errors)
+const SPLIT_SPLICELIB_CRATES: bool = true;
+
 fn safe_identifier(s: &str) -> String {
     // From https://doc.rust-lang.org/reference/keywords.html, 2024 edition
     const KEYWORDS: &[&str] = &[
@@ -119,38 +122,43 @@ impl DepGraph {
         self.toposort_files
             .sort_by_key(|f| (-(self.transparents[f].len() as i32), f.clone()));
 
-        self.assign_files("spicelib-1a", "spicelib", |n| n == "pool");
-        self.assign_rest("spicelib-1b", "spicelib", &[], None);
-        self.assign_files("spicelib-2a", "spicelib", |n| n == "spkgeo");
-        self.assign_rest(
-            "spicelib-2b",
-            "spicelib",
-            &["spicelib-1a", "spicelib-1b"],
-            None,
-        );
-        self.assign_files("spicelib-3a", "spicelib", |n| {
-            n == "keeper" || n.starts_with("ek") || n.starts_with("zzek")
-        });
-        self.assign_rest(
-            "spicelib-3b",
-            "spicelib",
-            &["spicelib-1a", "spicelib-1b", "spicelib-2a", "spicelib-2b"],
-            None,
-        );
+        if SPLIT_SPLICELIB_CRATES {
+            self.assign_files("spicelib-1a", "spicelib", |n| n == "pool");
+            self.assign_rest("spicelib-1b", "spicelib", &[], None);
+            self.assign_files("spicelib-2a", "spicelib", |n| n == "spkgeo");
+            self.assign_rest(
+                "spicelib-2b",
+                "spicelib",
+                &["spicelib-1a", "spicelib-1b"],
+                None,
+            );
+            self.assign_files("spicelib-3a", "spicelib", |n| {
+                n == "keeper" || n.starts_with("ek") || n.starts_with("zzek")
+            });
+            self.assign_rest(
+                "spicelib-3b",
+                "spicelib",
+                &["spicelib-1a", "spicelib-1b", "spicelib-2a", "spicelib-2b"],
+                None,
+            );
 
-        // for f in &self.toposort_files {
-        //     println!(
-        //         "{} {} {:?}",
-        //         self.transparents[f].len(),
-        //         self.trans[f]
-        //             .iter()
-        //             .filter(|d| !self.assigned.contains_key(d))
-        //             .count(),
-        //         f
-        //     );
-        // }
+            // for f in &self.toposort_files {
+            //     println!(
+            //         "{} {} {:?}",
+            //         self.transparents[f].len(),
+            //         self.trans[f]
+            //             .iter()
+            //             .filter(|d| !self.assigned.contains_key(d))
+            //             .count(),
+            //         f
+            //     );
+            // }
 
-        self.assign_all("spicelib-4", "spicelib");
+            self.assign_all("spicelib-4", "spicelib");
+        } else {
+            self.assign_all("spicelib", "spicelib");
+        }
+
         self.assign_all("support", "support");
         self.assign_all("testutil", "testutil");
 
@@ -163,22 +171,31 @@ impl DepGraph {
         self.toposort_files
             .sort_by_key(|f| (-(self.transparents[f].len() as i32), f.clone()));
 
-        let deps = &[
-            "spicelib-1a",
-            "spicelib-1b",
-            "spicelib-2a",
-            "spicelib-2b",
-            "spicelib-3a",
-            "spicelib-3b",
-            "spicelib-4",
-            "support",
-            "testutil",
-        ];
-        self.assign_rest("tspice-1a", "tspice", deps, Some(100));
-        self.assign_rest("tspice-1b", "tspice", deps, Some(100));
-        self.assign_rest("tspice-1c", "tspice", deps, Some(100));
-        self.assign_rest("tspice-1d", "tspice", deps, Some(1000));
-        self.assign_all("tspice-2", "tspice");
+        if SPLIT_SPLICELIB_CRATES {
+            let deps = &[
+                "spicelib-1a",
+                "spicelib-1b",
+                "spicelib-2a",
+                "spicelib-2b",
+                "spicelib-3a",
+                "spicelib-3b",
+                "spicelib-4",
+                "support",
+                "testutil",
+            ];
+            self.assign_rest("tspice-1a", "tspice", deps, Some(100));
+            self.assign_rest("tspice-1b", "tspice", deps, Some(100));
+            self.assign_rest("tspice-1c", "tspice", deps, Some(100));
+            self.assign_rest("tspice-1d", "tspice", deps, Some(1000));
+            self.assign_all("tspice-2", "tspice");
+        } else {
+            let deps = &["spicelib", "support", "testutil"];
+            self.assign_rest("tspice-1a", "tspice", deps, Some(100));
+            self.assign_rest("tspice-1b", "tspice", deps, Some(100));
+            self.assign_rest("tspice-1c", "tspice", deps, Some(100));
+            self.assign_rest("tspice-1d", "tspice", deps, Some(1000));
+            self.assign_all("tspice-2", "tspice");
+        }
 
         for ns in HashSet::<String>::from_iter(self.deps.keys().map(|d| d.0.clone())) {
             self.assign_all("programs", &ns);
@@ -583,42 +600,49 @@ fn main() -> Result<()> {
 
     println!("Compiling {} files", sources.len());
 
-    for (name, ds) in [
-        ("spicelib-1a", vec![]),
-        ("spicelib-1b", vec![]),
-        ("spicelib-2a", vec!["spicelib-1a", "spicelib-1b"]),
-        ("spicelib-2b", vec!["spicelib-1a", "spicelib-1b"]),
-        (
-            "spicelib-3a",
-            vec!["spicelib-1a", "spicelib-1b", "spicelib-2a", "spicelib-2b"],
-        ),
-        (
-            "spicelib-3b",
-            vec!["spicelib-1a", "spicelib-1b", "spicelib-2a", "spicelib-2b"],
-        ),
-        (
-            "spicelib-4",
-            vec![
-                "spicelib-1a",
-                "spicelib-1b",
-                "spicelib-2a",
-                "spicelib-2b",
+    let mut crates = Vec::new();
+    if SPLIT_SPLICELIB_CRATES {
+        crates.extend([
+            ("spicelib-1a", vec![]),
+            ("spicelib-1b", vec![]),
+            ("spicelib-2a", vec!["spicelib-1a", "spicelib-1b"]),
+            ("spicelib-2b", vec!["spicelib-1a", "spicelib-1b"]),
+            (
                 "spicelib-3a",
+                vec!["spicelib-1a", "spicelib-1b", "spicelib-2a", "spicelib-2b"],
+            ),
+            (
                 "spicelib-3b",
-            ],
-        ),
-        (
-            "spicelib",
-            vec![
-                "spicelib-1a",
-                "spicelib-1b",
-                "spicelib-2a",
-                "spicelib-2b",
-                "spicelib-3a",
-                "spicelib-3b",
+                vec!["spicelib-1a", "spicelib-1b", "spicelib-2a", "spicelib-2b"],
+            ),
+            (
                 "spicelib-4",
-            ],
-        ),
+                vec![
+                    "spicelib-1a",
+                    "spicelib-1b",
+                    "spicelib-2a",
+                    "spicelib-2b",
+                    "spicelib-3a",
+                    "spicelib-3b",
+                ],
+            ),
+            (
+                "spicelib",
+                vec![
+                    "spicelib-1a",
+                    "spicelib-1b",
+                    "spicelib-2a",
+                    "spicelib-2b",
+                    "spicelib-3a",
+                    "spicelib-3b",
+                    "spicelib-4",
+                ],
+            ),
+        ]);
+    } else {
+        crates.push(("spicelib", vec![]));
+    }
+    crates.extend([
         ("support", vec!["spicelib"]),
         ("testutil", vec!["spicelib", "support"]),
         ("tspice-1a", vec!["spicelib", "support", "testutil"]),
@@ -648,7 +672,9 @@ fn main() -> Result<()> {
             ],
         ),
         ("programs", vec!["spicelib", "support", "testutil"]),
-    ] {
+    ]);
+
+    for (name, ds) in crates {
         let cratename = format!("rsspice_{name}");
 
         let path = gen_root.join(&cratename);
@@ -688,7 +714,7 @@ fn main() -> Result<()> {
         let mut librs = std::fs::File::create(path.join("src/lib.rs"))?;
         writeln!(librs, "//\n// GENERATED FILE\n//\n")?;
         writeln!(librs, "#![allow(unused_imports)]\n")?;
-        if name == "spicelib" || name == "tspice" {
+        if (SPLIT_SPLICELIB_CRATES && name == "spicelib") || name == "tspice" {
             writeln!(librs, "pub mod {name} {{")?;
             for d in &ds {
                 let dcrate = format!("rsspice_{d}");
