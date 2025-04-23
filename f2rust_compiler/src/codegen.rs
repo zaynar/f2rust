@@ -157,7 +157,7 @@ struct SymbolTable {
 
     // An ugly hack to support temporarily defining symbols for use in arguments etc.
     // We use RefCell so the rest of the code can use a non-mut &SymbolTable and keep
-    // &Symbols around, avoiding the performace cost of cloning them, without the
+    // &Symbols around, avoiding the performance cost of cloning them, without the
     // borrow checker worrying that we might invalidate those symbols.
     temp: RefCell<Vec<(String, Symbol)>>,
 }
@@ -2068,6 +2068,15 @@ impl CodeGenUnit<'_> {
     ) -> Result<String> {
         let mut code = String::new();
         match statement {
+            Statement::Comment(c) => {
+                if let Some(c) = format_comment_block(c) {
+                    code += &c;
+                }
+            }
+            Statement::Blank => {
+                code += "\n";
+            }
+
             Statement::Assignment(v, e) => {
                 code += &self.emit_assignment(loc, v, e, Ctx::Assignment)?;
             }
@@ -2753,6 +2762,22 @@ impl<'a> CodeGen<'a> {
         }
 
         for entry in &self.entries {
+            let pre_comments = entry
+                .ast
+                .pre_comments
+                .iter()
+                .filter_map(|c| format_comment_block(c))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            let post_comments = entry
+                .ast
+                .post_comments
+                .iter()
+                .filter_map(|c| format_comment_block(c))
+                .collect::<Vec<_>>()
+                .join("\n");
+
             let dargs = entry.ast.dargs.iter().map(|darg| {
                 entry
                     .codegen
@@ -2796,6 +2821,7 @@ impl<'a> CodeGen<'a> {
                 dargs.push("ctx: &mut Context".to_owned());
             }
             let dargs = dargs.join(", ");
+            code += &pre_comments;
             code += &format!("pub fn {entry_name}({dargs}) {ret} {{\n");
             code += &entry.codegen.emit_save_borrow(entry_name)?;
             code += &entry.codegen.emit_locals(entry_name)?;
@@ -2814,11 +2840,52 @@ impl<'a> CodeGen<'a> {
                     code += &format!("{name}\n");
                 }
             };
-            code += "}\n\n";
+            code += "}\n";
+            code += &post_comments;
+            code += "\n";
         }
 
         Ok(code)
     }
+}
+
+// Convert SPICE's comment blocks into more conventional Rust style.
+// (Specifically we change the indentation, because FORTRAN indents after the "C"
+// while Rust indents before the "//")
+fn format_comment_block(block: &[String]) -> Option<String> {
+    if block.is_empty() {
+        return None;
+    }
+
+    // Find the amount of leading whitespace in each line
+    let indents = block.iter().filter_map(|line| {
+        let trimmed = line.trim_ascii_start();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(line.len() - trimmed.len())
+        }
+    });
+
+    // If it's >0, we want to trim each line so there's only 1 space after the "//"
+    let trim = if let Some(indent) = indents.min() {
+        if indent == 0 { 0 } else { indent - 1 }
+    } else {
+        0
+    };
+
+    Some(
+        block
+            .iter()
+            .map(|line| {
+                if line.len() < trim {
+                    "//\n".to_owned()
+                } else {
+                    format!("//{}\n", &line[trim..])
+                }
+            })
+            .collect::<String>(),
+    )
 }
 
 /// Pass through rustfmt

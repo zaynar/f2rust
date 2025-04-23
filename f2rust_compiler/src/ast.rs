@@ -53,6 +53,9 @@ pub type Specifiers = IndexMap<String, Expression>;
 /// Executable statements
 #[derive(Debug, Clone)]
 pub enum Statement {
+    Comment(Vec<String>),
+    Blank,
+
     Assignment(Expression, Expression),
 
     // Contains all the IF / ELSE IF / ELSE cases.
@@ -133,6 +136,8 @@ pub enum ProgramUnitType {
 pub struct Entry {
     pub loc: SourceLoc,
     pub name: String,
+    pub pre_comments: Vec<Vec<String>>,
+    pub post_comments: Vec<Vec<String>>,
     pub dargs: Vec<String>,
     pub body: Vec<(SourceLoc, Statement)>,
 }
@@ -398,6 +403,7 @@ impl Statement {
     pub fn walk<V: Visitor>(&self, v: &mut V) {
         v.statement(self);
         match self {
+            Statement::Comment(..) | Statement::Blank => (),
             Statement::Assignment(e1, e2) => {
                 e1.walk(v);
                 e2.walk(v);
@@ -917,6 +923,9 @@ pub struct Parser {
 
     /// Whether there was a SAVE with no symbol list, so we should save everything possible
     save_all: bool,
+
+    /// Current comment block
+    comment: Vec<String>,
 }
 
 impl Default for Parser {
@@ -938,6 +947,7 @@ impl Parser {
             do_vars: vec![],
             datas: vec![],
             save_all: false,
+            comment: vec![],
         }
     }
 
@@ -957,16 +967,30 @@ impl Parser {
             }
         }
 
+        // Sequence of comment blocks (separated by blank lines)
+        let mut pre_comments = vec![vec![]];
+
         let mut source_iter = source_complete.into_iter();
 
+        // Parse up to the PROGRAM/FUNCTION/SUBROUTINE line
         'LINES: for (loc, line) in &mut source_iter {
             match line {
-                grammar::Statement::Comment(_) | grammar::Statement::Blank => (),
+                grammar::Statement::Comment(c) => {
+                    pre_comments.last_mut().unwrap().push(c);
+                }
+                grammar::Statement::Blank => {
+                    // Use blank lines to separate comment blocks
+                    if !pre_comments.last().unwrap().is_empty() {
+                        pre_comments.push(vec![]);
+                    }
+                }
                 grammar::Statement::Program(name) => {
                     pu_ty = Some(ProgramUnitType::Program);
                     self.entry = Some(Entry {
                         loc,
                         name,
+                        pre_comments,
+                        post_comments: Vec::new(),
                         dargs: Vec::new(),
                         body: Vec::new(),
                     });
@@ -1004,6 +1028,8 @@ impl Parser {
                     self.entry = Some(Entry {
                         loc,
                         name,
+                        pre_comments,
+                        post_comments: Vec::new(),
                         dargs,
                         body: Vec::new(),
                     });
@@ -1021,6 +1047,8 @@ impl Parser {
                     self.entry = Some(Entry {
                         loc,
                         name,
+                        pre_comments,
+                        post_comments: Vec::new(),
                         dargs,
                         body: Vec::new(),
                     });
@@ -1155,7 +1183,30 @@ impl Parser {
     /// Parse any statement after the opening PROGRAM/FUNCTION/SUBROUTINE
     fn parse_statement(&mut self, loc: SourceLoc, line: &grammar::Statement) -> Result<()> {
         match &line {
-            grammar::Statement::Comment(_) | grammar::Statement::Blank => (),
+            grammar::Statement::Comment(c) => self.comment.push(c.clone()),
+            _ => {
+                if let Some(stmts) = self.statements.last_mut() {
+                    stmts.push((loc.clone(), Statement::Comment(self.comment.clone())));
+                } else if let Some(entry) = &mut self.entry {
+                    entry.post_comments.push(self.comment.clone());
+                } else {
+                    self.entries
+                        .last_mut()
+                        .unwrap()
+                        .post_comments
+                        .push(self.comment.clone());
+                }
+                self.comment.clear();
+            }
+        }
+
+        match &line {
+            grammar::Statement::Comment(..) => (),
+            grammar::Statement::Blank => {
+                if let Some(stmts) = self.statements.last_mut() {
+                    stmts.push((loc.clone(), Statement::Blank));
+                }
+            }
 
             grammar::Statement::Program(..)
             | grammar::Statement::Function(..)
@@ -1175,6 +1226,8 @@ impl Parser {
                 self.entry = Some(Entry {
                     loc,
                     name: name.clone(),
+                    pre_comments: Vec::new(),
+                    post_comments: Vec::new(),
                     dargs: dargs.clone(),
                     body: Vec::new(),
                 });
