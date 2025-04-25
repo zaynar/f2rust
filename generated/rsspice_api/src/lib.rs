@@ -100,6 +100,7 @@
 //! TODO: Design/document the API for this.
 
 mod raw;
+pub mod required_reading;
 
 pub struct SpiceContext<'a> {
     ctx: f2rust_std::Context<'a>,

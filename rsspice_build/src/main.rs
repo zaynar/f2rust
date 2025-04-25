@@ -5,15 +5,20 @@
 //! https://naif.jpl.nasa.gov/naif/rules.html)
 
 use anyhow::{Context, Result, bail};
+use html5ever::ParseOpts;
+use html5ever::tendril::TendrilSink;
+use html5ever::tree_builder::TreeBuilderOpts;
 use indexmap::IndexMap;
+use markup5ever_rcdom::{Handle, NodeData, RcDom};
 use rayon::prelude::*;
 use relative_path::PathExt;
-use std::path::Path;
+use std::ffi::OsStr;
+use std::fmt::Write as FmtWrite;
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
-    io::{BufRead, BufReader, Write},
-    path::PathBuf,
+    io::{BufRead, BufReader, Read, Write},
+    path::{Path, PathBuf},
     time::Instant,
 };
 use tracing::{Level, error, info, span};
@@ -424,6 +429,8 @@ fn main() -> Result<()> {
     let src_root = PathBuf::from("tspice/src");
     let override_root = PathBuf::from("rsspice_build/override");
     let gen_root = PathBuf::from("generated");
+
+    translate_reqs(&src_root, &gen_root)?;
 
     let t0 = Instant::now();
 
@@ -904,6 +911,222 @@ fn main() -> Result<()> {
         sources.len(),
         api_sources.len()
     );
+
+    Ok(())
+}
+
+struct DocParser {
+    in_body: bool,
+    block: bool,
+    out: String,
+}
+
+impl DocParser {
+    fn new() -> Self {
+        Self {
+            in_body: false,
+            block: true,
+            out: String::new(),
+        }
+    }
+
+    fn escape(&self, text: &str) -> String {
+        text.replace("``", "\"")
+            .replace("''", "\"")
+            .replace("`", "'")
+            .replace("[", "\\[")
+            .replace("<", "\\<")
+    }
+
+    fn create_link(&self, name: &str) -> String {
+        if name == "FAILED" {
+            // TODO: fix the seterr override so this is documented and can be linked to
+            name.to_owned()
+        } else if let Some(req) = name.strip_suffix(".req") {
+            format!("[{name}](crate::required_reading::{req})")
+        } else {
+            format!("[{name}](crate::{lc})", lc = name.to_ascii_lowercase())
+        }
+    }
+
+    fn inner_text(&self, node: &Handle, raw: bool) -> Result<String> {
+        match node.data {
+            NodeData::Text { ref contents } => {
+                if raw {
+                    Ok(contents.borrow().to_string())
+                } else {
+                    Ok(self.escape(&contents.borrow()))
+                }
+            }
+            NodeData::Element {
+                ref name,
+                ref attrs,
+                ..
+            } => {
+                let text = node
+                    .children
+                    .borrow()
+                    .iter()
+                    .map(|n| self.inner_text(n, raw))
+                    .collect::<Result<String>>()?;
+
+                Ok(match name.local.as_ref() {
+                    "a" if !raw
+                        && !attrs.borrow().iter().any(|attr| &attr.name.local == "name")
+                        && text != "FAILED" =>
+                    {
+                        self.create_link(&text)
+                    }
+                    _ => text,
+                })
+            }
+            _ => panic!("unknown node type"),
+        }
+    }
+
+    fn pretty_text(&self, text: &str) -> String {
+        let a = text.trim_ascii_start();
+        let b = a.trim_ascii_end();
+
+        let mut out = String::new();
+        if a != text {
+            out += " ";
+        }
+        out += b;
+        if b.len() != a.len() {
+            out += " ";
+        }
+        out
+    }
+
+    fn walk(&mut self, node: &Handle) -> Result<()> {
+        match node.data {
+            NodeData::Element { ref name, .. } if &name.local == "h1" => {
+                self.in_body = true;
+            }
+            _ => (),
+        }
+
+        if self.in_body {
+            let text_full = self.inner_text(node, false)?;
+            let text = self.pretty_text(&text_full);
+            match node.data {
+                NodeData::Element {
+                    ref name,
+                    ref attrs,
+                    ..
+                } => match name.local.as_ref() {
+                    "h1" => {
+                        if !self.block {
+                            writeln!(self.out)?;
+                            self.block = true;
+                        }
+                        writeln!(self.out, "# {text}\n")?
+                    }
+                    "h2" => {
+                        if !self.block {
+                            writeln!(self.out)?;
+                            self.block = true;
+                        }
+                        writeln!(self.out, "## {text}\n")?
+                    }
+                    "h3" => {
+                        if !self.block {
+                            writeln!(self.out)?;
+                            self.block = true;
+                        }
+                        writeln!(self.out, "### {text}\n")?
+                    }
+                    "p" if attrs
+                        .borrow()
+                        .iter()
+                        .any(|attr| &attr.name.local == "align") => {}
+                    "p" => {
+                        if !text.is_empty() {
+                            if !self.block {
+                                writeln!(self.out, "\n")?;
+                                self.block = true;
+                            }
+                            writeln!(self.out, "{text}\n")?;
+                        }
+                    }
+                    "ul" | "dl" => {
+                        self.block = true;
+                        let text = text.trim_ascii_start().strip_prefix("-- ").unwrap_or(&text);
+                        writeln!(self.out, "* {text}")?;
+                    }
+                    "br" | "hr" => (),
+                    "pre" => writeln!(self.out, "```text\n{}```", self.inner_text(node, true)?)?,
+                    "a" if attrs.borrow().iter().any(|attr| &attr.name.local == "name") => (),
+                    "a" => {
+                        if self.block {
+                            writeln!(self.out)?;
+                            self.block = false;
+                        }
+                        write!(
+                            self.out,
+                            "{}",
+                            self.create_link(&self.inner_text(node, true)?)
+                        )?
+                    }
+                    _ => panic!("unhandled HTML element"),
+                },
+                NodeData::Text { .. } => {
+                    if !text.is_empty() {
+                        if self.block {
+                            writeln!(self.out)?;
+                            self.block = false;
+                        }
+                        write!(self.out, "{text}")?;
+                    }
+                }
+                _ => (),
+            }
+        } else {
+            for child in node.children.borrow().iter() {
+                self.walk(child)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn translate_reqs(src_root: &Path, gen_root: &Path) -> Result<()> {
+    for entry in WalkDir::new(src_root.join("../doc/html/req")) {
+        let entry = entry?;
+
+        if entry.path().extension() != Some(OsStr::new("html")) {
+            continue;
+        }
+
+        let stem = entry.path().file_stem().unwrap().to_str().unwrap();
+        if stem == "index" {
+            continue;
+        }
+
+        let mut file = File::open(entry.path())?;
+
+        let opts = ParseOpts {
+            tree_builder: TreeBuilderOpts {
+                drop_doctype: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let dom = html5ever::parse_document(RcDom::default(), opts)
+            .from_utf8()
+            .read_from(&mut file)?;
+        let mut doc = DocParser::new();
+        doc.walk(&dom.document)?;
+
+        let path = gen_root.join("rsspice_api/src/required_reading");
+
+        let mut docrs = std::fs::File::create(path.join(stem).with_extension("rs"))?;
+        for line in doc.out.lines() {
+            writeln!(docrs, "//! {}", line)?;
+        }
+    }
 
     Ok(())
 }
