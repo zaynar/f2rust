@@ -901,4 +901,16 @@ impl GlobalAnalysis {
             bail!("cannot find {target}/{filename}");
         }
     }
+
+    pub fn codegen_api(&self, target: &str, filename: &str) -> Result<String> {
+        if let Some(pu) = self
+            .programs
+            .iter()
+            .find(|pu| pu.namespace == target && pu.filename == filename)
+        {
+            codegen::CodeGen::new(self, pu).emit_api()
+        } else {
+            bail!("cannot find {target}/{filename}");
+        }
+    }
 }

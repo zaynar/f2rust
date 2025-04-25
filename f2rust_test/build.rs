@@ -61,7 +61,7 @@ fn main() -> Result<()> {
 }
 
 fn build(src: &Path, dst: &Path, filename: &str) -> Result<()> {
-    let parsed = parse_free(&src.relative_to(".").unwrap(), Path::new("."))?;
+    let parsed = parse_free(&src.relative_to(".").unwrap(), Path::new("."), false)?;
 
     let ast = ast::Parser::new().parse(parsed)?;
 

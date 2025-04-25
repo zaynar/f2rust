@@ -477,7 +477,7 @@ fn main() -> Result<()> {
                 path.to_path_buf()
             };
 
-            let parsed = parse_fixed(&path.relative_to(".").unwrap(), Path::new("."))
+            let parsed = parse_fixed(&path.relative_to(".").unwrap(), Path::new("."), false)
                 .context(format!("parsing {path:?}"))?;
 
             let mut patcher = GrammarPatcher::new();
@@ -599,6 +599,36 @@ fn main() -> Result<()> {
     sources.sort();
 
     println!("Compiling {} files", sources.len());
+
+    let api_sources: Vec<_> = sources
+        .iter()
+        .filter(|(namespace, filename)| {
+            // Only spicelib is public API
+            if !namespace.starts_with("spicelib") {
+                return false;
+            }
+
+            // Skip private functions
+            if filename.starts_with("zz") {
+                return false;
+            }
+
+            // Skip ones we've overriding, because they don't have API docs
+            if matches!(
+                filename.as_str(),
+                "swapc_array" | "swapd_array" | "swapi_array" | "moved" | "seterr"
+            ) {
+                return false;
+            }
+
+            // TOUCHC is awkward because it 'returns' a string, and all the TOUCH functions are useless
+            if filename.starts_with("touch") {
+                return false;
+            }
+
+            true
+        })
+        .collect();
 
     let mut crates = Vec::new();
     if SPLIT_SPLICELIB_CRATES {
@@ -789,15 +819,35 @@ fn main() -> Result<()> {
         }
     }
 
+    {
+        let path = gen_root.join("rsspice_api");
+        let mut apirs = std::fs::File::create(path.join("src/raw/mod.rs"))?;
+        writeln!(apirs, "//\n// GENERATED FILE\n//\n")?;
+        writeln!(apirs, "#![allow(unused_imports)]\n")?;
+        writeln!(apirs, "#![allow(unused_variables)]\n")?;
+
+        let mut modnames = api_sources.iter().map(|f| f.1.clone()).collect::<Vec<_>>();
+        modnames.sort();
+        for name in &modnames {
+            let name_id = safe_identifier(name);
+            writeln!(apirs, "mod {name_id};")?;
+        }
+        writeln!(apirs)?;
+        for name in &modnames {
+            let name_id = safe_identifier(name);
+            writeln!(apirs, "pub use {name_id}::*;")?;
+        }
+    }
+
     const PRETTY_PRINT: bool = false;
 
     let mut succeeded = 0;
+    let mut succeeded_api = 0;
+
     for node @ (namespace, filename) in &sources {
         // info!("Compiling");
 
-        let code = glob.codegen(namespace, filename, PRETTY_PRINT);
-
-        match code {
+        match glob.codegen(namespace, filename, PRETTY_PRINT) {
             Err(err) => {
                 error!("Failed to compile {namespace}/{filename}: {:?}", err);
             }
@@ -820,7 +870,40 @@ fn main() -> Result<()> {
         }
     }
 
-    println!("Successfully built {succeeded}/{}", sources.len());
+    for (namespace, filename) in &api_sources {
+        match glob.codegen_api(namespace, filename) {
+            Err(err) => {
+                error!(
+                    "Failed to generate API for {namespace}/{filename}: {:?}",
+                    err
+                );
+            }
+            Ok(code) => {
+                let file_root = PathBuf::from(filename).with_extension("");
+
+                let src = gen_root.join("rsspice_api").join("src").join("raw");
+
+                let mut file = File::create(src.join(file_root.with_extension("rs")))?;
+                writeln!(file, "//\n// GENERATED FILE\n//\n")?;
+                // writeln!(file, "use crate::{{Spice, SpiceFuncs, Result}};")?;
+                writeln!(file, "use crate::SpiceContext;")?;
+                writeln!(
+                    file,
+                    "use f2rust_std::{{Context, CharArray, CharArrayMut, Result}};"
+                )?;
+                writeln!(file)?;
+                file.write_all(code.as_bytes())?;
+
+                succeeded_api += 1;
+            }
+        }
+    }
+
+    println!(
+        "Successfully built {succeeded}/{} functions, {succeeded_api}/{} APIs",
+        sources.len(),
+        api_sources.len()
+    );
 
     Ok(())
 }

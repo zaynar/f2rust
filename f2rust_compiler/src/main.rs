@@ -42,9 +42,9 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let parsed = if cli.freeform {
-        parse_free(&cli.input, Path::new("."))?
+        parse_free(&cli.input, Path::new("."), false)?
     } else {
-        parse_fixed(&cli.input, Path::new("."))?
+        parse_fixed(&cli.input, Path::new("."), false)?
     };
     let ast = ast::Parser::new().parse(parsed)?;
 

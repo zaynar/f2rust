@@ -13,6 +13,8 @@ use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
 use log::{error, warn};
 
+mod api;
+
 /// The Rust representation of a symbol name or an expression, based on how it's
 /// used in the main body of the function. (It may have different representations
 /// in dargs etc, which get shadowed.)
@@ -376,6 +378,43 @@ impl Expression {
         self.walk(&mut visitor);
         visitor.found
     }
+}
+
+fn eval_array_size(dims: &[ast::Dimension], syms: &SymbolTable) -> Result<Option<i32>> {
+    let dims: Vec<_> = dims
+        .iter()
+        .map(|d| -> Result<_> {
+            let lower = match &d.lower {
+                Some(e) => e.eval_constant(syms)?,
+                None => Some(1),
+            };
+            let upper = match &d.upper {
+                Some(e) => e.eval_constant(syms)?,
+                None => None,
+            };
+            if let (Some(lower), Some(upper)) = (lower, upper) {
+                Ok(Some(upper + 1 - lower))
+            } else {
+                Ok(None)
+            }
+        })
+        .collect::<Result<_>>()?;
+
+    Ok(dims
+        .into_iter()
+        .reduce(|a, b| match (a, b) {
+            (Some(a), Some(b)) => Some(a * b),
+            _ => None,
+        })
+        .expect("must have at least 1 dimension"))
+}
+
+fn eval_character_len(len: &Option<LenSpecification>, syms: &SymbolTable) -> Result<Option<i32>> {
+    Ok(match len {
+        Some(LenSpecification::Integer(c)) => Some(*c),
+        Some(LenSpecification::IntConstantExpr(e)) => e.eval_constant(syms)?,
+        _ => None,
+    })
 }
 
 /// Convert to Rust type, for use in various contexts
@@ -2069,7 +2108,7 @@ impl CodeGenUnit<'_> {
         let mut code = String::new();
         match statement {
             Statement::Comment(c) => {
-                if let Some(c) = format_comment_block(c) {
+                if let Some(c) = format_comment_block(c, "//", false) {
                     code += &c;
                 }
             }
@@ -2706,7 +2745,7 @@ impl<'a> CodeGen<'a> {
         }
     }
 
-    pub fn emit(self) -> Result<String> {
+    pub fn emit(&mut self) -> Result<String> {
         let mut code = String::new();
 
         code += "use f2rust_std::*;\n";
@@ -2766,7 +2805,7 @@ impl<'a> CodeGen<'a> {
                 .ast
                 .pre_comments
                 .iter()
-                .filter_map(|c| format_comment_block(c))
+                .filter_map(|c| format_comment_block(c, "//", false))
                 .collect::<Vec<_>>()
                 .join("\n");
 
@@ -2774,7 +2813,7 @@ impl<'a> CodeGen<'a> {
                 .ast
                 .post_comments
                 .iter()
-                .filter_map(|c| format_comment_block(c))
+                .filter_map(|c| format_comment_block(c, "//", false))
                 .collect::<Vec<_>>()
                 .join("\n");
 
@@ -2852,7 +2891,7 @@ impl<'a> CodeGen<'a> {
 // Convert SPICE's comment blocks into more conventional Rust style.
 // (Specifically we change the indentation, because FORTRAN indents after the "C"
 // while Rust indents before the "//")
-fn format_comment_block(block: &[String]) -> Option<String> {
+fn format_comment_block(block: &[String], prefix: &str, trim_empty_lines: bool) -> Option<String> {
     if block.is_empty() {
         return None;
     }
@@ -2874,14 +2913,24 @@ fn format_comment_block(block: &[String]) -> Option<String> {
         0
     };
 
+    let mut lines: Vec<_> = if trim_empty_lines {
+        block.iter().skip_while(|line| line.is_empty()).collect()
+    } else {
+        block.iter().collect()
+    };
+
+    if trim_empty_lines {
+        while lines.pop_if(|line| line.is_empty()).is_some() {}
+    }
+
     Some(
-        block
+        lines
             .iter()
             .map(|line| {
                 if line.len() < trim {
-                    "//\n".to_owned()
+                    format!("{prefix}\n")
                 } else {
-                    format!("//{}\n", &line[trim..])
+                    format!("{prefix}{}\n", &line[trim..])
                 }
             })
             .collect::<String>(),

@@ -707,6 +707,7 @@ impl Default for Symbol {
             loc: SourceLoc {
                 file: "(unknown)".to_owned(),
                 line: 0,
+                included: false,
             },
             base_type: DataType::Unknown,
             character_len: None,
@@ -1183,20 +1184,29 @@ impl Parser {
     /// Parse any statement after the opening PROGRAM/FUNCTION/SUBROUTINE
     fn parse_statement(&mut self, loc: SourceLoc, line: &grammar::Statement) -> Result<()> {
         match &line {
-            grammar::Statement::Comment(c) => self.comment.push(c.clone()),
-            _ => {
-                if let Some(stmts) = self.statements.last_mut() {
-                    stmts.push((loc.clone(), Statement::Comment(self.comment.clone())));
-                } else if let Some(entry) = &mut self.entry {
-                    entry.post_comments.push(self.comment.clone());
-                } else {
-                    self.entries
-                        .last_mut()
-                        .unwrap()
-                        .post_comments
-                        .push(self.comment.clone());
+            // Collect consecutive comment lines
+            grammar::Statement::Comment(c) => {
+                // Skip comments from INCLUDE files
+                if !loc.included {
+                    self.comment.push(c.clone());
                 }
-                self.comment.clear();
+            }
+            _ => {
+                if !self.comment.is_empty() {
+                    if let Some(stmts) = self.statements.last_mut() {
+                        // If we're inside an entry, push the preceding comments as a statement
+                        stmts.push((loc.clone(), Statement::Comment(self.comment.clone())));
+                    } else {
+                        // Not inside an entry, so tentatively store inside the latest entry
+                        assert!(self.entry.is_none());
+                        self.entries
+                            .last_mut()
+                            .unwrap()
+                            .post_comments
+                            .push(self.comment.clone());
+                    }
+                    self.comment.clear();
+                }
             }
         }
 
@@ -1217,16 +1227,24 @@ impl Parser {
             // FORMAT/ENTRY statements (but we don't support FORMAT)
             grammar::Statement::Entry(name, dargs) => {
                 // We don't support entry into the middle of a function, because that's hard
-                // to emulate in sensible language
+                // to emulate in a sensible language
                 if self.entry.is_some() {
                     bail!("{loc} ENTRY must be after an unconditional RETURN");
                 }
+
+                // If the previous entry was followed by some comments, they should
+                // actually be interpreted as belonging to this entry
+                let mut pre_comments = Vec::new();
+                std::mem::swap(
+                    &mut pre_comments,
+                    &mut self.entries.last_mut().unwrap().post_comments,
+                );
 
                 dargs.iter().for_each(|d| self.symbols.set_darg(d));
                 self.entry = Some(Entry {
                     loc,
                     name: name.clone(),
-                    pre_comments: Vec::new(),
+                    pre_comments,
                     post_comments: Vec::new(),
                     dargs: dargs.clone(),
                     body: Vec::new(),

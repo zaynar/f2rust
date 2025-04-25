@@ -17,6 +17,7 @@ use relative_path::RelativePath;
 pub struct SourceLoc {
     pub file: String,
     pub line: usize,
+    pub included: bool,
 }
 
 impl std::fmt::Display for SourceLoc {
@@ -89,6 +90,7 @@ fn remove_f90_comments(s: &str) -> String {
 pub fn parse_fixed(
     path: &RelativePath,
     root: &Path,
+    included: bool,
 ) -> Result<Vec<(SourceLoc, grammar::Statement)>> {
     let file = BufReader::new(File::open(path.to_path(root))?);
 
@@ -98,6 +100,7 @@ pub fn parse_fixed(
         let loc = SourceLoc {
             file: path.to_string(),
             line: line_no + 1,
+            included,
         };
 
         // Required by support/convbt.f, since it has a too-long comment line
@@ -150,6 +153,7 @@ pub fn parse_fixed(
 pub fn parse_free(
     path: &RelativePath,
     root: &Path,
+    included: bool,
 ) -> Result<Vec<(SourceLoc, grammar::Statement)>> {
     let file = BufReader::new(File::open(path.to_path(root))?);
 
@@ -159,6 +163,7 @@ pub fn parse_free(
         let loc = SourceLoc {
             file: path.to_string(),
             line: line_no + 1,
+            included,
         };
 
         let line = remove_f90_comments(&line);
@@ -183,7 +188,7 @@ fn parse_lines<F>(
     parse_fxx: F,
 ) -> Result<Vec<(SourceLoc, grammar::Statement)>>
 where
-    F: Fn(&RelativePath, &Path) -> Result<Vec<(SourceLoc, grammar::Statement)>>,
+    F: Fn(&RelativePath, &Path, bool) -> Result<Vec<(SourceLoc, grammar::Statement)>>,
 {
     lines
         .into_iter()
@@ -199,7 +204,7 @@ where
                                 loc,
                                 grammar::Statement::Include(
                                     inc_file.clone(),
-                                    parse_fxx(&path.parent().unwrap().join(inc_file), root)?,
+                                    parse_fxx(&path.parent().unwrap().join(inc_file), root, true)?,
                                 ),
                             ))
                         } else {

@@ -114,6 +114,39 @@ pub fn concat(a1: &[u8], a2: &[u8]) -> Vec<u8> {
     r
 }
 
+pub struct StrBytes<'a> {
+    data: &'a mut [u8],
+}
+
+impl<'a> StrBytes<'a> {
+    pub fn new(data: &'a mut str) -> Self {
+        // SAFETY: We must ensure the slice is valid UTF-8 before it is accessed
+        // as &str again, even in case of panics. We guarantee this in drop()
+        Self {
+            data: unsafe { data.as_bytes_mut() },
+        }
+    }
+}
+
+impl AsMut<[u8]> for StrBytes<'_> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.data
+    }
+}
+
+impl Drop for StrBytes<'_> {
+    fn drop(&mut self) {
+        // Verify we didn't write invalid UTF-8 into the bytes
+        if std::str::from_utf8(self.data).is_err() {
+            // Empty the string, so it doesn't contain invalid UTF-8 in case
+            // someone catches this panic and tries to use the string afterwards
+            self.data.fill(b' ');
+
+            panic!("function returned non-UTF-8 string");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::fstr;
