@@ -937,6 +937,10 @@ impl DocParser {
             .replace("`", "'")
             .replace("[", "\\[")
             .replace("<", "\\<")
+            .replace(
+                "http://naif.jpl.nasa.gov/naif/utilities.html",
+                "[http://naif.jpl.nasa.gov/naif/utilities.html](http://naif.jpl.nasa.gov/naif/utilities.html)",
+            )
     }
 
     fn create_link(&self, name: &str) -> String {

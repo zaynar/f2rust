@@ -280,9 +280,22 @@ impl CodeGen<'_> {
                 }
 
                 docs += &format!("///\n/// # {}\n///\n", name.replace("_", " "));
-                docs += "/// ```text\n";
-                docs += &format_comment_block(content, "/// ", true).unwrap();
-                docs += "/// ```\n";
+
+                if name == "Required_Reading" {
+                    for req in content.join(" ").split_ascii_whitespace() {
+                        if req == "TEXT" {
+                            // Referenced by TXTOPR, but doesn't exist
+                            docs += "/// * TEXT\n";
+                        } else {
+                            let page = req.to_ascii_lowercase();
+                            docs += &format!("/// * [{req}](crate::required_reading::{page})\n");
+                        }
+                    }
+                } else {
+                    docs += "/// ```text\n";
+                    docs += &format_comment_block(content, "/// ", true).unwrap();
+                    docs += "/// ```\n";
+                }
             }
 
             let mut params = vec![];
