@@ -1,10 +1,11 @@
-use crate::ast;
-use crate::ast::{DataType, Statement};
+use crate::ast::{DataType, ProgramUnitType, Statement};
 use crate::codegen::{
     CodeGen, RustType, SymbolTable, emit_datatype, eval_array_size, eval_character_len,
     format_comment_block,
 };
 use crate::file::SourceLoc;
+use crate::globan::GlobalAnalysis;
+use crate::{ast, globan};
 use anyhow::{Result, bail};
 use indexmap::IndexMap;
 use log::error;
@@ -92,6 +93,8 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ar
                 param: format!("{name_lc}: &str"),
                 arg: format!("{name_lc}.as_bytes()"),
             }
+            // TODO: if the string is empty, we should pass " " instead,
+            // or else prove the FORTRAN code doesn't mind zero-length strings
         }
         RustType::CharSliceMut => {
             if let Some(size) = eval_character_len(&sym.ast.character_len, syms)? {
@@ -127,7 +130,28 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ar
     })
 }
 
-impl<'a> CodeGen<'a> {
+pub fn parse_header_comments(lines: &[String]) -> Result<IndexMap<String, Vec<String>>> {
+    let mut sections = IndexMap::new();
+    let mut section = None;
+    for c in lines {
+        if let Some(name) = c.strip_prefix("$ ") {
+            if sections.contains_key(name) {
+                error!("duplicate doc section {name}");
+            }
+            section = Some(name.to_owned());
+        } else if *c == "-&" {
+            section = None;
+        } else if let Some(section) = &section {
+            sections
+                .entry(section.clone())
+                .or_insert_with(Vec::new)
+                .push(c.to_string());
+        }
+    }
+    Ok(sections)
+}
+
+impl CodeGen<'_> {
     pub fn emit_api(&mut self) -> Result<String> {
         let mut code = String::new();
 
@@ -139,27 +163,22 @@ impl<'a> CodeGen<'a> {
                 continue;
             }
 
-            let mut comment_sections = IndexMap::new();
-            let mut section = None;
-            for (_loc, stmt) in &entry.ast.body {
-                if let Statement::Comment(c) = stmt {
-                    for c in c {
-                        if let Some(name) = c.strip_prefix("$ ") {
-                            if comment_sections.contains_key(name) {
-                                error!("{entry_name} duplicate doc section {name}",);
-                            }
-                            section = Some(name);
-                        } else if c == "-&" {
-                            section = None;
-                        } else if let Some(section) = section {
-                            comment_sections
-                                .entry(section)
-                                .or_insert_with(Vec::new)
-                                .push(c.clone());
+            let comment_sections = parse_header_comments(
+                &entry
+                    .ast
+                    .body
+                    .iter()
+                    .filter_map(|(_loc, stmt)| {
+                        if let Statement::Comment(c) = stmt {
+                            Some(c)
+                        } else {
+                            None
                         }
-                    }
-                }
-            }
+                    })
+                    .flatten()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )?;
 
             // Sections present in all files:
             //   Abstract
@@ -245,12 +264,9 @@ impl<'a> CodeGen<'a> {
             // Copy all the other interesting sections
             for (name, content) in &comment_sections {
                 if matches!(
-                    *name,
+                    name.as_str(),
                     "Abstract" | "Declarations" | "Disclaimer" | "Index_Entries" | "Keywords"
                 ) {
-                    // Skip some sections, because the docs are far too large to work nicely
-                    // in rustdoc.
-
                     // Abstract was handled separately, since it must be the top of the file.
                     // Declarations is just FORTRAN code.
                     // Disclaimer doesn't need to be repeated on every docs page.
@@ -349,4 +365,22 @@ impl<'a> CodeGen<'a> {
 
         Ok(code)
     }
+}
+
+pub fn emit_constants(syms: ast::SymbolTable) -> Result<String> {
+    let globan = GlobalAnalysis::new(&[], vec![]);
+    let program = globan::ProgramUnit::new(
+        "constants",
+        "constants",
+        ast::ProgramUnit {
+            ty: ProgramUnitType::Program,
+            symbols: syms,
+            entries: vec![],
+            statement_functions: vec![],
+            datas: vec![],
+        },
+    );
+    let codegen = CodeGen::new(&globan, &program);
+
+    codegen.shared.emit_constants(true)
 }

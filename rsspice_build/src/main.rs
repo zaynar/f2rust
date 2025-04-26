@@ -17,7 +17,7 @@ use std::fmt::Write as FmtWrite;
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
     time::Instant,
 };
@@ -25,7 +25,7 @@ use tracing::{Level, error, info, span};
 use walkdir::WalkDir;
 
 use f2rust_compiler::{
-    ast,
+    ast, codegen,
     file::{SourceLoc, parse_fixed, split_program_units},
     globan::{self, GlobalAnalysis},
     grammar,
@@ -431,6 +431,7 @@ fn main() -> Result<()> {
     let gen_root = PathBuf::from("generated");
 
     translate_reqs(&src_root, &gen_root)?;
+    translate_incs(&src_root, &gen_root)?;
 
     let t0 = Instant::now();
 
@@ -830,8 +831,8 @@ fn main() -> Result<()> {
         let path = gen_root.join("rsspice_api");
         let mut apirs = std::fs::File::create(path.join("src/raw/mod.rs"))?;
         writeln!(apirs, "//\n// GENERATED FILE\n//\n")?;
-        writeln!(apirs, "#![allow(unused_imports)]\n")?;
-        writeln!(apirs, "#![allow(unused_variables)]\n")?;
+        writeln!(apirs, "#![allow(unused_imports)]")?;
+        writeln!(apirs, "#![allow(unused_variables)]")?;
 
         let mut modnames = api_sources.iter().map(|f| f.1.clone()).collect::<Vec<_>>();
         modnames.sort();
@@ -1122,10 +1123,88 @@ fn translate_reqs(src_root: &Path, gen_root: &Path) -> Result<()> {
 
         let path = gen_root.join("rsspice_api/src/required_reading");
 
-        let mut docrs = std::fs::File::create(path.join(stem).with_extension("rs"))?;
+        let mut docrs = File::create(path.join(stem).with_extension("rs"))?;
         for line in doc.out.lines() {
             writeln!(docrs, "//! {}", line)?;
         }
+    }
+
+    Ok(())
+}
+
+fn translate_incs(src_root: &Path, gen_root: &Path) -> Result<()> {
+    let consts_path = gen_root.join("rsspice_api/src/consts");
+
+    let mut modrs = File::create(consts_path.join("mod.rs"))?;
+    writeln!(modrs, "//\n// GENERATED FILE\n//\n")?;
+    writeln!(modrs, "#![allow(unused_parens, clippy::double_parens)]")?;
+    writeln!(modrs)?;
+
+    for entry in WalkDir::new(src_root.join("spicelib")) {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.extension() != Some(OsStr::new("inc")) {
+            continue;
+        }
+
+        let stem = entry.path().file_stem().unwrap().to_str().unwrap();
+
+        let parsed = parse_fixed(&path.relative_to(".").unwrap(), Path::new("."), false)
+            .context(format!("parsing {path:?}"))?;
+
+        let consts = ast::Parser::new()
+            .parse_constants(parsed)
+            .context(format!("parsing {path:?}"))?;
+
+        let consts = codegen::api::emit_constants(consts)?;
+
+        let mut incrs = File::create(consts_path.join(stem).with_extension("rs"))?;
+
+        let lines: Vec<_> = std::fs::read_to_string(entry.path())?
+            .lines()
+            .map(|line| line.to_owned())
+            .collect();
+
+        let comments = codegen::api::parse_header_comments(
+            &lines
+                .iter()
+                .filter_map(|line| line.strip_prefix("C").map(|s| s.to_owned()))
+                .collect::<Vec<_>>(),
+        )?;
+
+        if let Some(abstr) = comments.get("Abstract") {
+            // Escape Markdown reference/HTML characters
+            let abstr: Vec<_> = abstr
+                .iter()
+                .map(|s| s.replace("<", "\\<").replace("[", "\\["))
+                .collect();
+
+            write!(
+                incrs,
+                "{}",
+                codegen::format_comment_block(&abstr, "//! ", true).unwrap()
+            )?;
+        } else if let Some(abstr) = lines
+            .iter()
+            .filter_map(|c| c.strip_prefix("C     Include Section:  "))
+            .next()
+        {
+            writeln!(incrs, "//! {abstr}")?;
+        } else {
+            writeln!(incrs, "//! Constants")?;
+        }
+        writeln!(incrs, "//!")?;
+
+        writeln!(incrs, "//! ```text")?;
+        for line in &lines {
+            writeln!(incrs, "//! {}", line)?;
+        }
+        writeln!(incrs, "//! ```")?;
+        writeln!(incrs)?;
+        writeln!(incrs, "{}", consts)?;
+
+        writeln!(modrs, "pub mod {stem};")?;
     }
 
     Ok(())

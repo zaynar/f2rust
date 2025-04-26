@@ -1181,6 +1181,24 @@ impl Parser {
         Ok(pu)
     }
 
+    pub fn parse_constants(
+        mut self,
+        source: Vec<(SourceLoc, grammar::Statement)>,
+    ) -> Result<SymbolTable> {
+        let mut source_iter = source.into_iter();
+
+        for (loc, line) in &mut source_iter {
+            self.parse_statement(loc, &line)?;
+        }
+
+        for (name, sym) in &self.symbols.symbols {
+            sym.validate()
+                .with_context(|| format!("invalid use of symbol {name}: {sym:?}"))?;
+        }
+
+        Ok(self.symbols)
+    }
+
     /// Parse any statement after the opening PROGRAM/FUNCTION/SUBROUTINE
     fn parse_statement(&mut self, loc: SourceLoc, line: &grammar::Statement) -> Result<()> {
         match &line {

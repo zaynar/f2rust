@@ -13,7 +13,7 @@ use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
 use log::{error, warn};
 
-mod api;
+pub mod api;
 
 /// The Rust representation of a symbol name or an expression, based on how it's
 /// used in the main body of the function. (It may have different representations
@@ -2563,8 +2563,10 @@ impl CodeGenUnit<'_> {
         Ok(code)
     }
 
-    fn emit_constants(&self) -> Result<String> {
+    fn emit_constants(&self, api: bool) -> Result<String> {
         let mut code = String::new();
+
+        let vis = if api { "pub " } else { "" };
 
         for (name, sym) in self.syms.iter() {
             let loc = &sym.ast.loc;
@@ -2584,26 +2586,43 @@ impl CodeGenUnit<'_> {
                             bail!("{loc} unspecified character length")
                         }
                         LenSpecification::Asterisk => {
-                            code += &format!("const {name}: &[u8] = {param_exp};\n",)
+                            if api {
+                                // Hack: Convert b"" to ""
+                                let s = param_exp.strip_prefix("b").unwrap().to_owned();
+                                code += &format!("{vis}const {name}: &str = {s};\n")
+                            } else {
+                                code += &format!("{vis}const {name}: &[u8] = {param_exp};\n")
+                            }
                         }
-
                         LenSpecification::Integer(n) => {
                             code += &format!(
-                                "const {name}: &[u8; {n}] = &fstr::extend_const::<{n}>({param_exp});\n"
+                                "{vis}const {name}: &[u8; {n}] = &fstr::extend_const::<{n}>({param_exp});\n"
                             );
                         }
-                        LenSpecification::IntConstantExpr(e) => {
-                            let e = self.emit_expression(loc, e)?;
-                            code += &format!(
-                                "const {name}: &[u8; {e} as usize] = &fstr::extend_const::<{{{e} as usize}}>({param_exp});\n"
-                            );
-                        }
+                        LenSpecification::IntConstantExpr(e) => match param {
+                            Expression::Constant(Constant::Character(s))
+                                if api && e.eval_constant(&self.syms)? == Some(s.len() as i32) =>
+                            {
+                                // Simplify the code for API constants, when the declared size
+                                // matches the actual string
+                                code += &format!(
+                                    "{vis}const {name}: &str = \"{}\";\n",
+                                    s.escape_default()
+                                );
+                            }
+                            _ => {
+                                let e = self.emit_expression(loc, e)?;
+                                code += &format!(
+                                    "{vis}const {name}: &[u8; {e} as usize] = &fstr::extend_const::<{{{e} as usize}}>({param_exp});\n"
+                                );
+                            }
+                        },
                     }
                 } else {
                     let ty = emit_datatype(&sym.ast.base_type);
 
                     let param_ex = self.emit_expression(loc, param)?;
-                    code += &format!("const {name}: {ty} = {param_ex};\n");
+                    code += &format!("{vis}const {name}: {ty} = {param_ex};\n");
                 }
             }
         }
@@ -2751,7 +2770,7 @@ impl<'a> CodeGen<'a> {
         code += "use f2rust_std::*;\n";
         code += "\n";
 
-        code += &self.shared.emit_constants()?;
+        code += &self.shared.emit_constants(false)?;
         code += &self.shared.emit_save_struct()?;
 
         for statement_function in &self.statement_functions {
@@ -2891,7 +2910,11 @@ impl<'a> CodeGen<'a> {
 // Convert SPICE's comment blocks into more conventional Rust style.
 // (Specifically we change the indentation, because FORTRAN indents after the "C"
 // while Rust indents before the "//")
-fn format_comment_block(block: &[String], prefix: &str, trim_empty_lines: bool) -> Option<String> {
+pub fn format_comment_block(
+    block: &[String],
+    prefix: &str,
+    trim_empty_lines: bool,
+) -> Option<String> {
     if block.is_empty() {
         return None;
     }
