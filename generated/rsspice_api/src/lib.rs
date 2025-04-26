@@ -14,12 +14,31 @@
 //!
 //! ## Error handling
 //!
-//! We run the SPICE Toolkit in `RETURN` mode, meaning it will
-//! report errors then return up the call stack. At the Rust API, we translate the
-//! error into [Error] so you can use Rust's standard error handling mechanism.
-//! We also reset the SPICE error state so you can continue using the API
-//! (although it its internal state may have been left inconsistent after the error,
-//! so you need to be careful about which errors you can correctly recover from).
+//! We integrate [SPICELIB's error handling mechanism](required_reading::error) with Rust's.
+//! Any function that is documented as signaling a `SPICE(FOO)` exception
+//! will return a corresponding [`Error::FOO`](Error) from the Rust API.
+//!
+//! Some exceptions are recoverable: you can detect them, react appropriately,
+//! and continue using the API. Other exceptions may result in an inconsistent state.
+//! By default you should treat errors as fatal (or return them up the call stack
+//! with `?`), and check the documentation for which ones you can safely handle.
+//!
+//! We also return `Error` for some other cases, including unhandled IO errors,
+//! and FORTRAN code attempting to terminate the process with `STOP` or `EXIT`.
+//!
+//! Specifically: we run SPICELIB in `RETURN` mode, meaning it will
+//! report errors then return up the call stack. Once it reaches the Rust API wrapper,
+//! we `RESET` the SPICELIB error state and return the `Error`.
+//! You should not use SPICELIB's error API directly, as it will likely conflict
+//! with this wrapper.
+//!
+//! ```
+//! use rsspice_api::*;
+//! let mut ctx = SpiceContext::new();
+//! assert!(matches!(dacosh(&mut ctx, 0.0), Err(Error::INVALIDARGUMENT(..))));
+//! // You can continue using the same ctx after an error
+//! assert_eq!(dacosh(&mut ctx, 1.0).unwrap(), 0.0);
+//! ```
 //!
 //! ## Array arguments
 //!
@@ -78,12 +97,23 @@
 //!
 //! ## Strings
 //!
-//! Input strings are implemented as `&str`, and behave as you would expect.
+//! Input strings are implemented as `&str`, and typically behave as you would expect.
 //!
 //! Output strings are implemented as `&mut str`, meaning the caller must allocate
 //! enough space before the call. Read the function's documentation to find the requirements.
 //! If the string is too small, the output may be truncated, or you may get a bounds-check
 //! panic.
+//!
+//! FORTRAN strings are padded with space characters. You should typically fill the string
+//! with spaces before the call, and use `trim_ascii_end()` to remove them afterwards.
+//!
+//! ```
+//! use rsspice_api::*;
+//! let mut ctx = SpiceContext::new();
+//! let mut calstr = " ".repeat(48); // docs say this should be >=48 characters
+//! etcal(&mut ctx, 0.0, &mut calstr);
+//! assert_eq!(calstr.trim_ascii_end(), "2000 JAN 01 12:00:00.000");
+//! ```
 //!
 //! FORTRAN 77 barely even understands ASCII, never mind UTF-8.
 //! Input strings are simply interpreted as a sequence of bytes.
@@ -99,8 +129,16 @@
 //!
 //! TODO: Design/document the API for this.
 
+use rsspice_spicelib::spicelib::{FAILED, GETLMS, GETSMS, RESET};
+
+pub mod consts;
 mod raw;
 pub mod required_reading;
+
+pub use raw::*;
+
+mod errors;
+pub use errors::*;
 
 pub struct SpiceContext<'a> {
     ctx: f2rust_std::Context<'a>,
@@ -108,25 +146,43 @@ pub struct SpiceContext<'a> {
 
 impl<'a> SpiceContext<'a> {
     pub fn new() -> Self {
-        Self {
-            ctx: f2rust_std::Context::new(),
-        }
+        let mut ctx = f2rust_std::Context::new();
+
+        // Don't print errors to stdout
+        let mut list = b"NONE".to_vec();
+        rsspice_spicelib::spicelib::ERRPRT(b"SET", &mut list, &mut ctx).unwrap();
+
+        // Return errors so we can handle them nicely
+        let mut action = b"RETURN".to_vec();
+        rsspice_spicelib::spicelib::ERRACT(b"SET", &mut action, &mut ctx).unwrap();
+
+        Self { ctx }
     }
 
-    fn raw_context(&mut self) -> &mut f2rust_std::Context<'a> {
+    pub fn raw_context(&mut self) -> &mut f2rust_std::Context<'a> {
         &mut self.ctx
     }
+
+    fn handle_errors(&mut self) -> Result<()> {
+        if FAILED(&mut self.ctx) {
+            // Get the error messages
+            let mut short = vec![b' '; consts::errhnd::SMSGLN as usize];
+            let mut long = vec![b' '; consts::errhnd::LMSGLN as usize];
+            GETSMS(&mut short, &mut self.ctx);
+            GETLMS(&mut long, &mut self.ctx);
+
+            // Reset error state, so the user can continue after recoverable errors
+            RESET(&mut self.ctx);
+
+            // Return the error
+            let short = String::from_utf8_lossy(short.trim_ascii_end());
+            let long = String::from_utf8_lossy(long.trim_ascii_end());
+            Err(Error::from_short(&short, &long))
+        } else {
+            Ok(())
+        }
+    }
 }
-
-pub use raw::*;
-
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("internal error {0}")]
-    InternalError(#[from] f2rust_std::Error),
-}
-
-pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]
 mod tests {

@@ -359,6 +359,7 @@ impl CodeGen<'_> {
             if matches!(ret_type, DataType::Void | DataType::Character) {
                 if returns_result {
                     code += &format!("  {call}?;\n");
+                    code += "  ctx.handle_errors()?;\n";
                     code += "  Ok(())\n";
                 } else {
                     code += &format!("  {call};\n");
@@ -366,6 +367,7 @@ impl CodeGen<'_> {
             } else {
                 if returns_result {
                     code += &format!("  let ret = {call}?;\n");
+                    code += "  ctx.handle_errors()?;\n";
                     code += "  Ok(ret)\n";
                 } else {
                     code += &format!("  let ret = {call};\n");
