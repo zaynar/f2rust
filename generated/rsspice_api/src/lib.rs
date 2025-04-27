@@ -36,8 +36,8 @@
 //! use rsspice_api::*;
 //! let mut ctx = SpiceContext::new();
 //! assert!(matches!(dacosh(&mut ctx, 0.0), Err(Error::INVALIDARGUMENT(..))));
-//! // You can continue using the same ctx after an error
-//! assert_eq!(dacosh(&mut ctx, 1.0).unwrap(), 0.0);
+//! // You can continue using the same ctx after catching the error
+//! assert_eq!(dacosh(&mut ctx, 1.0), Ok(0.0));
 //! ```
 //!
 //! ## Array arguments
@@ -186,7 +186,7 @@ impl<'a> SpiceContext<'a> {
             // Return the error
             let short = String::from_utf8_lossy(short.trim_ascii_end());
             let long = String::from_utf8_lossy(long.trim_ascii_end());
-            Err(Error::from_short(&short, &long))
+            Err(Error::from_spice(&short, &long))
         } else {
             Ok(())
         }
