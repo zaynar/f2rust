@@ -894,6 +894,13 @@ impl<'a> VirtualFileManager<'a> {
             .insert(6, VirtualUnit::new(None, WriterRecFile { writer }));
     }
 
+    pub fn insert(&mut self, path: &[u8], file: &[u8]) {
+        self.files.insert(
+            path.to_vec(),
+            Rc::new(RefCell::new(Cursor::new(file.to_vec()))),
+        );
+    }
+
     fn path_from_fstr(&self, path: &[u8]) -> Vec<u8> {
         path.trim_ascii_end().to_vec()
     }

@@ -22,7 +22,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::io::{FileManager, FsFileManager, RecFileRef, VirtualFileManager};
+use crate::io::{FileManager, FsFileManager, RecFileRef};
 use crate::{Error, Result, fstr, io};
 
 pub trait SaveInit {
@@ -48,6 +48,14 @@ impl<'a> Context<'a> {
         }
     }
 
+    pub fn with_file_manager<F: FileManager<'a> + 'a>(file_manager: F) -> Self {
+        Self {
+            data: HashMap::new(),
+            file_manager: Box::new(file_manager),
+            spice_failed: false,
+        }
+    }
+
     pub fn get_vars<T: 'static + SaveInit>(&mut self) -> Rc<RefCell<T>> {
         let obj = self
             .data
@@ -55,18 +63,6 @@ impl<'a> Context<'a> {
             .or_insert_with(|| Rc::new(RefCell::new(T::new())));
 
         Rc::downcast::<RefCell<T>>(Rc::clone(obj)).unwrap()
-    }
-
-    pub fn capture_stdout(&mut self, stdout: &'a mut Vec<u8>) {
-        self.file_manager.capture_stdout(stdout);
-    }
-
-    pub fn set_cwd<P: AsRef<std::path::Path>>(&mut self, path: P) {
-        self.file_manager.set_cwd(path.as_ref().to_path_buf());
-    }
-
-    pub fn enable_vfs(&mut self) {
-        self.file_manager = Box::new(VirtualFileManager::new());
     }
 
     /// STOP statement

@@ -13,6 +13,7 @@ use std::{error::Error, path::PathBuf, process::ExitCode};
 use libtest_mimic::{Arguments, Failed, Trial};
 
 use f2rust_std::Context;
+use f2rust_std::io::{FileManager, FsFileManager};
 
 include!(concat!(env!("OUT_DIR"), "/generated_files.rs"));
 
@@ -31,8 +32,9 @@ fn main() -> Result<ExitCode, Box<dyn Error>> {
         let crate_dir = crate_dir.clone();
         let test = Trial::test(name, move || {
             let mut stdout = vec![];
-            let mut ctx = Context::new();
-            ctx.set_stdout(&mut stdout);
+            let mut fs = FsFileManager::new();
+            fs.capture_stdout(&mut stdout);
+            let mut ctx = Context::with_file_manager(fs);
 
             func(&mut ctx)?;
 

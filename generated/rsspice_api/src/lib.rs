@@ -139,6 +139,7 @@ pub use raw::*;
 
 mod errors;
 pub use errors::*;
+use f2rust_std::io::FileManager;
 
 pub struct SpiceContext<'a> {
     ctx: f2rust_std::Context<'a>,
@@ -147,16 +148,24 @@ pub struct SpiceContext<'a> {
 impl<'a> SpiceContext<'a> {
     pub fn new() -> Self {
         let mut ctx = f2rust_std::Context::new();
+        Self::setup_errors(&mut ctx);
+        Self { ctx }
+    }
 
+    pub fn with_vfs<F: FileManager<'a> + 'a>(file_manager: F) -> Self {
+        let mut ctx = f2rust_std::Context::with_file_manager(file_manager);
+        Self::setup_errors(&mut ctx);
+        Self { ctx }
+    }
+
+    fn setup_errors(ctx: &mut f2rust_std::Context) {
         // Don't print errors to stdout
         let mut list = b"NONE".to_vec();
-        rsspice_spicelib::spicelib::ERRPRT(b"SET", &mut list, &mut ctx).unwrap();
+        rsspice_spicelib::spicelib::ERRPRT(b"SET", &mut list, ctx).unwrap();
 
         // Return errors so we can handle them nicely
         let mut action = b"RETURN".to_vec();
-        rsspice_spicelib::spicelib::ERRACT(b"SET", &mut action, &mut ctx).unwrap();
-
-        Self { ctx }
+        rsspice_spicelib::spicelib::ERRACT(b"SET", &mut action, ctx).unwrap();
     }
 
     pub fn raw_context(&mut self) -> &mut f2rust_std::Context<'a> {
