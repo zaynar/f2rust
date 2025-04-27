@@ -33,6 +33,7 @@ pub struct Context<'a> {
     data: HashMap<TypeId, Rc<dyn Any>>,
 
     file_manager: Box<dyn FileManager<'a> + 'a>,
+    args: Vec<String>,
 
     // HACK: See override/seterr.f. This is an inelegant optimisation for
     // SPICE's very-frequently-called FAILED() function
@@ -44,6 +45,7 @@ impl<'a> Context<'a> {
         Self {
             data: HashMap::new(),
             file_manager: Box::new(FsFileManager::new()),
+            args: Vec::new(),
             spice_failed: false,
         }
     }
@@ -52,8 +54,14 @@ impl<'a> Context<'a> {
         Self {
             data: HashMap::new(),
             file_manager: Box::new(file_manager),
+            args: Vec::new(),
             spice_failed: false,
         }
+    }
+
+    /// Set command-line arguments, used by IARGC/GETARG intrinsics
+    pub fn set_args(&mut self, args: Vec<String>) {
+        self.args = args;
     }
 
     pub fn get_vars<T: 'static + SaveInit>(&mut self) -> Rc<RefCell<T>> {
@@ -108,12 +116,15 @@ impl<'a> Context<'a> {
     }
 
     pub fn iargc(&self) -> i32 {
-        // TODO: implement this properly
-        0
+        self.args.len() as i32 - 1
     }
 
-    pub fn getarg(&self, _pos: i32, _value: &mut [u8]) {
-        todo!();
+    pub fn getarg(&self, pos: i32, value: &mut [u8]) {
+        if pos >= 0 && pos < self.args.len() as i32 {
+            fstr::assign(value, self.args[pos as usize].as_bytes());
+        } else {
+            value.fill(b' ');
+        }
     }
 
     pub fn getenv(&self, _name: &[u8], _value: &mut [u8]) {

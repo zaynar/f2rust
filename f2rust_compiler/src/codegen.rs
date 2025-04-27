@@ -1036,8 +1036,11 @@ impl CodeGenUnit<'_> {
                 let idx_ex = self.emit_expressions(loc, idx, Ctx::Value)?;
                 let range = self.emit_range(loc, e1, e2)?;
 
-                // TODO: work out how to implement this properly
-                format!("fstr::substr({s}.get({idx_ex}), {range})")
+                if matches!(ctx, Ctx::ArgScalarMut) {
+                    format!("fstr::substr_mut({s}.get_mut({idx_ex}), {range})")
+                } else {
+                    format!("fstr::substr({s}.get({idx_ex}), {range})")
+                }
             }
             Expression::Constant(c) => match c {
                 // The i32 suffix is helpful for type-checking but makes the code ugly
@@ -2622,6 +2625,14 @@ impl CodeGenUnit<'_> {
                     let ty = emit_datatype(&sym.ast.base_type);
 
                     let param_ex = self.emit_expression(loc, param)?;
+
+                    let param_ex = self.emit_arith_conversion(
+                        loc,
+                        sym.ast.base_type.clone(),
+                        param.resolve_type(loc, &self.syms)?,
+                        param_ex,
+                    )?;
+
                     code += &format!("{vis}const {name}: {ty} = {param_ex};\n");
                 }
             }

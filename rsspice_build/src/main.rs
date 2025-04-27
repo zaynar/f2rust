@@ -558,6 +558,17 @@ fn main() -> Result<()> {
         }
     }
 
+    let bins: Vec<_> = program_units
+        .iter()
+        .filter_map(|pu| {
+            if matches!(pu.ast.ty, ast::ProgramUnitType::Program) {
+                Some((pu.namespace.clone(), pu.filename.clone()))
+            } else {
+                None
+            }
+        })
+        .collect();
+
     let mut glob = globan::GlobalAnalysis::new(&["spicelib", "support", "testutil"], program_units);
     glob.analyse()?;
 
@@ -709,7 +720,10 @@ fn main() -> Result<()> {
                 "tspice-2",
             ],
         ),
-        ("programs", vec!["spicelib", "support", "testutil"]),
+        (
+            "programs",
+            vec!["spicelib", "support", "tspice", "testutil"],
+        ),
     ]);
 
     for (name, ds) in crates {
@@ -731,7 +745,7 @@ fn main() -> Result<()> {
             }
         }
 
-        let mut cargo = std::fs::File::create(path.join("Cargo.toml"))?;
+        let mut cargo = File::create(path.join("Cargo.toml"))?;
         writeln!(cargo, "#\n# GENERATED FILE\n#\n")?;
         writeln!(cargo, "[package]")?;
         writeln!(cargo, r#"name = "{cratename}""#)?;
@@ -745,11 +759,11 @@ fn main() -> Result<()> {
         }
         drop(cargo);
 
-        let mut ignore = std::fs::File::create(path.join("src/.gitignore"))?;
+        let mut ignore = File::create(path.join("src/.gitignore"))?;
         writeln!(ignore, "*/")?;
         drop(ignore);
 
-        let mut librs = std::fs::File::create(path.join("src/lib.rs"))?;
+        let mut librs = File::create(path.join("src/lib.rs"))?;
         writeln!(librs, "//\n// GENERATED FILE\n//\n")?;
         writeln!(librs, "#![allow(unused_imports)]\n")?;
         if (SPLIT_SPLICELIB_CRATES && name == "spicelib") || name == "tspice" {
@@ -776,7 +790,7 @@ fn main() -> Result<()> {
         drop(librs);
 
         for ns in &namespaces {
-            let mut modrs = std::fs::File::create(path.join("src").join(ns).join("mod.rs"))?;
+            let mut modrs = File::create(path.join("src").join(ns).join("mod.rs"))?;
             writeln!(modrs, "//\n// GENERATED FILE\n//\n")?;
             writeln!(modrs, "#![allow(non_snake_case)]")?;
             writeln!(modrs, "#![allow(unused_parens, clippy::double_parens)]")?;
@@ -811,7 +825,7 @@ fn main() -> Result<()> {
 
             let mut modnames = cratefiles
                 .iter()
-                .filter(|f| sources.contains(f))
+                .filter(|f| f.0 == **ns && sources.contains(f))
                 .map(|f| f.1.clone())
                 .collect::<Vec<_>>();
             modnames.sort();
@@ -825,11 +839,38 @@ fn main() -> Result<()> {
                 writeln!(modrs, "pub use {name_id}::*;")?;
             }
         }
+
+        if name == "programs" {
+            for (ns, bin) in &bins {
+                let func = bin.to_ascii_uppercase();
+                let module = if ns == "tspice" {
+                    "rsspice_tspice"
+                } else {
+                    "rsspice_programs"
+                };
+                let mut binrs = File::create(path.join("src/bin").join(bin).with_extension("rs"))?;
+                writeln!(binrs, "//\n// GENERATED FILE\n//\n")?;
+                writeln!(binrs, "use std::process::ExitCode;")?;
+                writeln!(binrs)?;
+                writeln!(binrs, "fn main() -> f2rust_std::Result<ExitCode> {{")?;
+                writeln!(binrs, "    let mut ctx = f2rust_std::Context::new();")?;
+                writeln!(binrs, "    ctx.set_args(std::env::args().collect());")?;
+                writeln!(binrs)?;
+                writeln!(binrs, "    let ret = {module}::{ns}::{func}(&mut ctx);")?;
+                writeln!(binrs, "    match ret {{")?;
+                writeln!(binrs, "        Err(f2rust_std::Error::Terminated(code)) =>")?;
+                writeln!(binrs, "            Ok(ExitCode::from(code as u8)),")?;
+                writeln!(binrs, "        Err(e) => Err(e),")?;
+                writeln!(binrs, "        Ok(()) => Ok(ExitCode::SUCCESS),")?;
+                writeln!(binrs, "    }}")?;
+                writeln!(binrs, "}}")?;
+            }
+        }
     }
 
     {
         let path = gen_root.join("rsspice_api");
-        let mut apirs = std::fs::File::create(path.join("src/raw/mod.rs"))?;
+        let mut apirs = File::create(path.join("src/raw/mod.rs"))?;
         writeln!(apirs, "//\n// GENERATED FILE\n//\n")?;
         writeln!(apirs, "#![allow(unused_imports)]")?;
         writeln!(apirs, "#![allow(unused_variables)]")?;

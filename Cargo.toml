@@ -9,6 +9,6 @@ members = [
     "rsspice_build",
     "generated/rsspice_api",
     "generated/rsspice_tspice",
-    #"generated/rsspice_programs",
+    "generated/rsspice_programs",
 ]
 
