@@ -1,6 +1,6 @@
 use crate::ast::{DataType, ProgramUnitType, Statement};
 use crate::codegen::{
-    CodeGen, RustType, SymbolTable, emit_datatype, eval_array_size, eval_character_len,
+    CodeGen, RustType, SymbolTable, emit_datatype, eval_character_len, eval_dims,
     format_comment_block,
 };
 use crate::file::SourceLoc;
@@ -32,6 +32,20 @@ struct Arg {
     arg: String,   // in the call
 }
 
+fn emit_sized_array(ty: &str, dims: &[Option<i32>]) -> (String, bool) {
+    let mut r = ty.to_owned();
+    let mut depth = 0;
+    for dim in dims {
+        depth += 1;
+        if let Some(n) = dim {
+            r = format!("[{r}; {n}]");
+        } else {
+            return (format!("[{r}]"), depth > 1);
+        }
+    }
+    (r, depth > 1)
+}
+
 fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Arg> {
     let sym = syms.get(name)?;
     let ty = emit_datatype(&sym.ast.base_type);
@@ -49,27 +63,28 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ar
         },
 
         RustType::DummyArray => {
-            let param = if let Some(size) = eval_array_size(&sym.ast.dims, syms)? {
-                format!("{name_lc}: &[{ty}; {size}]")
-            } else {
-                format!("{name_lc}: &[{ty}]")
-            };
+            let (array, flatten) = emit_sized_array(&ty, &eval_dims(&sym.ast.dims, syms)?);
             Arg {
-                param,
-                arg: name_lc.clone(),
+                param: format!("{name_lc}: &{array}"),
+                arg: if flatten {
+                    format!("{name_lc}.as_flattened()")
+                } else {
+                    name_lc.clone()
+                },
             }
         }
         RustType::DummyArrayMut => {
-            let param = if let Some(size) = eval_array_size(&sym.ast.dims, syms)? {
-                format!("{name_lc}: &mut [{ty}; {size}]")
-            } else {
-                format!("{name_lc}: &mut [{ty}]")
-            };
+            let (array, flatten) = emit_sized_array(&ty, &eval_dims(&sym.ast.dims, syms)?);
             Arg {
-                param,
-                arg: name_lc.clone(),
+                param: format!("{name_lc}: &mut {array}"),
+                arg: if flatten {
+                    format!("{name_lc}.as_flattened_mut()")
+                } else {
+                    name_lc.clone()
+                },
             }
         }
+
         RustType::DummyCharArray => Arg {
             param: format!("{name_lc}: CharArray"),
             arg: name_lc.clone(),

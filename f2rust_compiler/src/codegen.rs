@@ -380,7 +380,7 @@ impl Expression {
     }
 }
 
-fn eval_array_size(dims: &[ast::Dimension], syms: &SymbolTable) -> Result<Option<i32>> {
+fn eval_dims(dims: &[ast::Dimension], syms: &SymbolTable) -> Result<Vec<Option<i32>>> {
     let dims: Vec<_> = dims
         .iter()
         .map(|d| -> Result<_> {
@@ -400,13 +400,7 @@ fn eval_array_size(dims: &[ast::Dimension], syms: &SymbolTable) -> Result<Option
         })
         .collect::<Result<_>>()?;
 
-    Ok(dims
-        .into_iter()
-        .reduce(|a, b| match (a, b) {
-            (Some(a), Some(b)) => Some(a * b),
-            _ => None,
-        })
-        .expect("must have at least 1 dimension"))
+    Ok(dims)
 }
 
 fn eval_character_len(len: &Option<LenSpecification>, syms: &SymbolTable) -> Result<Option<i32>> {

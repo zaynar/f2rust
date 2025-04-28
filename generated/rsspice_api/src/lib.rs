@@ -37,7 +37,7 @@
 //! let mut ctx = SpiceContext::new();
 //! assert!(matches!(dacosh(&mut ctx, 0.0), Err(Error::INVALIDARGUMENT(..))));
 //! // You can continue using the same ctx after catching the error
-//! assert_eq!(dacosh(&mut ctx, 1.0), Ok(0.0));
+//! assert_eq!(dacosh(&mut ctx, 1.0).unwrap(), 0.0);
 //! ```
 //!
 //! ## Array arguments
@@ -70,7 +70,7 @@
 //! assert_relative_eq!(r.as_slice(), [-2.0, 1.0, 3.0].as_slice());
 //! ```
 //!
-//! Matrices are represented as `&[f64; 9]` in column-major order,
+//! Matrices are represented as `&[[f64; 3]; 3]` in column-major order,
 //! compatible with `nalgebra::Matrix3`:
 //!
 //! ```
@@ -83,8 +83,8 @@
 //!     0.0,  0.0, 1.0);
 //! let mut mout = na::Matrix3::zeros();
 //! invert(
-//!     m.as_slice().try_into().unwrap(),
-//!     mout.as_mut_slice().try_into().unwrap(),
+//!     m.as_ref(),
+//!     mout.as_mut(),
 //! );
 //! assert_relative_eq!(
 //!     mout,
@@ -226,10 +226,8 @@ mod tests {
     fn invert() {
         let m = na::Matrix3::new(0.0, -1.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.0, 1.0);
         let mut mout = na::Matrix3::zeros();
-        spicelib::invert(
-            m.as_slice().try_into().unwrap(),
-            mout.as_mut_slice().try_into().unwrap(),
-        );
+        spicelib::invert(m.as_ref(), mout.as_mut());
+
         assert_relative_eq!(
             mout,
             na::Matrix3::new(0.0, 2.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0)
