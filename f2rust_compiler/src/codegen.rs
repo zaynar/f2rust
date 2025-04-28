@@ -2105,7 +2105,7 @@ impl CodeGenUnit<'_> {
         let mut code = String::new();
         match statement {
             Statement::Comment(c) => {
-                if let Some(c) = format_comment_block(c, "//", false) {
+                if let Some(c) = format_comment_block(&strip_comment_sections(&c), "//", false) {
                     code += &c;
                 }
             }
@@ -2563,10 +2563,14 @@ impl CodeGenUnit<'_> {
     fn emit_constants(&self, api: bool) -> Result<String> {
         let mut code = String::new();
 
-        let vis = if api { "pub " } else { "" };
-
         for (name, sym) in self.syms.iter() {
             let loc = &sym.ast.loc;
+
+            let vis = if api || sym.ast.parameter_public {
+                "pub "
+            } else {
+                ""
+            };
 
             if let Some(param) = &sym.ast.parameter {
                 if let DataType::Character = &sym.ast.base_type {
@@ -2829,7 +2833,7 @@ impl<'a> CodeGen<'a> {
                 .ast
                 .pre_comments
                 .iter()
-                .filter_map(|c| format_comment_block(c, "//", false))
+                .filter_map(|c| format_comment_block(&strip_comment_sections(c), "//", false))
                 .collect::<Vec<_>>()
                 .join("\n");
 
@@ -2837,7 +2841,7 @@ impl<'a> CodeGen<'a> {
                 .ast
                 .post_comments
                 .iter()
-                .filter_map(|c| format_comment_block(c, "//", false))
+                .filter_map(|c| format_comment_block(&strip_comment_sections(c), "//", false))
                 .collect::<Vec<_>>()
                 .join("\n");
 
@@ -2910,6 +2914,13 @@ impl<'a> CodeGen<'a> {
 
         Ok(code)
     }
+}
+
+pub fn strip_comment_sections(block: &[(String, bool)]) -> Vec<String> {
+    block
+        .iter()
+        .filter_map(|(c, in_section)| if *in_section { None } else { Some(c.clone()) })
+        .collect()
 }
 
 // Convert SPICE's comment blocks into more conventional Rust style.

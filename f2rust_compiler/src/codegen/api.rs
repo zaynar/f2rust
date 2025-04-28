@@ -185,7 +185,7 @@ impl CodeGen<'_> {
                     .iter()
                     .filter_map(|(_loc, stmt)| {
                         if let Statement::Comment(c) = stmt {
-                            Some(c)
+                            Some(c.iter().map(|(s, _)| s))
                         } else {
                             None
                         }
@@ -235,14 +235,14 @@ impl CodeGen<'_> {
                 .pre_comments
                 .iter()
                 .flatten()
-                .filter(|c| c.starts_with("$Procedure"))
+                .filter(|(c, _)| c.starts_with("$Procedure"))
                 .collect();
 
             let mut docs = String::new();
 
             if proc_comment.len() > 1 {
                 bail!("{entry_name}: too many $Procedure lines");
-            } else if let Some(proc_comment) = proc_comment.first() {
+            } else if let Some((proc_comment, _)) = proc_comment.first() {
                 let (_proc, rest) = proc_comment.split_once(" ").unwrap();
                 let (name, desc) = rest.split_once(" ").unwrap();
                 if name != entry_name {

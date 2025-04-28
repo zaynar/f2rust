@@ -53,7 +53,7 @@ pub type Specifiers = IndexMap<String, Expression>;
 /// Executable statements
 #[derive(Debug, Clone)]
 pub enum Statement {
-    Comment(Vec<String>),
+    Comment(Vec<(String, bool)>),
     Blank,
 
     Assignment(Expression, Expression),
@@ -136,8 +136,8 @@ pub enum ProgramUnitType {
 pub struct Entry {
     pub loc: SourceLoc,
     pub name: String,
-    pub pre_comments: Vec<Vec<String>>,
-    pub post_comments: Vec<Vec<String>>,
+    pub pre_comments: Vec<Vec<(String, bool)>>,
+    pub post_comments: Vec<Vec<(String, bool)>>,
     pub dargs: Vec<String>,
     pub body: Vec<(SourceLoc, Statement)>,
 }
@@ -645,6 +645,9 @@ pub struct Symbol {
     /// PARAMETER constant value
     pub parameter: Option<Expression>,
 
+    /// Whether a PARAMETER is a SPICE public API
+    pub parameter_public: bool,
+
     /// Listed in a SAVE statement
     pub save: bool,
 
@@ -722,6 +725,7 @@ impl Default for Symbol {
             outside_do: false,
             statement_function: None,
             parameter: None,
+            parameter_public: false,
             save: false,
             alias: None,
             equivalence: None,
@@ -773,8 +777,9 @@ impl SymbolTable {
         self.entry(name).darg = true;
     }
 
-    fn set_parameter(&mut self, name: &str, exp: Expression) {
+    fn set_parameter(&mut self, name: &str, exp: Expression, public: bool) {
         self.entry(name).parameter = Some(exp);
+        self.entry(name).parameter_public = public;
     }
 
     fn set_external(&mut self, name: &str) {
@@ -925,8 +930,11 @@ pub struct Parser {
     /// Whether there was a SAVE with no symbol list, so we should save everything possible
     save_all: bool,
 
-    /// Current comment block
-    comment: Vec<String>,
+    /// Current comment block; flag indicates SPICE comment sections
+    comment: Vec<(String, bool)>,
+
+    /// SPICE comment section heading
+    comment_section: Option<String>,
 }
 
 impl Default for Parser {
@@ -949,6 +957,7 @@ impl Parser {
             datas: vec![],
             save_all: false,
             comment: vec![],
+            comment_section: None,
         }
     }
 
@@ -977,7 +986,7 @@ impl Parser {
         'LINES: for (loc, line) in &mut source_iter {
             match line {
                 grammar::Statement::Comment(c) => {
-                    pre_comments.last_mut().unwrap().push(c);
+                    pre_comments.last_mut().unwrap().push((c, false));
                 }
                 grammar::Statement::Blank => {
                     // Use blank lines to separate comment blocks
@@ -1204,9 +1213,19 @@ impl Parser {
         match &line {
             // Collect consecutive comment lines
             grammar::Statement::Comment(c) => {
+                let in_section = if let Some(section) = c.strip_prefix("$ ") {
+                    self.comment_section = Some(section.to_owned());
+                    true
+                } else if c == "-&" {
+                    self.comment_section = None;
+                    true
+                } else {
+                    self.comment_section.is_some()
+                };
+
                 // Skip comments from INCLUDE files
                 if !loc.included {
-                    self.comment.push(c.clone());
+                    self.comment.push((c.clone(), in_section));
                 }
             }
             _ => {
@@ -1277,9 +1296,18 @@ impl Parser {
                     bail!("{loc} PARAMETER invalid here");
                 }
 
+                let public = self
+                    .comment_section
+                    .as_ref()
+                    .is_some_and(|s| s == "Declarations")
+                    && !loc.included;
+
                 for (name, expr) in params {
-                    self.symbols
-                        .set_parameter(name, Expression::from(&self.symbols, expr)?);
+                    self.symbols.set_parameter(
+                        name,
+                        Expression::from(&self.symbols, expr)?,
+                        public,
+                    );
                 }
             }
 

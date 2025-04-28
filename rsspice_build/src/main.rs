@@ -569,6 +569,20 @@ fn main() -> Result<()> {
         })
         .collect();
 
+    let exports: HashMap<_, _> = program_units
+        .iter()
+        .map(|pu| {
+            let k = (pu.namespace.clone(), pu.filename.clone());
+            let v = pu
+                .ast
+                .entries
+                .iter()
+                .map(|entry| entry.name.clone())
+                .collect::<Vec<_>>();
+            (k, v)
+        })
+        .collect();
+
     let mut glob = globan::GlobalAnalysis::new(&["spicelib", "support", "testutil"], program_units);
     glob.analyse()?;
 
@@ -836,7 +850,9 @@ fn main() -> Result<()> {
             writeln!(modrs)?;
             for name in &modnames {
                 let name_id = safe_identifier(name);
-                writeln!(modrs, "pub use {name_id}::*;")?;
+                for export in exports.get(&(ns.to_string(), name.to_string())).unwrap() {
+                    writeln!(modrs, "pub use {name_id}::{export};")?;
+                }
             }
         }
 
