@@ -885,18 +885,14 @@ impl GlobalAnalysis {
         deps
     }
 
-    pub fn codegen(&self, target: &str, filename: &str, pretty: bool, api: bool) -> Result<String> {
+    pub fn codegen(&self, target: &str, filename: &str, api: bool) -> Result<(String, String)> {
         if let Some(pu) = self
             .programs
             .iter()
             .find(|pu| pu.namespace == target && pu.filename == filename)
         {
             let code = codegen::CodeGen::new(self, pu).emit(api)?;
-            if pretty {
-                codegen::pretty_print(code)
-            } else {
-                Ok(code)
-            }
+            Ok(code)
         } else {
             bail!("cannot find {target}/{filename}");
         }

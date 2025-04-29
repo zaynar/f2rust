@@ -3,7 +3,6 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::io::Write;
 
 use crate::ast::{DataType, Expression, LenSpecification, Specifier, Statement};
 use crate::file::SourceLoc;
@@ -478,7 +477,7 @@ fn emit_datatype(ty: &DataType) -> String {
             }
             let args = args.join(", ");
             if *returns_result {
-                format!("fn({args}) -> Result<{ret}>")
+                format!("fn({args}) -> f2rust_std::Result<{ret}>")
             } else {
                 format!("fn({args}) -> {ret}")
             }
@@ -2773,8 +2772,9 @@ impl<'a> CodeGen<'a> {
         }
     }
 
-    pub fn emit(&mut self, api: bool) -> Result<String> {
+    pub fn emit(&mut self, api: bool) -> Result<(String, String)> {
         let mut code = String::new();
+        let mut code_api = String::new();
 
         code += &self.shared.emit_constants(false)?;
         code += &self.shared.emit_save_struct()?;
@@ -2827,7 +2827,8 @@ impl<'a> CodeGen<'a> {
 
         for entry in &self.entries {
             if api && entry.ast.api_name.is_some() {
-                code += &self.emit_api(entry)?;
+                code += &self.emit_api(entry, true)?;
+                code_api += &self.emit_api(entry, false)?;
             }
 
             let pre_comments = entry
@@ -2868,13 +2869,13 @@ impl<'a> CodeGen<'a> {
 
             let ret = if !matches!(ret_type, DataType::Void | DataType::Character) {
                 if returns_result {
-                    format!("-> Result<{}>", emit_datatype(ret_type))
+                    format!("-> f2rust_std::Result<{}>", emit_datatype(ret_type))
                 } else {
                     format!("-> {}", emit_datatype(ret_type))
                 }
             } else {
                 if returns_result {
-                    "-> Result<()>".to_owned()
+                    "-> f2rust_std::Result<()>".to_owned()
                 } else {
                     "".to_owned()
                 }
@@ -2913,7 +2914,7 @@ impl<'a> CodeGen<'a> {
             code += "\n";
         }
 
-        Ok(code)
+        Ok((code, code_api))
     }
 }
 
@@ -2975,27 +2976,6 @@ pub fn format_comment_block(
             })
             .collect::<String>(),
     )
-}
-
-/// Pass through rustfmt
-pub fn pretty_print(code: String) -> Result<String> {
-    let mut child = std::process::Command::new("rustfmt")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
-
-    let mut stdin = child.stdin.take().expect("Failed to open stdin");
-    std::thread::spawn(move || {
-        stdin
-            .write_all(code.as_bytes())
-            .expect("Failed to write to stdin");
-    });
-
-    let output = child.wait_with_output().expect("Failed to read stdout");
-
-    std::io::stderr().write_all(&output.stderr)?;
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 trait NlistCallback {

@@ -679,6 +679,7 @@ fn main() -> Result<()> {
         writeln!(modrs, "#![allow(clippy::too_many_arguments)]")?;
         writeln!(modrs, "#![allow(clippy::type_complexity)]")?;
         writeln!(modrs)?;
+        writeln!(modrs, "mod api;")?;
         writeln!(modrs, "pub mod required_reading;")?;
         writeln!(modrs)?;
 
@@ -791,7 +792,16 @@ fn main() -> Result<()> {
         }
     }
 
-    const PRETTY_PRINT: bool = false;
+    let mut apirs = File::create(gen_root.join("api.rs"))?;
+    writeln!(apirs, "//\n// GENERATED FILE\n//\n")?;
+    writeln!(apirs, "use crate::{{raw, Result, SpiceContext}};")?;
+    writeln!(apirs, "use super::spicelib::*;")?;
+    writeln!(
+        apirs,
+        "use f2rust_std::{{CharArray, CharArrayMut, Context}};"
+    )?;
+    writeln!(apirs)?;
+    writeln!(apirs, "impl SpiceContext<'_> {{")?;
 
     let mut succeeded = 0;
 
@@ -800,11 +810,11 @@ fn main() -> Result<()> {
 
         let api = is_public_api(namespace, filename);
 
-        match glob.codegen(namespace, filename, PRETTY_PRINT, api) {
+        match glob.codegen(namespace, filename, api) {
             Err(err) => {
                 error!("Failed to compile {namespace}/{filename}: {:?}", err);
             }
-            Ok(code) => {
+            Ok((code, code_api)) => {
                 let file_root = PathBuf::from(filename).with_extension("");
 
                 let src = gen_root.join(namespace);
@@ -819,10 +829,16 @@ fn main() -> Result<()> {
 
                 file.write_all(code.as_bytes())?;
 
+                if api {
+                    writeln!(apirs, "{}", code_api)?;
+                }
+
                 succeeded += 1;
             }
         }
     }
+
+    writeln!(apirs, "}}")?; // impl SpiceContext
 
     println!("Successfully built {succeeded}/{} functions", sources.len());
 
@@ -845,7 +861,8 @@ fn is_public_api(namespace: &str, filename: &str) -> bool {
         return false;
     }
 
-    // TOUCHC is awkward because it 'returns' a string, and all the TOUCH functions are useless
+    // TOUCHC is awkward because it 'returns' a string,
+    // and all the TOUCH functions are useless, so skip them
     if filename.starts_with("touch") {
         return false;
     }
@@ -881,13 +898,10 @@ impl DocParser {
     }
 
     fn create_link(&self, name: &str) -> String {
-        if name == "FAILED" {
-            // TODO: fix the seterr override so this is documented and can be linked to
-            name.to_owned()
-        } else if let Some(req) = name.strip_suffix(".req") {
+        if let Some(req) = name.strip_suffix(".req") {
             format!("[{name}](crate::required_reading::{req})")
         } else {
-            format!("[{name}](crate::{lc})", lc = name.to_ascii_lowercase())
+            format!("[{name}](crate::raw::{lc})", lc = name.to_ascii_lowercase())
         }
     }
 
