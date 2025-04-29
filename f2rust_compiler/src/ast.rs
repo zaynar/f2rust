@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use log::{error, warn};
 
 use crate::grammar::DataName;
-use crate::util::parse_header_comments;
+use crate::util::{parse_header_comments, safe_identifier};
 use crate::{file::SourceLoc, grammar, intrinsics};
 
 #[derive(Debug, Clone)]
@@ -1194,9 +1194,7 @@ impl Parser {
                     .collect::<Vec<_>>(),
             )?;
 
-            entry.api_name = Some(crate::util::safe_identifier(
-                &entry.name.to_ascii_lowercase(),
-            ));
+            entry.api_name = Some(safe_identifier(&entry.name.to_ascii_lowercase()));
         }
 
         let pu = ProgramUnit {

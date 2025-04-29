@@ -5,6 +5,68 @@
 //! The code and API has been automatically translated from the FORTRAN version
 //! of the SPICE Toolkit.
 //!
+//! # API mapping
+//!
+//! The API is mechanically translated from the FORTRAN API, following a number
+//! of rules to make it closer to idiomatic Rust:
+//!
+//! ## Return values
+//!
+//! Arguments that are documented as "O" are turned into return values.
+//! If there are multiple outputs, the function will return a tuple.
+//! If one of the outputs is called `FOUND`, it will not be returned explicitly;
+//! instead the function will return an `Option<_>`.
+//!
+//! There are some exceptions, including array 'output' arguments where the
+//! implementation reads the size of the provided array. In this case,
+//! they are mapped onto `&mut` parameters, and you must initialise the
+//! array appropriately before the call.
+//!
+//! ## Errors
+//!
+//! If a function can fail, it will return [`rsspice::Result<_>`](Result).
+//! This includes failures reported through SPICE's error system,
+//! plus unhandled IO errors, attempts by the FORTRAN code to call `STOP`/`EXIT`,
+//! and other internal errors.
+//!
+//! ## Strings
+//!
+//! Input strings are `&str`, outputs are `String`, mixed input-output
+//! are `&mut str`.
+//!
+//! Since FORTRAN 77 does not have dynamic allocation, output strings are
+//! allocated at the maximum possible size, and FORTRAN will pad the output
+//! with trailing space characters.
+//! We trim the trailing spaces before returning a `String`.
+//! When using `&mut str`, you are responsible for allocating and trimming.
+//!
+//! FORTRAN 77 barely even understands ASCII, never mind UTF-8.
+//! Input strings are simply interpreted as a sequence of bytes.
+//! For outputs, the implementation will panic if it ends up producing a non-UTF-8
+//! string; this should not happen unless you pass non-ASCII characters into the API
+//! (so don't do that).
+//!
+//! ## Omitted functions
+//!
+//! A small number of functions are excluded from the API, because they are:
+//! * Private
+//! * Deprecated/obsolete
+//! * Documented as "DO NOT CALL THIS ROUTINE", or return a `BOGUSENTRY` error
+//! * Redundant with basic Rust functionality, particularly string manipulation
+//!
+//! # Raw API
+//!
+//! An alternative version of the API is available in the [`raw`] module.
+//! This is a closer match to the FORTRAN API, without the special handling
+//! of return values.
+//! Each `raw` function reproduces the original FORTRAN API documentation,
+//! detailing every input/output argument.
+//! You probably shouldn't need to use this API directly,
+//! but the documentation is very helpful.
+//!
+//!
+//! # ...
+//!
 //! Because of its FORTRAN origins, the Rust API has a number of quirks:
 //!
 //! ## `SpiceContext`

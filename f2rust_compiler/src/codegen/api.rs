@@ -38,79 +38,79 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ra
     let sym = syms.get(name)?;
     let ty = emit_datatype(&sym.ast.base_type);
 
-    let name_lc = safe_identifier(&name.to_ascii_lowercase());
+    let ident = safe_identifier(&name.to_ascii_lowercase());
 
     Ok(match sym.rs_ty {
         RustType::Primitive => RawArg {
-            name: name_lc.clone(),
+            name: ident.clone(),
             ret_ty: ty.clone(),
-            param: format!("{name_lc}: {ty}"),
-            arg: name_lc.clone(),
+            param: format!("{ident}: {ty}"),
+            arg: ident.clone(),
         },
         RustType::PrimitiveRefMut => RawArg {
-            name: name_lc.clone(),
+            name: ident.clone(),
             ret_ty: ty.clone(),
-            param: format!("{name_lc}: &mut {ty}"),
-            arg: name_lc.clone(),
+            param: format!("{ident}: &mut {ty}"),
+            arg: ident.clone(),
         },
 
         RustType::DummyArray => {
             let (array, ret_ty, flatten) = emit_sized_array(&ty, &eval_dims(&sym.ast.dims, syms)?);
             RawArg {
-                name: name_lc.clone(),
+                name: ident.clone(),
                 ret_ty,
-                param: format!("{name_lc}: &{array}"),
+                param: format!("{ident}: &{array}"),
                 arg: if flatten {
-                    format!("{name_lc}.as_flattened()")
+                    format!("{ident}.as_flattened()")
                 } else {
-                    name_lc.clone()
+                    ident.clone()
                 },
             }
         }
         RustType::DummyArrayMut => {
             let (array, ret_ty, flatten) = emit_sized_array(&ty, &eval_dims(&sym.ast.dims, syms)?);
             RawArg {
-                name: name_lc.clone(),
+                name: ident.clone(),
                 ret_ty,
-                param: format!("{name_lc}: &mut {array}"),
+                param: format!("{ident}: &mut {array}"),
                 arg: if flatten {
-                    format!("{name_lc}.as_flattened_mut()")
+                    format!("{ident}.as_flattened_mut()")
                 } else {
-                    name_lc.clone()
+                    ident.clone()
                 },
             }
         }
 
         RustType::DummyCharArray => RawArg {
-            name: name_lc.clone(),
+            name: ident.clone(),
             ret_ty: "String".to_owned(),
-            param: format!("{name_lc}: CharArray"),
-            arg: name_lc.clone(),
+            param: format!("{ident}: CharArray"),
+            arg: ident.clone(),
         },
         RustType::DummyCharArrayMut => RawArg {
-            name: name_lc.clone(),
+            name: ident.clone(),
             ret_ty: "String".to_owned(),
-            param: format!("{name_lc}: CharArrayMut"),
-            arg: name_lc.clone(),
+            param: format!("{ident}: CharArrayMut"),
+            arg: ident.clone(),
         },
         RustType::CharSliceRef => {
             if let Some(size) = eval_character_len(&sym.ast.character_len, syms)? {
                 if size == 1 {
                     return Ok(RawArg {
-                        name: name_lc.clone(),
+                        name: ident.clone(),
                         ret_ty: "String".to_owned(),
-                        param: format!("{name_lc}: char"),
-                        arg: format!("&[u8::try_from({name_lc}).unwrap()]"),
+                        param: format!("{ident}: char"),
+                        arg: format!("&[u8::try_from({ident}).unwrap()]"),
                     });
                 } else {
                     // This only happens in LTIME, which wants a 2-char string
                 }
             }
             RawArg {
-                name: name_lc.clone(),
+                name: ident.clone(),
                 ret_ty: "String".to_owned(),
-                param: format!("{name_lc}: &str"),
-                arg: format!("{name_lc}.as_bytes()"),
+                param: format!("{ident}: &str"),
+                arg: format!("{ident}.as_bytes()"),
             }
             // TODO: if the string is empty, we should pass " " instead,
             // or else prove the FORTRAN code doesn't mind zero-length strings
@@ -118,25 +118,25 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ra
         RustType::CharSliceMut => {
             if let Some(size) = eval_character_len(&sym.ast.character_len, syms)? {
                 RawArg {
-                    name: name_lc.clone(),
+                    name: ident.clone(),
                     ret_ty: "String".to_owned(),
-                    param: format!("{name_lc}: &mut [u8; {size}]"),
-                    arg: name_lc.clone(),
+                    param: format!("{ident}: &mut [u8; {size}]"),
+                    arg: ident.clone(),
                 }
             } else {
                 RawArg {
-                    name: name_lc.clone(),
+                    name: ident.clone(),
                     ret_ty: "String".to_owned(),
-                    param: format!("{name_lc}: &mut str"),
-                    arg: format!("fstr::StrBytes::new({name_lc}).as_mut()"),
+                    param: format!("{ident}: &mut str"),
+                    arg: format!("fstr::StrBytes::new({ident}).as_mut()"),
                 }
             }
         }
         RustType::Procedure => RawArg {
-            name: name_lc.clone(),
+            name: ident.clone(),
             ret_ty: ty.clone(),
-            param: format!("{name_lc}: {ty}"),
-            arg: name_lc.clone(),
+            param: format!("{ident}: {ty}"),
+            arg: ident.clone(),
         },
 
         RustType::PrimitiveMut
@@ -220,10 +220,31 @@ fn should_expose(entry: &Entry) -> bool {
         return false;
     }
 
-    // Exclude some error-handling functions, which will either interfere with
-    // our built-in error handling system or be useless. Also "return()" is annoying
-    // because it's a Rust keyword
-    if matches!(name, "FAILED" | "RESET" | "RETURN") {
+    // Exclude functions that are redundant with basic Rust functionality,
+    // and that require non-trivial interfaces (especially string allocation)
+    if matches!(
+        name,
+        "ASTRIP"
+            | "CMPRSS"
+            | "LCASE"
+            | "UCASE"
+            | "LJUST"
+            | "RJUST"
+            | "PREFIX"
+            | "SUFFIX"
+            | "QUOTE"
+            | "SHIFTL"
+            | "SHIFTR"
+            | "CLEARC"
+            | "CLEARD"
+            | "CLEARI"
+            | "FILLC"
+            | "FILLD"
+            | "FILLI"
+            | "SWAPC"
+            | "SWAPD"
+            | "SWAPI"
+    ) {
         return false;
     }
 
@@ -386,6 +407,8 @@ impl CodeGen<'_> {
 
         for darg in &entry.ast.dargs {
             let arg = emit_api_symbol(&entry.ast.loc, darg, &entry.codegen.syms)?;
+            let ident = safe_identifier(&arg.name);
+
             if raw {
                 params.push(arg.param);
                 args.push(arg.arg);
@@ -405,23 +428,23 @@ impl CodeGen<'_> {
                         _ => "todo!()".to_owned(),
                     };
 
-                    writeln!(init, "  let mut {} = blank({len});", arg.name)?;
+                    writeln!(init, "  let mut {ident} = blank({len});")?;
 
                     ret_ty.push("String".to_owned());
-                    ret_vals.push(format!("trim({})", arg.name));
+                    ret_vals.push(format!("trim({ident})"));
                     ret_names.push(arg.name.clone());
                 } else {
                     if arg.ret_ty.starts_with("Vec<") {
                         writeln!(
                             init,
-                            "  let mut {}: {} = vec![Default::default(); todo!()];",
-                            arg.name, arg.ret_ty
+                            "  let mut {ident}: {} = vec![Default::default(); todo!()];",
+                            arg.ret_ty
                         )?;
                     } else {
                         writeln!(
                             init,
-                            "  let mut {}: {} = Default::default();",
-                            arg.name, arg.ret_ty
+                            "  let mut {ident}: {} = Default::default();",
+                            arg.ret_ty
                         )?;
                     }
 
@@ -429,14 +452,14 @@ impl CodeGen<'_> {
                         ret_found = true;
                     } else {
                         ret_ty.push(arg.ret_ty);
-                        ret_vals.push(arg.name.clone());
+                        ret_vals.push(ident.clone());
                         ret_names.push(arg.name.clone());
                     }
                 }
-                args.push(format!("&mut {}", arg.name));
+                args.push(format!("&mut {ident}"));
             } else {
                 params.push(arg.param);
-                args.push(arg.name.clone());
+                args.push(ident.clone());
             }
 
             // writeln!(
@@ -518,9 +541,11 @@ impl CodeGen<'_> {
                 args.push("ctx.raw_context()".to_owned());
             }
         } else {
-            params.insert(0, "&mut self".to_owned());
             if requires_ctx {
+                params.insert(0, "&mut self".to_owned());
                 args.insert(0, "self".to_owned());
+            } else {
+                params.insert(0, "&self".to_owned());
             }
         }
 
@@ -563,7 +588,8 @@ impl CodeGen<'_> {
         code += &docs;
         writeln!(
             code,
-            "pub fn {fn_name}{fn_lifetime}({params}) {ret} {{",
+            "pub fn {fn_ident}{fn_lifetime}({params}) {ret} {{",
+            fn_ident = safe_identifier(fn_name),
             params = params.join(", ")
         )?;
         code += &init;
@@ -588,7 +614,7 @@ impl CodeGen<'_> {
                 }
             }
         } else {
-            let call = &format!("raw::{fn_name}({args})", args = args.join(", "));
+            let call = &format!("raw::{}({})", safe_identifier(fn_name), args.join(", "));
             if matches!(ret_type, DataType::Void | DataType::Character) {
                 let mut ret = ret_vals.join(", ");
                 if ret_vals.len() != 1 {

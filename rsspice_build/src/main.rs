@@ -37,18 +37,18 @@ const SPLIT_SPLICELIB_CRATES: bool = false;
 
 const BUILD_PROGRAMS: bool = false;
 
+// From https://doc.rust-lang.org/reference/keywords.html, 2024 edition
+const KEYWORDS: &[&str] = &[
+    "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for",
+    "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
+    "self", "Self", "static", "struct", "super", "trait", "true", "type", "unsafe", "use", "where",
+    "while", "async", "await", "dyn", "abstract", "become", "box", "do", "final", "macro",
+    "override", "priv", "typeof", "unsized", "virtual", "yield", "try", "gen",
+];
+
 fn safe_identifier(s: &str) -> String {
-    // From https://doc.rust-lang.org/reference/keywords.html, 2024 edition
-    const KEYWORDS: &[&str] = &[
-        "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn",
-        "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref",
-        "return", "self", "Self", "static", "struct", "super", "trait", "true", "type", "unsafe",
-        "use", "where", "while", "async", "await", "dyn", "abstract", "become", "box", "do",
-        "final", "macro", "override", "priv", "typeof", "unsized", "virtual", "yield", "try",
-        "gen",
-    ];
     if KEYWORDS.contains(&s) {
-        format!("r#{s}")
+        format!("{s}_")
     } else {
         s.to_owned()
     }
@@ -757,7 +757,11 @@ fn main() -> Result<()> {
                     if let Some(apis) = exports_api.get(&(ns.to_string(), name.to_string())) {
                         let name_id = safe_identifier(name);
                         for export in apis {
-                            writeln!(modrs, "pub use super::{name_id}::{export};")?;
+                            writeln!(
+                                modrs,
+                                "pub use super::{name_id}::{};",
+                                safe_identifier(export)
+                            )?;
                         }
                     }
                 }
@@ -824,7 +828,7 @@ fn main() -> Result<()> {
                 error!("Failed to compile {namespace}/{filename}: {:?}", err);
             }
             Ok((code, code_api)) => {
-                let file_root = PathBuf::from(filename).with_extension("");
+                let file_root = PathBuf::from(safe_identifier(filename)).with_extension("");
 
                 let src = gen_root.join(namespace);
 
