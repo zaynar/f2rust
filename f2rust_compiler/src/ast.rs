@@ -11,6 +11,7 @@ use indexmap::IndexMap;
 use log::{error, warn};
 
 use crate::grammar::DataName;
+use crate::util::parse_header_comments;
 use crate::{file::SourceLoc, grammar, intrinsics};
 
 #[derive(Debug, Clone)]
@@ -1193,24 +1194,9 @@ impl Parser {
                     .collect::<Vec<_>>(),
             )?;
 
-            // Exclude private APIs from pool.f,
-            // and functions that explicit don't want to be called
-            if entry.name.starts_with("ZZ")
-                || entry
-                    .comment_sections
-                    .get("Abstract")
-                    .is_some_and(|c| c.join("").contains("DO NOT CALL THIS ROUTINE"))
-                || entry
-                    .comment_sections
-                    .get("Particulars")
-                    .is_some_and(|c| c.join("").contains("DO NOT CALL THIS ROUTINE"))
-            {
-                entry.api_name = None;
-            } else {
-                entry.api_name = Some(crate::util::safe_identifier(
-                    &entry.name.to_ascii_lowercase(),
-                ));
-            }
+            entry.api_name = Some(crate::util::safe_identifier(
+                &entry.name.to_ascii_lowercase(),
+            ));
         }
 
         let pu = ProgramUnit {
@@ -2176,25 +2162,4 @@ impl Parser {
             DataName::Expression(..) => {}
         }
     }
-}
-
-fn parse_header_comments(lines: &[String]) -> Result<IndexMap<String, Vec<String>>> {
-    let mut sections = IndexMap::new();
-    let mut section = None;
-    for c in lines {
-        if let Some(name) = c.strip_prefix("$ ") {
-            if sections.contains_key(name) {
-                error!("duplicate doc section {name}");
-            }
-            section = Some(name.to_owned());
-        } else if *c == "-&" {
-            section = None;
-        } else if let Some(section) = &section {
-            sections
-                .entry(section.clone())
-                .or_insert_with(Vec::new)
-                .push(c.to_string());
-        }
-    }
-    Ok(sections)
 }

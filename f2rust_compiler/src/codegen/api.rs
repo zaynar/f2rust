@@ -1,4 +1,4 @@
-use crate::ast::{DataType, ProgramUnitType, Statement};
+use crate::ast::{DataType, LenSpecification, ProgramUnitType, Statement};
 use crate::codegen::{
     CodeGen, Entry, RustType, SymbolTable, emit_datatype, eval_character_len, eval_dims,
     format_comment_block,
@@ -15,11 +15,12 @@ use std::fmt::Write;
 
 struct RawArg {
     name: String,
+    ret_ty: String,
     param: String,
     arg: String,
 }
 
-fn emit_sized_array(ty: &str, dims: &[Option<i32>]) -> (String, bool) {
+fn emit_sized_array(ty: &str, dims: &[Option<i32>]) -> (String, String, bool) {
     let mut r = ty.to_owned();
     let mut depth = 0;
     for dim in dims {
@@ -27,10 +28,10 @@ fn emit_sized_array(ty: &str, dims: &[Option<i32>]) -> (String, bool) {
         if let Some(n) = dim {
             r = format!("[{r}; {n}]");
         } else {
-            return (format!("[{r}]"), depth > 1);
+            return (format!("[{r}]"), format!("Vec<{r}>"), depth > 1);
         }
     }
-    (r, depth > 1)
+    (r.clone(), r, depth > 1)
 }
 
 fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<RawArg> {
@@ -42,19 +43,22 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ra
     Ok(match sym.rs_ty {
         RustType::Primitive => RawArg {
             name: name_lc.clone(),
+            ret_ty: ty.clone(),
             param: format!("{name_lc}: {ty}"),
             arg: name_lc.clone(),
         },
         RustType::PrimitiveRefMut => RawArg {
             name: name_lc.clone(),
+            ret_ty: ty.clone(),
             param: format!("{name_lc}: &mut {ty}"),
             arg: name_lc.clone(),
         },
 
         RustType::DummyArray => {
-            let (array, flatten) = emit_sized_array(&ty, &eval_dims(&sym.ast.dims, syms)?);
+            let (array, ret_ty, flatten) = emit_sized_array(&ty, &eval_dims(&sym.ast.dims, syms)?);
             RawArg {
                 name: name_lc.clone(),
+                ret_ty,
                 param: format!("{name_lc}: &{array}"),
                 arg: if flatten {
                     format!("{name_lc}.as_flattened()")
@@ -64,9 +68,10 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ra
             }
         }
         RustType::DummyArrayMut => {
-            let (array, flatten) = emit_sized_array(&ty, &eval_dims(&sym.ast.dims, syms)?);
+            let (array, ret_ty, flatten) = emit_sized_array(&ty, &eval_dims(&sym.ast.dims, syms)?);
             RawArg {
                 name: name_lc.clone(),
+                ret_ty,
                 param: format!("{name_lc}: &mut {array}"),
                 arg: if flatten {
                     format!("{name_lc}.as_flattened_mut()")
@@ -78,11 +83,13 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ra
 
         RustType::DummyCharArray => RawArg {
             name: name_lc.clone(),
+            ret_ty: "String".to_owned(),
             param: format!("{name_lc}: CharArray"),
             arg: name_lc.clone(),
         },
         RustType::DummyCharArrayMut => RawArg {
             name: name_lc.clone(),
+            ret_ty: "String".to_owned(),
             param: format!("{name_lc}: CharArrayMut"),
             arg: name_lc.clone(),
         },
@@ -91,6 +98,7 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ra
                 if size == 1 {
                     return Ok(RawArg {
                         name: name_lc.clone(),
+                        ret_ty: "String".to_owned(),
                         param: format!("{name_lc}: char"),
                         arg: format!("&[u8::try_from({name_lc}).unwrap()]"),
                     });
@@ -100,6 +108,7 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ra
             }
             RawArg {
                 name: name_lc.clone(),
+                ret_ty: "String".to_owned(),
                 param: format!("{name_lc}: &str"),
                 arg: format!("{name_lc}.as_bytes()"),
             }
@@ -110,12 +119,14 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ra
             if let Some(size) = eval_character_len(&sym.ast.character_len, syms)? {
                 RawArg {
                     name: name_lc.clone(),
+                    ret_ty: "String".to_owned(),
                     param: format!("{name_lc}: &mut [u8; {size}]"),
                     arg: name_lc.clone(),
                 }
             } else {
                 RawArg {
                     name: name_lc.clone(),
+                    ret_ty: "String".to_owned(),
                     param: format!("{name_lc}: &mut str"),
                     arg: format!("fstr::StrBytes::new({name_lc}).as_mut()"),
                 }
@@ -123,6 +134,7 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ra
         }
         RustType::Procedure => RawArg {
             name: name_lc.clone(),
+            ret_ty: ty.clone(),
             param: format!("{name_lc}: {ty}"),
             arg: name_lc.clone(),
         },
@@ -143,31 +155,18 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ra
     })
 }
 
-pub fn parse_header_comments(lines: &[String]) -> Result<IndexMap<String, Vec<String>>> {
-    let mut sections = IndexMap::new();
-    let mut section = None;
-    for c in lines {
-        if let Some(name) = c.strip_prefix("$ ") {
-            if sections.contains_key(name) {
-                error!("duplicate doc section {name}");
-            }
-            section = Some(name.to_owned());
-        } else if *c == "-&" {
-            section = None;
-        } else if let Some(section) = &section {
-            sections
-                .entry(section.clone())
-                .or_insert_with(Vec::new)
-                .push(c.to_string());
-        }
-    }
-    Ok(sections)
-}
-
+// Does this statement (recursively) call SIGERR('SPICE(...BOGUSENTRY)')
+// or (for TRCPKG) WRLINE(..., 'SPICE(...BOGUSENTRY)')
 fn is_bogus_entry(st: &Statement) -> bool {
     match st {
         Statement::Call(func, args) if func == "SIGERR" => {
-            matches!(args.first().unwrap(),
+            matches!(&args[0],
+            ast::Expression::Constant(Constant::Character(s)) if
+                s.starts_with("SPICE(") && s.ends_with("BOGUSENTRY)")
+            )
+        }
+        Statement::Call(func, args) if func == "WRLINE" => {
+            matches!(&args[1],
             ast::Expression::Constant(Constant::Character(s)) if
                 s.starts_with("SPICE(") && s.ends_with("BOGUSENTRY)")
             )
@@ -177,6 +176,76 @@ fn is_bogus_entry(st: &Statement) -> bool {
             .any(|b| b.iter().any(|(_loc, st)| is_bogus_entry(st))),
         _ => false,
     }
+}
+
+fn should_expose(entry: &Entry) -> bool {
+    let name = entry.ast.name.as_str();
+
+    // Don't expose functions that return BOGUSENTRY/CKBOGUSENTRY/etc
+    // since they're not meant to be called directly.
+    // (But they may have useful docs, so still emit the raw function)
+    if entry.ast.body.iter().any(|(_loc, st)| is_bogus_entry(st)) {
+        return false;
+    }
+
+    // Don't expose deprecated/obsolete functions, especially
+    // BODVAR/RTPOOL/etc which have no way to avoid buffer overflows
+    if entry
+        .ast
+        .comment_sections
+        .get("Abstract")
+        .is_some_and(|c| c.join("").trim_ascii_start().starts_with("Deprecated:"))
+        || matches!(name, "RTPOOL" | "DAFRDR" | "DASOPN" | "PCKEUL")
+    {
+        return false;
+    }
+
+    // Don't expose functions that explicitly don't want to be called
+    if entry
+        .ast
+        .comment_sections
+        .get("Abstract")
+        .is_some_and(|c| c.join("").contains("DO NOT CALL THIS ROUTINE"))
+        || entry
+            .ast
+            .comment_sections
+            .get("Particulars")
+            .is_some_and(|c| c.join("").contains("DO NOT CALL THIS ROUTINE"))
+    {
+        return false;
+    }
+
+    // Exclude private APIs from pool.f
+    if name.starts_with("ZZ") {
+        return false;
+    }
+
+    // Exclude some error-handling functions, which will either interfere with
+    // our built-in error handling system or be useless. Also "return()" is annoying
+    // because it's a Rust keyword
+    if matches!(name, "FAILED" | "RESET" | "RETURN") {
+        return false;
+    }
+
+    true
+}
+
+fn should_return_arg(
+    entry: &Entry,
+    arg_dirs: &IndexMap<&str, &str>,
+    darg: &String,
+) -> Result<bool> {
+    if arg_dirs.get(darg.as_str()) != Some(&"O") {
+        return Ok(false);
+    }
+
+    // Don't return CharArrayMut, since we typically have no idea how much space to allocate
+    let sym = entry.codegen.syms.get(darg)?;
+    if matches!(sym.ast.base_type, DataType::Character) && !sym.ast.dims.is_empty() {
+        return Ok(false);
+    }
+
+    Ok(true)
 }
 
 impl CodeGen<'_> {
@@ -198,10 +267,7 @@ impl CodeGen<'_> {
         let entry_name = &entry.ast.name;
         let fn_name = entry.ast.api_name.as_ref().unwrap();
 
-        // Don't expose functions that return BOGUSENTRY/CKBOGUSENTRY/etc
-        // since they're not meant to be called directly.
-        // (But they may have useful docs, so still emit the raw function)
-        if !raw && entry.ast.body.iter().any(|(_loc, st)| is_bogus_entry(st)) {
+        if !raw && !should_expose(entry) {
             return Ok(code);
         }
 
@@ -310,6 +376,77 @@ impl CodeGen<'_> {
             }
         }
 
+        let mut params = vec![];
+        let mut args = vec![];
+        let mut init = String::new();
+        let mut ret_ty = vec![];
+        let mut ret_vals = vec![];
+        let mut ret_names = vec![];
+        let mut ret_found = false;
+
+        for darg in &entry.ast.dargs {
+            let arg = emit_api_symbol(&entry.ast.loc, darg, &entry.codegen.syms)?;
+            if raw {
+                params.push(arg.param);
+                args.push(arg.arg);
+            } else if should_return_arg(&entry, &arg_dirs, darg)? {
+                let sym = entry.codegen.syms.get(darg)?;
+                if matches!(sym.ast.base_type, DataType::Character) {
+                    let len = match &sym.ast.character_len {
+                        Some(LenSpecification::Unspecified) => bail!("{darg} unspecified length"),
+                        Some(LenSpecification::Integer(n)) => format!("{n}"),
+                        Some(LenSpecification::IntConstantExpr(e)) => {
+                            if let Some(n) = e.eval_constant(&entry.codegen.syms)? {
+                                format!("{n}")
+                            } else {
+                                "todo!()".to_owned()
+                            }
+                        }
+                        _ => "todo!()".to_owned(),
+                    };
+
+                    writeln!(init, "  let mut {} = blank({len});", arg.name)?;
+
+                    ret_ty.push("String".to_owned());
+                    ret_vals.push(format!("trim({})", arg.name));
+                    ret_names.push(arg.name.clone());
+                } else {
+                    if arg.ret_ty.starts_with("Vec<") {
+                        writeln!(
+                            init,
+                            "  let mut {}: {} = vec![Default::default(); todo!()];",
+                            arg.name, arg.ret_ty
+                        )?;
+                    } else {
+                        writeln!(
+                            init,
+                            "  let mut {}: {} = Default::default();",
+                            arg.name, arg.ret_ty
+                        )?;
+                    }
+
+                    if darg == "FOUND" {
+                        ret_found = true;
+                    } else {
+                        ret_ty.push(arg.ret_ty);
+                        ret_vals.push(arg.name.clone());
+                        ret_names.push(arg.name.clone());
+                    }
+                }
+                args.push(format!("&mut {}", arg.name));
+            } else {
+                params.push(arg.param);
+                args.push(arg.name.clone());
+            }
+
+            // writeln!(
+            //     docs,
+            //     "/// * {}: {}",
+            //     arg.name,
+            //     arg_dirs.get(darg.as_str()).unwrap_or(&"?")
+            // )?;
+        }
+
         if raw {
             // Copy all the other interesting sections
             for (name, content) in &entry.ast.comment_sections {
@@ -348,31 +485,26 @@ impl CodeGen<'_> {
                 }
             }
         } else {
+            if !ret_names.is_empty() {
+                let mut r = ret_names
+                    .iter()
+                    .map(|n| format!("`{n}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                if ret_names.len() > 1 {
+                    r = format!("({r})");
+                }
+
+                writeln!(docs, "///")?;
+                writeln!(docs, "/// Returns {r}.")?;
+            }
+
             writeln!(docs, "///")?;
             writeln!(
                 docs,
                 "/// See [`{fn_name}`](raw::{fn_name}) for full documentation."
             )?;
-        }
-
-        let mut params = vec![];
-        let mut args = vec![];
-
-        for darg in &entry.ast.dargs {
-            let arg = emit_api_symbol(&entry.ast.loc, darg, &entry.codegen.syms)?;
-            params.push(arg.param);
-            if raw {
-                args.push(arg.arg);
-            } else {
-                args.push(arg.name.clone());
-            }
-
-            // writeln!(
-            //     docs,
-            //     "/// * {}: {}",
-            //     arg.name,
-            //     arg_dirs.get(darg.as_str()).unwrap_or(&"?")
-            // )?;
         }
 
         let requires_ctx = entry
@@ -415,11 +547,17 @@ impl CodeGen<'_> {
                 format!("-> {}", emit_datatype(ret_type))
             }
         } else {
-            if returns_result {
-                format!("-> {result}<()>")
-            } else {
-                "".to_owned()
+            let mut ret = ret_ty.join(", ");
+            if ret_ty.len() != 1 {
+                ret = format!("({ret})");
             }
+            if ret_found {
+                ret = format!("Option<{ret}>");
+            }
+            if returns_result {
+                ret = format!("{result}<{ret}>");
+            }
+            format!("-> {ret}")
         };
 
         code += &docs;
@@ -428,6 +566,7 @@ impl CodeGen<'_> {
             "pub fn {fn_name}{fn_lifetime}({params}) {ret} {{",
             params = params.join(", ")
         )?;
+        code += &init;
         if raw {
             let call = &format!("{entry_name}({args})", args = args.join(", "));
             if matches!(ret_type, DataType::Void | DataType::Character) {
@@ -450,7 +589,27 @@ impl CodeGen<'_> {
             }
         } else {
             let call = &format!("raw::{fn_name}({args})", args = args.join(", "));
-            writeln!(code, "  {call}")?;
+            if matches!(ret_type, DataType::Void | DataType::Character) {
+                let mut ret = ret_vals.join(", ");
+                if ret_vals.len() != 1 {
+                    ret = format!("({ret})");
+                }
+                if ret_found {
+                    ret = format!("if found {{ Some({ret}) }} else {{ None }}");
+                }
+                if returns_result {
+                    writeln!(code, "  {call}?;")?;
+                    writeln!(code, "  Ok({ret})")?;
+                } else {
+                    writeln!(code, "  {call};")?;
+                    writeln!(code, "  {ret}")?;
+                }
+            } else {
+                if !ret_vals.is_empty() {
+                    bail!("function has output parameters");
+                }
+                writeln!(code, "  {call}")?;
+            }
         }
         writeln!(code, "}}")?;
         writeln!(code)?;

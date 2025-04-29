@@ -24,6 +24,7 @@ use std::{
 use tracing::{Level, error, info, span};
 use walkdir::WalkDir;
 
+use f2rust_compiler::util::parse_header_comments;
 use f2rust_compiler::{
     ast, codegen,
     file::{SourceLoc, parse_fixed, split_program_units},
@@ -801,6 +802,14 @@ fn main() -> Result<()> {
         "use f2rust_std::{{CharArray, CharArrayMut, Context}};"
     )?;
     writeln!(apirs)?;
+    writeln!(apirs, "fn blank(len: i32) -> String {{")?;
+    writeln!(apirs, "  \" \".repeat(len as usize)")?;
+    writeln!(apirs, "}}")?;
+    writeln!(apirs)?;
+    writeln!(apirs, "fn trim(s: String) -> String {{")?;
+    writeln!(apirs, "  s.trim_ascii_end().to_owned()")?;
+    writeln!(apirs, "}}")?;
+    writeln!(apirs)?;
     writeln!(apirs, "impl SpiceContext<'_> {{")?;
 
     let mut succeeded = 0;
@@ -1133,7 +1142,7 @@ fn translate_incs(src_root: &Path, gen_root: &Path) -> Result<()> {
             .map(|line| line.to_owned())
             .collect();
 
-        let comments = codegen::api::parse_header_comments(
+        let comments = parse_header_comments(
             &lines
                 .iter()
                 .filter_map(|line| line.strip_prefix("C").map(|s| s.to_owned()))
