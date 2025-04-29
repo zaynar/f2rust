@@ -1,6 +1,5 @@
 use std::fmt::Formatter;
 
-#[derive(Debug)]
 pub enum Error {
     InternalError(f2rust_std::Error),
     UnknownSpiceError(String, String),
@@ -1244,6 +1243,12 @@ fn fmt_spice(f: &mut Formatter<'_>, short: &str, long: &str) -> std::fmt::Result
     msg += long;
 
     f.write_str(&msg)
+}
+
+impl std::fmt::Debug for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self, f)
+    }
 }
 
 impl std::fmt::Display for Error {
