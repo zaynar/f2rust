@@ -7,8 +7,4 @@ members = [
     "f2rust_test",
     "rsspice",
     "rsspice_build",
-    "generated/rsspice_api",
-    "generated/rsspice_tspice",
-    "generated/rsspice_programs",
 ]
-

@@ -9,6 +9,7 @@ html5ever = "0.27.0"
 indexmap = "2.8.0"
 markup5ever_rcdom = "0.3.0"
 rayon = "1.10.0"
+regex = "1.11.1"
 relative-path = "1.9.3"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["fmt"] }

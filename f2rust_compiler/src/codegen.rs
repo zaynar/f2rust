@@ -2773,11 +2773,8 @@ impl<'a> CodeGen<'a> {
         }
     }
 
-    pub fn emit(&mut self) -> Result<String> {
+    pub fn emit(&mut self, api: bool) -> Result<String> {
         let mut code = String::new();
-
-        code += "use f2rust_std::*;\n";
-        code += "\n";
 
         code += &self.shared.emit_constants(false)?;
         code += &self.shared.emit_save_struct()?;
@@ -2829,6 +2826,10 @@ impl<'a> CodeGen<'a> {
         }
 
         for entry in &self.entries {
+            if api && entry.ast.api_name.is_some() {
+                code += &self.emit_api(entry)?;
+            }
+
             let pre_comments = entry
                 .ast
                 .pre_comments

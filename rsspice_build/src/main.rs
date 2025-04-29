@@ -32,7 +32,9 @@ use f2rust_compiler::{
 };
 
 // This reduces build times by ~50% (and even better if there are lots of build errors)
-const SPLIT_SPLICELIB_CRATES: bool = true;
+const SPLIT_SPLICELIB_CRATES: bool = false;
+
+const BUILD_PROGRAMS: bool = false;
 
 fn safe_identifier(s: &str) -> String {
     // From https://doc.rust-lang.org/reference/keywords.html, 2024 edition
@@ -194,16 +196,13 @@ impl DepGraph {
             self.assign_rest("tspice-1d", "tspice", deps, Some(1000));
             self.assign_all("tspice-2", "tspice");
         } else {
-            let deps = &["spicelib", "support", "testutil"];
-            self.assign_rest("tspice-1a", "tspice", deps, Some(100));
-            self.assign_rest("tspice-1b", "tspice", deps, Some(100));
-            self.assign_rest("tspice-1c", "tspice", deps, Some(100));
-            self.assign_rest("tspice-1d", "tspice", deps, Some(1000));
-            self.assign_all("tspice-2", "tspice");
+            self.assign_all("tspice", "tspice");
         }
 
-        for ns in HashSet::<String>::from_iter(self.deps.keys().map(|d| d.0.clone())) {
-            self.assign_all("programs", &ns);
+        if BUILD_PROGRAMS {
+            for ns in HashSet::<String>::from_iter(self.deps.keys().map(|d| d.0.clone())) {
+                self.assign_all("programs", &ns);
+            }
         }
 
         for vs in self.crates.values_mut() {
@@ -428,7 +427,13 @@ fn main() -> Result<()> {
 
     let src_root = PathBuf::from("tspice/src");
     let override_root = PathBuf::from("rsspice_build/override");
-    let gen_root = PathBuf::from("generated");
+    let gen_root = PathBuf::from("rsspice/src/generated");
+    let bin_root = PathBuf::from("rsspice/src/bin");
+
+    std::fs::create_dir_all(&gen_root)?;
+    if BUILD_PROGRAMS {
+        std::fs::create_dir_all(&bin_root)?;
+    }
 
     translate_reqs(&src_root, &gen_root)?;
     translate_incs(&src_root, &gen_root)?;
@@ -569,19 +574,27 @@ fn main() -> Result<()> {
         })
         .collect();
 
-    let exports: HashMap<_, _> = program_units
-        .iter()
-        .map(|pu| {
-            let k = (pu.namespace.clone(), pu.filename.clone());
-            let v = pu
-                .ast
-                .entries
-                .iter()
-                .map(|entry| entry.name.clone())
-                .collect::<Vec<_>>();
-            (k, v)
-        })
-        .collect();
+    let mut exports = HashMap::new();
+    let mut exports_api = HashMap::new();
+
+    for pu in &program_units {
+        let k = (pu.namespace.clone(), pu.filename.clone());
+        for entry in &pu.ast.entries {
+            exports
+                .entry(k.clone())
+                .or_insert_with(Vec::new)
+                .push(entry.name.clone());
+
+            if let Some(api) = &entry.api_name {
+                if is_public_api(&pu.namespace, &pu.filename) {
+                    exports_api
+                        .entry(k.clone())
+                        .or_insert_with(Vec::new)
+                        .push(api.clone());
+                }
+            }
+        }
+    }
 
     let mut glob = globan::GlobalAnalysis::new(&["spicelib", "support", "testutil"], program_units);
     glob.analyse()?;
@@ -592,76 +605,11 @@ fn main() -> Result<()> {
     deps.dump();
     println!("Unassigned: {}", deps.deps.len() - deps.assigned.len());
 
-    // let mut sources = HashSet::new();
-    // sources.extend(deps.trans[&("tspice".to_owned(), "f_aaaaphsh".to_owned())].clone());
-    // sources.extend(deps.trans[&("tspice".to_owned(), "f_ab".to_owned())].clone());
-    // sources.extend(deps.trans[&("tspice".to_owned(), "f_bodvar".to_owned())].clone());
-    // sources.extend(deps.trans[&("tspice".to_owned(), "f_ckcov".to_owned())].clone());
-    // sources.extend(deps.trans[&("tspice".to_owned(), "f_ckgp".to_owned())].clone());
-    // sources.extend(deps.trans[&("tspice".to_owned(), "f_et2utc".to_owned())].clone());
-    // sources.extend(deps.trans[&("tspice".to_owned(), "f_euler".to_owned())].clone());
-    // sources.extend(deps.trans[&("tspice".to_owned(), "f_gfuds".to_owned())].clone());
-    // sources.extend(deps.trans[&("tspice".to_owned(), "f_m2q".to_owned())].clone());
-    // sources.extend(deps.trans[&("tspice".to_owned(), "f_moved".to_owned())].clone());
-    // sources.extend(deps.trans[&("tspice".to_owned(), "f_pxform".to_owned())].clone());
-    // sources.extend(deps.trans[&("tspice".to_owned(), "f_q2m".to_owned())].clone());
-    // sources.extend(deps.trans[&("tspice".to_owned(), "f_sclk".to_owned())].clone());
-    // sources.extend(deps.trans[&("tspice".to_owned(), "f_str2et".to_owned())].clone());
-    // sources.extend(deps.trans[&("tspice".to_owned(), "f_term".to_owned())].clone());
-    // sources.extend(deps.trans[&("tspice".to_owned(), "f_vector3".to_owned())].clone());
-    // sources.extend(deps.trans[&("tspice".to_owned(), "f_vectorg".to_owned())].clone());
-    // sources.extend(deps.trans[&("tspice".to_owned(), "f_zzplat".to_owned())].clone());
-    //
-    // sources.extend(deps.trans[&("testutil".to_owned(), "tsetup".to_owned())].clone());
-    // sources.extend(deps.trans[&("testutil".to_owned(), "tclose".to_owned())].clone());
-    //
-    // // Some old manual tests
-    // sources.extend(deps.trans[&("spicelib".to_owned(), "ana".to_owned())].clone());
-    // sources.extend(deps.trans[&("spicelib".to_owned(), "benum".to_owned())].clone());
-    //
-    // // EQUIVALENCE aliasing
-    // sources.extend(deps.trans[&("support".to_owned(), "lbrem_1".to_owned())].clone());
-    //
-    // sources.extend(deps.trans[&("testutil".to_owned(), "t_pck09".to_owned())].clone());
-    // sources.extend(deps.trans[&("spicelib".to_owned(), "zzgflong".to_owned())].clone());
-    //
-    // let mut sources = Vec::from_iter(sources.iter());
-
     let mut sources = deps.assigned.keys().collect::<Vec<_>>();
 
     sources.sort();
 
     println!("Compiling {} files", sources.len());
-
-    let api_sources: Vec<_> = sources
-        .iter()
-        .filter(|(namespace, filename)| {
-            // Only spicelib is public API
-            if !namespace.starts_with("spicelib") {
-                return false;
-            }
-
-            // Skip private functions
-            if filename.starts_with("zz") {
-                return false;
-            }
-
-            // Skip ones we've overriding, because they don't have API docs
-            if matches!(
-                filename.as_str(),
-                "swapc_array" | "swapd_array" | "swapi_array" | "moved" | "seterr"
-            ) {
-                return false;
-            }
-
-            // TOUCHC is awkward because it 'returns' a string, and all the TOUCH functions are useless
-            if filename.starts_with("touch") {
-                return false;
-            }
-
-            true
-        })
-        .collect();
 
     let mut crates = Vec::new();
     if SPLIT_SPLICELIB_CRATES {
@@ -708,134 +656,78 @@ fn main() -> Result<()> {
     crates.extend([
         ("support", vec!["spicelib"]),
         ("testutil", vec!["spicelib", "support"]),
-        ("tspice-1a", vec!["spicelib", "support", "testutil"]),
-        ("tspice-1b", vec!["spicelib", "support", "testutil"]),
-        ("tspice-1c", vec!["spicelib", "support", "testutil"]),
-        ("tspice-1d", vec!["spicelib", "support", "testutil"]),
-        (
-            "tspice-2",
-            vec![
-                "spicelib",
-                "support",
-                "testutil",
-                "tspice-1a",
-                "tspice-1b",
-                "tspice-1c",
-                "tspice-1d",
-            ],
-        ),
-        (
-            "tspice",
-            vec![
-                "tspice-1a",
-                "tspice-1b",
-                "tspice-1c",
-                "tspice-1d",
-                "tspice-2",
-            ],
-        ),
-        (
-            "programs",
-            vec!["spicelib", "support", "tspice", "testutil"],
-        ),
+        ("tspice", vec!["spicelib", "support", "testutil"]),
     ]);
 
+    {
+        let mut modrs = File::create(gen_root.join("mod.rs"))?;
+        writeln!(modrs, "//\n// GENERATED FILE\n//\n")?;
+        writeln!(modrs, "#![allow(non_snake_case)]")?;
+        writeln!(modrs, "#![allow(unused_parens, clippy::double_parens)]")?;
+        writeln!(modrs, "#![allow(unused_mut, unused_assignments)]")?;
+        writeln!(modrs, "#![allow(unused_imports)]")?;
+        writeln!(modrs, "#![allow(unused_variables)]")?;
+        writeln!(modrs, "#![allow(unreachable_code)]")?;
+        writeln!(modrs, "#![allow(dead_code)]")?;
+        writeln!(modrs, "#![allow(clippy::while_immutable_condition)]")?;
+        writeln!(modrs, "#![allow(clippy::assign_op_pattern)]")?;
+        writeln!(modrs, "#![allow(clippy::needless_return)]")?;
+        writeln!(modrs, "#![allow(clippy::unnecessary_cast)]")?;
+        writeln!(modrs, "#![allow(clippy::if_same_then_else)]")?;
+        writeln!(modrs, "#![allow(clippy::needless_bool_assign)]")?;
+        writeln!(modrs, "#![allow(clippy::collapsible_if)]")?;
+        writeln!(modrs, "#![allow(clippy::too_many_arguments)]")?;
+        writeln!(modrs, "#![allow(clippy::type_complexity)]")?;
+        writeln!(modrs)?;
+        writeln!(modrs, "pub mod required_reading;")?;
+        writeln!(modrs)?;
+
+        let mut namespaces: Vec<_> = sources.iter().map(|(ns, _nm)| ns).collect();
+        namespaces.sort();
+        namespaces.dedup();
+        for ns in &namespaces {
+            if *ns != "spicelib" {
+                writeln!(modrs, "#[cfg(feature = \"tspice\")]")?;
+            }
+            writeln!(modrs, "pub mod {ns};")?;
+            writeln!(modrs)?;
+        }
+    }
+
     for (name, ds) in crates {
-        let cratename = format!("rsspice_{name}");
-
-        let path = gen_root.join(&cratename);
-
-        std::fs::create_dir_all(path.join("src"))?;
+        let path = &gen_root;
 
         let cratefiles = deps.crates.get(name).cloned().unwrap_or_default();
         let mut namespaces: Vec<_> = cratefiles.iter().map(|(ns, _nm)| ns).collect();
         namespaces.sort();
         namespaces.dedup();
         for ns in &namespaces {
-            let src = path.join("src").join(ns);
+            let src = path.join(ns);
 
             if !std::fs::exists(&src)? {
                 std::fs::create_dir(&src)?;
             }
         }
 
-        let mut cargo = File::create(path.join("Cargo.toml"))?;
-        writeln!(cargo, "#\n# GENERATED FILE\n#\n")?;
-        writeln!(cargo, "[package]")?;
-        writeln!(cargo, r#"name = "{cratename}""#)?;
-        writeln!(cargo, r#"version = "0.1.0""#)?;
-        writeln!(cargo, r#"edition = "2024""#)?;
-        writeln!(cargo)?;
-        writeln!(cargo, "[dependencies]")?;
-        writeln!(cargo, r#"f2rust_std = {{ path = "../../f2rust_std" }}"#)?;
-        for d in &ds {
-            writeln!(cargo, r#"rsspice_{d} = {{ path = "../rsspice_{d}" }}"#)?;
-        }
-        drop(cargo);
-
-        let mut ignore = File::create(path.join("src/.gitignore"))?;
-        writeln!(ignore, "*/")?;
-        drop(ignore);
-
-        let mut librs = File::create(path.join("src/lib.rs"))?;
-        writeln!(librs, "//\n// GENERATED FILE\n//\n")?;
-        writeln!(librs, "#![allow(unused_imports)]\n")?;
-        if (SPLIT_SPLICELIB_CRATES && name == "spicelib") || name == "tspice" {
-            writeln!(librs, "pub mod {name} {{")?;
-            for d in &ds {
-                let dcrate = format!("rsspice_{d}");
-                let dmod = dcrate.replace("-", "_");
-                writeln!(librs, "    pub use {dmod}::{name}::*;")?;
-            }
-            writeln!(librs, "}}")?;
-        } else {
-            for ns in &namespaces {
-                writeln!(librs, "pub mod {ns};")?;
-            }
-        }
-        if ds.contains(&"support") {
-            writeln!(librs)?;
-            writeln!(librs, "pub(crate) use rsspice_support as support;")?;
-        }
-        if ds.contains(&"testutil") {
-            writeln!(librs)?;
-            writeln!(librs, "pub(crate) use rsspice_testutil as testutil;")?;
-        }
-        drop(librs);
-
         for ns in &namespaces {
-            let mut modrs = File::create(path.join("src").join(ns).join("mod.rs"))?;
+            let mut modrs = File::create(path.join(ns).join("mod.rs"))?;
             writeln!(modrs, "//\n// GENERATED FILE\n//\n")?;
-            writeln!(modrs, "#![allow(non_snake_case)]")?;
-            writeln!(modrs, "#![allow(unused_parens, clippy::double_parens)]")?;
-            writeln!(modrs, "#![allow(unused_mut, unused_assignments)]")?;
-            writeln!(modrs, "#![allow(unused_imports)]")?;
-            writeln!(modrs, "#![allow(unused_variables)]")?;
-            writeln!(modrs, "#![allow(unreachable_code)]")?;
-            writeln!(modrs, "#![allow(dead_code)]")?;
-            writeln!(modrs, "#![allow(clippy::while_immutable_condition)]")?;
-            writeln!(modrs, "#![allow(clippy::assign_op_pattern)]")?;
-            writeln!(modrs, "#![allow(clippy::needless_return)]")?;
-            writeln!(modrs, "#![allow(clippy::unnecessary_cast)]")?;
-            writeln!(modrs, "#![allow(clippy::if_same_then_else)]")?;
-            writeln!(modrs, "#![allow(clippy::needless_bool_assign)]")?;
-            writeln!(modrs, "#![allow(clippy::collapsible_if)]")?;
-            writeln!(modrs, "#![allow(clippy::too_many_arguments)]")?;
-            writeln!(modrs, "#![allow(clippy::type_complexity)]")?;
-            writeln!(modrs)?;
 
             for d in &ds {
-                let dcrate = format!("rsspice_{d}");
-                let dmod = dcrate.replace("-", "_");
                 if d.starts_with("spicelib") && ns.starts_with("spicelib") {
-                    writeln!(modrs, "use {dmod}::spicelib::*;")?;
+                    writeln!(modrs, "use crate::generated::spicelib::*;")?;
                 } else if d.starts_with("tspice") && ns.starts_with("tspice") {
-                    writeln!(modrs, "use {dmod}::tspice::*;")?;
+                    writeln!(modrs, "use crate::generated::tspice::*;")?;
                 } else {
-                    writeln!(modrs, "use {dmod}::{d};")?;
+                    writeln!(modrs, "use crate::generated::{d};")?;
                 }
             }
             writeln!(modrs)?;
+
+            if *ns == "spicelib" {
+                writeln!(modrs, "pub mod inc;")?;
+                writeln!(modrs)?;
+            }
 
             let mut modnames = cratefiles
                 .iter()
@@ -854,17 +746,32 @@ fn main() -> Result<()> {
                     writeln!(modrs, "pub use {name_id}::{export};")?;
                 }
             }
+
+            if *ns == "spicelib" {
+                writeln!(modrs)?;
+                writeln!(modrs, "pub mod api {{")?;
+                writeln!(modrs, "pub use super::inc;")?;
+                for name in &modnames {
+                    if let Some(apis) = exports_api.get(&(ns.to_string(), name.to_string())) {
+                        let name_id = safe_identifier(name);
+                        for export in apis {
+                            writeln!(modrs, "pub use super::{name_id}::{export};")?;
+                        }
+                    }
+                }
+                writeln!(modrs, "}}")?;
+            }
         }
 
         if name == "programs" {
             for (ns, bin) in &bins {
                 let func = bin.to_ascii_uppercase();
                 let module = if ns == "tspice" {
-                    "rsspice_tspice"
+                    "crate::generated::tspice"
                 } else {
-                    "rsspice_programs"
+                    "crate::generated::programs"
                 };
-                let mut binrs = File::create(path.join("src/bin").join(bin).with_extension("rs"))?;
+                let mut binrs = File::create(bin_root.join(bin).with_extension("rs"))?;
                 writeln!(binrs, "//\n// GENERATED FILE\n//\n")?;
                 writeln!(binrs, "use std::process::ExitCode;")?;
                 writeln!(binrs)?;
@@ -884,50 +791,32 @@ fn main() -> Result<()> {
         }
     }
 
-    {
-        let path = gen_root.join("rsspice_api");
-        let mut apirs = File::create(path.join("src/raw/mod.rs"))?;
-        writeln!(apirs, "//\n// GENERATED FILE\n//\n")?;
-        writeln!(apirs, "#![allow(unused_imports)]")?;
-        writeln!(apirs, "#![allow(unused_variables)]")?;
-
-        let mut modnames = api_sources.iter().map(|f| f.1.clone()).collect::<Vec<_>>();
-        modnames.sort();
-        for name in &modnames {
-            let name_id = safe_identifier(name);
-            writeln!(apirs, "mod {name_id};")?;
-        }
-        writeln!(apirs)?;
-        for name in &modnames {
-            let name_id = safe_identifier(name);
-            writeln!(apirs, "pub use {name_id}::*;")?;
-        }
-    }
-
     const PRETTY_PRINT: bool = false;
 
     let mut succeeded = 0;
-    let mut succeeded_api = 0;
 
-    for node @ (namespace, filename) in &sources {
+    for (namespace, filename) in &sources {
         // info!("Compiling");
 
-        match glob.codegen(namespace, filename, PRETTY_PRINT) {
+        let api = is_public_api(namespace, filename);
+
+        match glob.codegen(namespace, filename, PRETTY_PRINT, api) {
             Err(err) => {
                 error!("Failed to compile {namespace}/{filename}: {:?}", err);
             }
             Ok(code) => {
                 let file_root = PathBuf::from(filename).with_extension("");
 
-                let cratename = format!("rsspice_{}", &deps.assigned[node]);
-
-                let path = gen_root.join(&cratename);
-
-                let src = path.join("src").join(namespace);
+                let src = gen_root.join(namespace);
 
                 let mut file = File::create(src.join(file_root.with_extension("rs")))?;
                 writeln!(file, "//\n// GENERATED FILE\n//\n")?;
                 writeln!(file, "use super::*;")?;
+                writeln!(file, "use f2rust_std::*;")?;
+                if api {
+                    writeln!(file, "use crate::SpiceContext;")?;
+                }
+
                 file.write_all(code.as_bytes())?;
 
                 succeeded += 1;
@@ -935,42 +824,33 @@ fn main() -> Result<()> {
         }
     }
 
-    for (namespace, filename) in &api_sources {
-        match glob.codegen_api(namespace, filename) {
-            Err(err) => {
-                error!(
-                    "Failed to generate API for {namespace}/{filename}: {:?}",
-                    err
-                );
-            }
-            Ok(code) => {
-                let file_root = PathBuf::from(filename).with_extension("");
-
-                let src = gen_root.join("rsspice_api").join("src").join("raw");
-
-                let mut file = File::create(src.join(file_root.with_extension("rs")))?;
-                writeln!(file, "//\n// GENERATED FILE\n//\n")?;
-                // writeln!(file, "use crate::{{Spice, SpiceFuncs, Result}};")?;
-                writeln!(file, "use crate::SpiceContext;")?;
-                writeln!(
-                    file,
-                    "use f2rust_std::{{Context, CharArray, CharArrayMut, Result}};"
-                )?;
-                writeln!(file)?;
-                file.write_all(code.as_bytes())?;
-
-                succeeded_api += 1;
-            }
-        }
-    }
-
-    println!(
-        "Successfully built {succeeded}/{} functions, {succeeded_api}/{} APIs",
-        sources.len(),
-        api_sources.len()
-    );
+    println!("Successfully built {succeeded}/{} functions", sources.len());
 
     Ok(())
+}
+
+fn is_public_api(namespace: &str, filename: &str) -> bool {
+    // Only spicelib is public API
+    if !namespace.starts_with("spicelib") {
+        return false;
+    }
+
+    // Skip private functions
+    if filename.starts_with("zz") {
+        return false;
+    }
+
+    // Skip ones we've overriding, because they don't have API docs
+    if matches!(filename, "swapc_array" | "swapd_array" | "swapi_array") {
+        return false;
+    }
+
+    // TOUCHC is awkward because it 'returns' a string, and all the TOUCH functions are useless
+    if filename.starts_with("touch") {
+        return false;
+    }
+
+    true
 }
 
 struct DocParser {
@@ -1155,6 +1035,9 @@ impl DocParser {
 }
 
 fn translate_reqs(src_root: &Path, gen_root: &Path) -> Result<()> {
+    let path = gen_root.join("required_reading");
+    std::fs::create_dir_all(&path)?;
+
     for entry in WalkDir::new(src_root.join("../doc/html/req")) {
         let entry = entry?;
 
@@ -1182,19 +1065,28 @@ fn translate_reqs(src_root: &Path, gen_root: &Path) -> Result<()> {
         let mut doc = DocParser::new();
         doc.walk(&dom.document)?;
 
-        let path = gen_root.join("rsspice_api/src/required_reading");
-
         let mut docrs = File::create(path.join(stem).with_extension("rs"))?;
         for line in doc.out.lines() {
             writeln!(docrs, "//! {}", line)?;
         }
     }
 
+    let mut modrs = File::create(path.join("mod.rs"))?;
+    let re = regex::Regex::new(r#"href="(\w+)\.html">\w+<\/a> - (.*)<br>"#)?;
+    for m in re.captures_iter(&std::fs::read_to_string(
+        src_root.join("../doc/html/req/index.html"),
+    )?) {
+        let (_, [name, desc]) = m.extract();
+        writeln!(modrs, "/// {desc}")?;
+        writeln!(modrs, "pub mod {name};")?;
+    }
+
     Ok(())
 }
 
 fn translate_incs(src_root: &Path, gen_root: &Path) -> Result<()> {
-    let consts_path = gen_root.join("rsspice_api/src/consts");
+    let consts_path = gen_root.join("spicelib/inc");
+    std::fs::create_dir_all(&consts_path)?;
 
     let mut modrs = File::create(consts_path.join("mod.rs"))?;
     writeln!(modrs, "//\n// GENERATED FILE\n//\n")?;

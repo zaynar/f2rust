@@ -14,16 +14,15 @@
 //!
 //! `Context` also provides a way to intercept and/or sandbox any IO.
 
+use crate::{Error, Result, fstr, io};
 use chrono::{Datelike, Timelike};
+use std::path::PathBuf;
 use std::{
     any::{Any, TypeId},
     cell::RefCell,
     collections::HashMap,
     rc::Rc,
 };
-
-use crate::io::{FileManager, FsFileManager, RecFileRef};
-use crate::{Error, Result, fstr, io};
 
 pub trait SaveInit {
     fn new() -> Self;
@@ -32,7 +31,7 @@ pub trait SaveInit {
 pub struct Context<'a> {
     data: HashMap<TypeId, Rc<dyn Any>>,
 
-    file_manager: Box<dyn FileManager<'a> + 'a>,
+    file_manager: Box<dyn io::FileManager<'a> + 'a>,
     args: Vec<String>,
 
     // HACK: See override/seterr.f. This is an inelegant optimisation for
@@ -44,13 +43,13 @@ impl<'a> Context<'a> {
     pub fn new() -> Self {
         Self {
             data: HashMap::new(),
-            file_manager: Box::new(FsFileManager::new()),
+            file_manager: Box::new(io::FsFileManager::new(&PathBuf::new())),
             args: Vec::new(),
             spice_failed: false,
         }
     }
 
-    pub fn with_file_manager<F: FileManager<'a> + 'a>(file_manager: F) -> Self {
+    pub fn with_file_manager<F: io::FileManager<'a> + 'a>(file_manager: F) -> Self {
         Self {
             data: HashMap::new(),
             file_manager: Box::new(file_manager),
@@ -131,15 +130,15 @@ impl<'a> Context<'a> {
         todo!();
     }
 
-    pub fn default_read_unit(&mut self) -> Result<RecFileRef<'a>> {
+    pub fn default_read_unit(&mut self) -> Result<io::RecFileRef<'a>> {
         Ok(Rc::clone(self.file_manager.unit(5)?))
     }
 
-    pub fn default_write_unit(&mut self) -> Result<RecFileRef<'a>> {
+    pub fn default_write_unit(&mut self) -> Result<io::RecFileRef<'a>> {
         Ok(Rc::clone(self.file_manager.unit(6)?))
     }
 
-    pub fn io_unit(&mut self, unit: i32) -> Result<RecFileRef<'a>> {
+    pub fn io_unit(&mut self, unit: i32) -> Result<io::RecFileRef<'a>> {
         Ok(Rc::clone(self.file_manager.unit(unit)?))
     }
 

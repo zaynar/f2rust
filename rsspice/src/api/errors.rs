@@ -1231,7 +1231,7 @@ fn fmt_spice(f: &mut Formatter<'_>, short: &str, long: &str) -> std::fmt::Result
     msg += ")";
 
     let mut expln = " ".repeat(256);
-    crate::expln(&msg, &mut expln);
+    crate::generated::spicelib::api::expln(&msg, &mut expln);
     let expln = expln.trim_ascii_end();
 
     if !expln.is_empty() {

@@ -7,7 +7,7 @@ use crate::{Error, Result, fstr};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, BufWriter, Cursor, Read, Seek, SeekFrom, Write};
 use std::ops::DerefMut;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{cell::RefCell, rc::Rc};
 
 pub fn capture_iostat<F: FnOnce() -> Result<()>>(f: F) -> Result<i32> {
@@ -649,7 +649,6 @@ impl<'a> RecFile for InternalFile<'a> {
 }
 
 pub trait FileManager<'a> {
-    fn set_cwd(&mut self, path: PathBuf);
     fn capture_stdout(&mut self, stdout: &'a mut Vec<u8>);
 
     fn unit(&mut self, unit: i32) -> Result<&RecFileRef<'a>>;
@@ -695,11 +694,11 @@ pub struct FsFileManager<'a> {
 }
 
 impl<'a> FsFileManager<'a> {
-    pub fn new() -> Self {
+    pub fn new(cwd: &Path) -> Self {
         Self {
             units: HashMap::from([(6, FsUnit::new(None, StdoutRecFile {}))]),
             filenames: HashMap::new(),
-            cwd: PathBuf::new(),
+            cwd: cwd.to_path_buf(),
         }
     }
 
@@ -710,10 +709,6 @@ impl<'a> FsFileManager<'a> {
 }
 
 impl<'a> FileManager<'a> for FsFileManager<'a> {
-    fn set_cwd(&mut self, path: PathBuf) {
-        self.cwd = path;
-    }
-
     fn capture_stdout(&mut self, stdout: &'a mut Vec<u8>) {
         self.units
             .insert(6, FsUnit::new(None, WriterRecFile { writer: stdout }));
@@ -908,10 +903,6 @@ impl<'a> VirtualFileManager<'a> {
 
 impl<'a> FileManager<'a> for VirtualFileManager<'a> {
     // TODO: reduce code duplication with FsFileManager
-
-    fn set_cwd(&mut self, _path: PathBuf) {
-        panic!("set_cwd not supported on VFS");
-    }
 
     fn capture_stdout(&mut self, stdout: &'a mut Vec<u8>) {
         self.units

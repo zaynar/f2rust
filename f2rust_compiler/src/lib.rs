@@ -6,3 +6,5 @@ pub mod file;
 pub mod globan;
 pub mod grammar;
 pub mod intrinsics;
+
+pub mod util;

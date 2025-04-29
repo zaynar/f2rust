@@ -140,6 +140,9 @@ pub struct Entry {
     pub post_comments: Vec<Vec<(String, bool)>>,
     pub dargs: Vec<String>,
     pub body: Vec<(SourceLoc, Statement)>,
+
+    pub api_name: Option<String>,
+    pub comment_sections: IndexMap<String, Vec<String>>,
 }
 
 #[derive(Debug)]
@@ -1003,6 +1006,8 @@ impl Parser {
                         post_comments: Vec::new(),
                         dargs: Vec::new(),
                         body: Vec::new(),
+                        api_name: None,
+                        comment_sections: Default::default(),
                     });
                     break 'LINES;
                 }
@@ -1042,6 +1047,8 @@ impl Parser {
                         post_comments: Vec::new(),
                         dargs,
                         body: Vec::new(),
+                        api_name: None,
+                        comment_sections: Default::default(),
                     });
 
                     break 'LINES;
@@ -1061,6 +1068,8 @@ impl Parser {
                         post_comments: Vec::new(),
                         dargs,
                         body: Vec::new(),
+                        api_name: None,
+                        comment_sections: Default::default(),
                     });
                     break 'LINES;
                 }
@@ -1164,6 +1173,44 @@ impl Parser {
                 symbols: &mut self.symbols,
             };
             data.nlist.iter().for_each(|s| s.walk(&mut v));
+        }
+
+        // Extract SPICE comment sections
+        for entry in &mut self.entries {
+            entry.comment_sections = parse_header_comments(
+                &entry
+                    .body
+                    .iter()
+                    .filter_map(|(_loc, stmt)| {
+                        if let Statement::Comment(c) = stmt {
+                            Some(c.iter().map(|(s, _)| s))
+                        } else {
+                            None
+                        }
+                    })
+                    .flatten()
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )?;
+
+            // Exclude private APIs from pool.f,
+            // and functions that explicit don't want to be called
+            if entry.name.starts_with("ZZ")
+                || entry
+                    .comment_sections
+                    .get("Abstract")
+                    .is_some_and(|c| c.join("").contains("DO NOT CALL THIS ROUTINE"))
+                || entry
+                    .comment_sections
+                    .get("Particulars")
+                    .is_some_and(|c| c.join("").contains("DO NOT CALL THIS ROUTINE"))
+            {
+                entry.api_name = None;
+            } else {
+                entry.api_name = Some(crate::util::safe_identifier(
+                    &entry.name.to_ascii_lowercase(),
+                ));
+            }
         }
 
         let pu = ProgramUnit {
@@ -1285,6 +1332,8 @@ impl Parser {
                     post_comments: Vec::new(),
                     dargs: dargs.clone(),
                     body: Vec::new(),
+                    api_name: None,
+                    comment_sections: Default::default(),
                 });
 
                 self.statements.push(Vec::new());
@@ -2127,4 +2176,25 @@ impl Parser {
             DataName::Expression(..) => {}
         }
     }
+}
+
+fn parse_header_comments(lines: &[String]) -> Result<IndexMap<String, Vec<String>>> {
+    let mut sections = IndexMap::new();
+    let mut section = None;
+    for c in lines {
+        if let Some(name) = c.strip_prefix("$ ") {
+            if sections.contains_key(name) {
+                error!("duplicate doc section {name}");
+            }
+            section = Some(name.to_owned());
+        } else if *c == "-&" {
+            section = None;
+        } else if let Some(section) = &section {
+            sections
+                .entry(section.clone())
+                .or_insert_with(Vec::new)
+                .push(c.to_string());
+        }
+    }
+    Ok(sections)
 }
