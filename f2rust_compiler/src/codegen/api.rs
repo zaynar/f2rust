@@ -266,7 +266,345 @@ fn should_return_arg(
         return Ok(false);
     }
 
+    // Don't return arrays where we don't know how much to allocate
+    if try_output_array_size(&entry.ast.name, darg).is_none() {
+        return Ok(false);
+    }
+
     Ok(true)
+}
+
+fn try_output_array_size(func: &str, arg: &str) -> Option<&'static str> {
+    // Basic approach:
+    // * Args documented as sets cannot be pure outputs. The caller needs to initialise it.
+    //   Return None for these.
+    // * Some functions explicitly state the size of the arguments.
+    // * Some state it in Required Reading.
+    // * For others, we have to look at examples and actual usage to figure out a reasonable value.
+    // * Where possible, get an exact size. Otherwise, use the max size, and let the caller
+    //   figure out how much has real data.
+    // * Where possible, use a constant from an .inc file.
+
+    // frames.req
+    const FRAME_NAME: &str = "26";
+
+    // ck.req / ckbstr.f
+    const DSCSIZ: &str = "5"; // 2 doubles + 6 ints
+    const SIDLEN: &str = "40";
+
+    match format!("{func}::{arg}").as_str() {
+        "BLTFRM::IDSET" => None,
+        "BODC2N::NAME" => Some("inc::zzbodtrn::MAXL"),
+        "BODC2S::NAME" => Some("inc::zzbodtrn::MAXL"),
+        "BODVCD::VALUES" => Some("maxn"),
+        "BODVRD::VALUES" => Some("maxn"),
+        "CHBDER::DPDXS" => Some("(nderiv + 1)"),
+        "IRFNAM::NAME" => Some(FRAME_NAME),
+        "CKSNS::DESCR" => Some(DSCSIZ),
+        "CKSNS::SEGID" => Some(SIDLEN),
+        "CKGR01::RECORD" => Some("8"),
+        "CKGR02::RECORD" => Some("10"),
+        "CKGR03::RECORD" => Some("8"),
+        "CKGR04::RECORD" => Some("inc::ckparam::CK4RSZ"),
+        "CKGR05::RECORD" => Some("16"),
+        "CKGR06::RECORD" => Some("17"),
+        "CKR01::RECORD" => Some("inc::ckparam::CK1RSZ"),
+        "CKR02::RECORD" => Some("inc::ckparam::CK2RSZ"),
+        "CKR03::RECORD" => Some("inc::ckparam::CK3RSZ"),
+        "CKR04::RECORD" => Some("inc::ckparam::CK4RSZ"),
+        "CKR05::RECORD" => Some("inc::ckparam::CK5RSZ"),
+        "CKR06::RECORD" => Some("inc::ckparam::CK6RSZ"),
+        "COPYD::COPY" => None,
+        "COPYI::COPY" => None,
+        "CYCLAD::OUT" => Some("nelt"),
+        "CYCLAI::OUT" => Some("nelt"),
+        "CYCLEC::OUTSTR" => Some("(instr.len() as i32)"),
+        "DAFHFN::FNAME" => Some("inc::zzddhman::FILEN"),
+        "DAFHOF::FHSET" => None,
+        "DAFGS::SUM" => Some("128"), // SUMLEN in DAFRA
+        "DAFGN::NAME" => Some("1000"), // NAMLEN in DAFRA
+        "DAFGDA::DATA" => Some("(eaddr + 1 - baddr).max(0)"),
+        "DAFPS::SUM" => Some("(nd + (ni + 1)/2)"),
+        "DAFUS::DC" => Some("nd"),
+        "DAFUS::IC" => Some("ni"),
+        "DAFRCR::CREC" => Some("1000"),
+        "DAFRFR::IFNAME" => Some("60"), // see daf.req
+        "DAFGDR::DATA" => Some("(end.min(128) + 1 - begin.max(1))"),
+        "DAFGSR::DATA" => Some("(end.min(128) + 1 - begin.max(1))"),
+        "DASHFN::FNAME" => Some("inc::zzddhman::FILEN"),
+        "DASHOF::FHSET" => None,
+        "DASHAM::ACCESS" => Some("5"), // 'READ' or 'WRITE'
+        "DASRDD::DATA" => Some("(last + 1 - first).max(0)"),
+        "DASRDI::DATA" => Some("(last + 1 - first).max(0)"),
+        "DASRFR::IDWORD" => Some("8"),
+        "DASRFR::IFNAME" => Some("60"),
+        "DASRRD::DATAD" => Some("(last + 1 - first).max(0)"),
+        "DASRRI::DATAI" => Some("(last + 1 - first).max(0)"),
+        "DASRRC::DATAC" => Some("(last + 1 - first).max(0)"),
+        "DIFFD::C" => None,
+        "DIFFI::C" => None,
+        "DLABBS::DLADSC" => Some("inc::dla::DLADSZ"),
+        "DLABFS::DLADSC" => Some("inc::dla::DLADSZ"),
+        "DLAFNS::NXTDSC" => Some("inc::dla::DLADSZ"),
+        "DLAFPS::PRVDSC" => Some("inc::dla::DLADSZ"),
+        "DP2HX::HXSTR" => Some("255"), // STRLEN
+        "DPFMT::STR" => Some("(pictur.len() as i32)"),
+        "DPSTR::STRING" => Some("(sigdig + 6)"),
+        "DPSTRF::STRING" => Some("(sigdig + 6)"),
+        "DSKD02::VALUES" => Some("room"),
+        "DSKGD::DSKDSC" => Some("inc::dla::DLADSZ"),
+        "DSKI02::VALUES" => Some("room"),
+        "DSKMI2::SPAIXI" => Some("spxisz"),
+        "DSKP02::PLATES" => Some("room"),
+        "DSKV02::VRTCES" => Some("room"),
+        "DSKXSI::DLADSC" => Some("inc::dla::DLADSZ"),
+        "DSKXSI::DSKDSC" => Some("inc::dla::DLADSZ"),
+        "DSKXSI::DC" => Some("inc::dsksrc::DCSIZE"),
+        "DSKXSI::IC" => Some("inc::dsksrc::ICSIZE"),
+        "DSKXV::XPTARR" => Some("nrays"),
+        "DSKXV::FNDARR" => Some("nrays"),
+        "DXTRCT::VALUES" => Some("maxwds"),
+        "EDTERM::TRMPTS" => Some("todo!()"),
+        "EKFIND::ERRMSG" => Some("todo!()"),
+        "EKIFLD::RCPTRS" => Some("todo!()"),
+        "EKPSEL::XBEGS" => Some("todo!()"),
+        "EKPSEL::XENDS" => Some("todo!()"),
+        "EKPSEL::ERRMSG" => Some("todo!()"),
+        "EKTNAM::TABLE" => Some("todo!()"),
+        "EKCII::COLUMN" => Some("todo!()"),
+        "EKSRCH::ERRMSG" => Some("todo!()"),
+        "EKGC::CDATA" => Some("todo!()"),
+        "EKRCED::DVALS" => Some("todo!()"),
+        "EKRCEI::IVALS" => Some("todo!()"),
+        "EKSSUM::TABNAM" => Some("todo!()"),
+        "EKSSUM::SIZES" => Some("todo!()"),
+        "EKSSUM::STRLNS" => Some("todo!()"),
+        "EKSSUM::INDEXD" => Some("todo!()"),
+        "EKSSUM::NULLOK" => Some("todo!()"),
+        "ENCHAR::STRING" => Some("todo!()"),
+        "ET2LST::TIME" => Some("todo!()"),
+        "ET2LST::AMPM" => Some("todo!()"),
+        "ET2UTC::UTCSTR" => Some("todo!()"),
+        "ETCAL::CALSTR" => Some("todo!()"),
+        "EXPLN::EXPL" => Some("todo!()"),
+        "FRMNAM::FRNAME" => Some("todo!()"),
+        "CIDFRM::FRNAME" => Some("todo!()"),
+        "CNMFRM::FRNAME" => Some("todo!()"),
+        "CCIFRM::FRNAME" => Some("todo!()"),
+        "GETFAT::ARCH" => Some("todo!()"),
+        "GETFAT::KERTYP" => Some("todo!()"),
+        "GETFOV::SHAPE" => Some("todo!()"),
+        "GETFOV::FRAME" => Some("todo!()"),
+        "GETFOV::BOUNDS" => Some("todo!()"),
+        "GETFVN::SHAPE" => Some("todo!()"),
+        "GETFVN::FRAME" => Some("todo!()"),
+        "GETFVN::BOUNDS" => Some("todo!()"),
+        "GETMSG::MSG" => Some("todo!()"),
+        "GFDIST::WORK" => Some("todo!()"),
+        "GFEVNT::WORK" => Some("todo!()"),
+        "GFILUM::WORK" => Some("todo!()"),
+        "GFPA::WORK" => Some("todo!()"),
+        "GFPOSC::WORK" => Some("todo!()"),
+        "GFRR::WORK" => Some("todo!()"),
+        "GFSEP::WORK" => Some("todo!()"),
+        "GFSNTC::WORK" => Some("todo!()"),
+        "GFSUBC::WORK" => Some("todo!()"),
+        "GFUDS::WORK" => Some("todo!()"),
+        "HX2DP::ERRMSG" => Some("todo!()"),
+        "HX2INT::ERRMSG" => Some("todo!()"),
+        "IDW2AT::ARCH" => Some("todo!()"),
+        "IDW2AT::TYPE" => Some("todo!()"),
+        "INSSUB::OUT" => Some("todo!()"),
+        "INT2HX::STRING" => Some("todo!()"),
+        "INTERD::C" => Some("todo!()"),
+        "INTERI::C" => Some("todo!()"),
+        "INTORD::STRING" => Some("todo!()"),
+        "INTSTR::STRING" => Some("todo!()"),
+        "INTTXT::STRING" => Some("todo!()"),
+        "KDATA::FILE" => Some("todo!()"),
+        "KDATA::FILTYP" => Some("todo!()"),
+        "KDATA::SRCFIL" => Some("todo!()"),
+        "KINFO::FILTYP" => Some("todo!()"),
+        "KINFO::SRCFIL" => Some("todo!()"),
+        "KPLFRM::IDSET" => Some("todo!()"),
+        "KXTRCT::SUBSTR" => Some("todo!()"),
+        "LATSRF::SRFPTS" => Some("todo!()"),
+        "LBUILD::LIST" => Some("todo!()"),
+        "LIMBPT::NPTS" => Some("todo!()"),
+        "LIMBPT::POINTS" => Some("todo!()"),
+        "LIMBPT::EPOCHS" => Some("todo!()"),
+        "LIMBPT::TANGTS" => Some("todo!()"),
+        "LJUCRS::OUTPUT" => Some("todo!()"),
+        "LUN2FN::FILNAM" => Some("todo!()"),
+        "MAXAC::MAXVAL" => Some("todo!()"),
+        "MEQUG::MOUT" => Some("todo!()"),
+        "MINAC::MINVAL" => Some("todo!()"),
+        "MOVED::ARRTO" => Some("todo!()"),
+        "MOVEI::ARRTO" => Some("todo!()"),
+        "MOVEL::ARRTO" => Some("todo!()"),
+        "MTXMG::MOUT" => Some("todo!()"),
+        "MTXVG::VOUT" => Some("todo!()"),
+        "MXMG::MOUT" => Some("todo!()"),
+        "MXMTG::MOUT" => Some("todo!()"),
+        "MXVG::VOUT" => Some("todo!()"),
+        "NEXTWD::NEXT" => Some("todo!()"),
+        "NEXTWD::REST" => Some("todo!()"),
+        "NPARSD::ERROR" => Some("todo!()"),
+        "NPARSI::ERROR" => Some("todo!()"),
+        "NTHWD::WORD" => Some("todo!()"),
+        "ORDERC::IORDER" => Some("todo!()"),
+        "ORDERD::IORDER" => Some("todo!()"),
+        "ORDERI::IORDER" => Some("todo!()"),
+        "OSCLTX::ELTS" => Some("todo!()"),
+        "PACKAD::OUT" => Some("todo!()"),
+        "PACKAI::OUT" => Some("todo!()"),
+        "PARSQS::VALUE" => Some("todo!()"),
+        "PARSQS::ERRMSG" => Some("todo!()"),
+        "PCKSFS::DESCR" => Some("todo!()"),
+        "PCKSFS::IDENT" => Some("todo!()"),
+        "PCKPDS::DESCR" => Some("todo!()"),
+        "PCKR02::RECORD" => Some("todo!()"),
+        "PCKR03::RECORD" => Some("todo!()"),
+        "PCKR20::RECORD" => Some("todo!()"),
+        "POLYDS::P" => Some("todo!()"),
+        "GDPOOL::VALUES" => Some("todo!()"),
+        "GIPOOL::IVALS" => Some("todo!()"),
+        "DTPOOL::TYPE" => Some("todo!()"),
+        "PROMPT::BUFFER" => Some("todo!()"),
+        "PRTENC::STRING" => Some("todo!()"),
+        "GETDEV::DEVICE" => Some("todo!()"),
+        "GETLMS::MSG" => Some("todo!()"),
+        "GETSMS::MSG" => Some("todo!()"),
+        "QDERIV::DFDT" => Some("todo!()"),
+        "RDENCD::DATA" => Some("todo!()"),
+        "RDENCI::DATA" => Some("todo!()"),
+        "RDKDAT::LINE" => Some("todo!()"),
+        "RDKLIN::KERNEL" => Some("todo!()"),
+        "RDKVAR::NAME" => Some("todo!()"),
+        "RDNBL::LINE" => Some("todo!()"),
+        "RDTEXT::LINE" => Some("todo!()"),
+        "READLN::LINE" => Some("todo!()"),
+        "REMSUB::OUT" => Some("todo!()"),
+        "REPLCH::OUTSTR" => Some("todo!()"),
+        "REPLWD::OUTSTR" => Some("todo!()"),
+        "REPMC::OUT" => Some("todo!()"),
+        "REPMCT::OUT" => Some("todo!()"),
+        "REPMD::OUT" => Some("todo!()"),
+        "REPMF::OUT" => Some("todo!()"),
+        "REPMI::OUT" => Some("todo!()"),
+        "REPML::OUT" => Some("todo!()"),
+        "REPMOT::OUT" => Some("todo!()"),
+        "REPSUB::OUT" => Some("todo!()"),
+        "SCFM01::CLKSTR" => Some("todo!()"),
+        "SCPR01::PARBEG" => Some("todo!()"),
+        "SCPR01::PAREND" => Some("todo!()"),
+        "SCANPR::MRKLEN" => Some("todo!()"),
+        "SCANPR::PNTERS" => Some("todo!()"),
+        "SCAN::IDENT" => Some("todo!()"),
+        "SCAN::BEG" => Some("todo!()"),
+        "SCAN::END" => Some("todo!()"),
+        "SCARDD::CELL" => Some("todo!()"),
+        "SCARDI::CELL" => Some("todo!()"),
+        "SCDECD::SCLKCH" => Some("todo!()"),
+        "SCE2S::SCLKCH" => Some("todo!()"),
+        "SCFMT::CLKSTR" => Some("todo!()"),
+        "SCLI01::IVAL" => Some("todo!()"),
+        "SCLD01::DVAL" => Some("todo!()"),
+        "SCPARS::MSG" => Some("todo!()"),
+        "SCPART::PSTART" => Some("todo!()"),
+        "SCPART::PSTOP" => Some("todo!()"),
+        "SCPS01::MSG" => Some("todo!()"),
+        "SCID2N::CLKNAM" => Some("todo!()"),
+        "SDIFFD::C" => Some("todo!()"),
+        "SDIFFI::C" => Some("todo!()"),
+        "SEPOOL::STRING" => Some("todo!()"),
+        "SGFCON::VALUES" => Some("todo!()"),
+        "SGFPKT::VALUES" => Some("todo!()"),
+        "SGFPKT::ENDS" => Some("todo!()"),
+        "SGFREF::VALUES" => Some("todo!()"),
+        "SHIFTC::OUT" => Some("todo!()"),
+        "SIGDGT::OUT" => Some("todo!()"),
+        "SPCRFL::LINE" => Some("todo!()"),
+        "SPCRNL::LINE" => Some("todo!()"),
+        "SPKSFS::DESCR" => Some("todo!()"),
+        "SPKSFS::IDENT" => Some("todo!()"),
+        "SPKPDS::DESCR" => Some("todo!()"),
+        "SPKR01::RECORD" => Some("todo!()"),
+        "SPKR02::RECORD" => Some("todo!()"),
+        "SPKR03::RECORD" => Some("todo!()"),
+        "SPKR05::RECORD" => Some("todo!()"),
+        "SPKR08::RECORD" => Some("todo!()"),
+        "SPKR09::RECORD" => Some("todo!()"),
+        "SPKR10::RECORD" => Some("todo!()"),
+        "SPKR12::RECORD" => Some("todo!()"),
+        "SPKR13::RECORD" => Some("todo!()"),
+        "SPKR14::RECORD" => Some("todo!()"),
+        "SPKR15::RECORD" => Some("todo!()"),
+        "SPKR17::RECORD" => Some("todo!()"),
+        "SPKR18::RECORD" => Some("todo!()"),
+        "SPKR19::RECORD" => Some("todo!()"),
+        "SPKR20::RECORD" => Some("todo!()"),
+        "SPKR21::RECORD" => Some("todo!()"),
+        "SRFC2S::SRFSTR" => Some("todo!()"),
+        "SRFCSS::SRFSTR" => Some("todo!()"),
+        "SRFNRM::NORMLS" => Some("todo!()"),
+        "SSIZED::CELL" => Some("todo!()"),
+        "SSIZEI::CELL" => Some("todo!()"),
+        "STCC01::TABNAM" => Some("todo!()"),
+        "STCC01::ERRMSG" => Some("todo!()"),
+        "STCG01::SPTYPE" => Some("todo!()"),
+        "STCL01::TABNAM" => Some("todo!()"),
+        "STPOOL::NTHSTR" => Some("todo!()"),
+        "SYFETC::NAME" => Some("todo!()"),
+        "SYFETD::NAME" => Some("todo!()"),
+        "SYFETI::NAME" => Some("todo!()"),
+        "SYGETD::VALUES" => Some("todo!()"),
+        "SYGETI::VALUES" => Some("todo!()"),
+        "SYNTHC::VALUE" => Some("todo!()"),
+        "SYPOPC::VALUE" => Some("todo!()"),
+        "SYSELD::VALUES" => Some("todo!()"),
+        "SYSELI::VALUES" => Some("todo!()"),
+        "TCHECK::ERROR" => Some("todo!()"),
+        "TCHCKD::TYPE" => Some("todo!()"),
+        "TERMPT::NPTS" => Some("todo!()"),
+        "TERMPT::POINTS" => Some("todo!()"),
+        "TERMPT::EPOCHS" => Some("todo!()"),
+        "TERMPT::TRMVCS" => Some("todo!()"),
+        "TIMOUT::OUTPUT" => Some("todo!()"),
+        "TKVRSN::VERSTR" => Some("todo!()"),
+        "TPARSE::ERRMSG" => Some("todo!()"),
+        "TPARTV::TVEC" => Some("todo!()"),
+        "TPARTV::TYPE" => Some("todo!()"),
+        "TPARTV::PICTUR" => Some("todo!()"),
+        "TPARTV::ERROR" => Some("todo!()"),
+        "TPICTR::PICTUR" => Some("todo!()"),
+        "TPICTR::ERRMSG" => Some("todo!()"),
+        "TRCNAM::NAME" => Some("todo!()"),
+        "QCKTRC::TRACE" => Some("todo!()"),
+        "UNIOND::C" => Some("todo!()"),
+        "UNIONI::C" => Some("todo!()"),
+        "UNORMG::VOUT" => Some("todo!()"),
+        "VADDG::VOUT" => Some("todo!()"),
+        "VEQUG::VOUT" => Some("todo!()"),
+        "VHATG::VOUT" => Some("todo!()"),
+        "VLCOMG::SUM" => Some("todo!()"),
+        "VMINUG::VOUT" => Some("todo!()"),
+        "VPROJG::P" => Some("todo!()"),
+        "VSCLG::VOUT" => Some("todo!()"),
+        "VSUBG::VOUT" => Some("todo!()"),
+        "WNCOMD::RESULT" => Some("todo!()"),
+        "WNDIFD::C" => Some("todo!()"),
+        "WNINTD::C" => Some("todo!()"),
+        "WNUNID::C" => Some("todo!()"),
+        "XDDA::VOXLST" => Some("todo!()"),
+        "XPOSBL::BTMAT" => Some("todo!()"),
+        "XPOSEG::XPOSEM" => Some("todo!()"),
+        _ => None,
+    }
+}
+
+fn output_array_size(func: &str, arg: &str) -> String {
+    try_output_array_size(func, arg).unwrap().to_owned()
 }
 
 impl CodeGen<'_> {
@@ -422,10 +760,10 @@ impl CodeGen<'_> {
                             if let Some(n) = e.eval_constant(&entry.codegen.syms)? {
                                 format!("{n}")
                             } else {
-                                "todo!()".to_owned()
+                                output_array_size(&entry.ast.name, darg)
                             }
                         }
-                        _ => "todo!()".to_owned(),
+                        _ => output_array_size(&entry.ast.name, darg),
                     };
 
                     writeln!(init, "  let mut {ident} = blank({len});")?;
@@ -437,8 +775,9 @@ impl CodeGen<'_> {
                     if arg.ret_ty.starts_with("Vec<") {
                         writeln!(
                             init,
-                            "  let mut {ident}: {} = vec![Default::default(); todo!()];",
-                            arg.ret_ty
+                            "  let mut {ident}: {} = vec![Default::default(); {} as usize];",
+                            arg.ret_ty,
+                            output_array_size(&entry.ast.name, darg)
                         )?;
                     } else {
                         writeln!(
@@ -509,18 +848,14 @@ impl CodeGen<'_> {
             }
         } else {
             if !ret_names.is_empty() {
-                let mut r = ret_names
-                    .iter()
-                    .map(|n| format!("`{n}`"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                let mut r = ret_names.join(", ");
 
                 if ret_names.len() > 1 {
                     r = format!("({r})");
                 }
 
                 writeln!(docs, "///")?;
-                writeln!(docs, "/// Returns {r}.")?;
+                writeln!(docs, "/// Returns `{r}`.")?;
             }
 
             writeln!(docs, "///")?;
