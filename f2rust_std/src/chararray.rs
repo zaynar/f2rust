@@ -34,6 +34,10 @@ impl<'a> CharArray<'a> {
             element_length: self.element_length,
         }
     }
+
+    pub fn element_length(&self) -> usize {
+        self.element_length
+    }
 }
 
 /// Represents any mutable N-dimensional array of CHARACTER, in the Rust API.
@@ -57,6 +61,10 @@ impl<'a> CharArrayMut<'a> {
             element_length: self.element_length,
         }
     }
+
+    pub fn element_length(&self) -> usize {
+        self.element_length
+    }
 }
 
 pub struct OwnedCharArray {
@@ -77,6 +85,10 @@ impl OwnedCharArray {
             data: &mut self.data,
             element_length: self.element_length,
         }
+    }
+
+    pub fn element_length(&self) -> usize {
+        self.element_length
     }
 }
 

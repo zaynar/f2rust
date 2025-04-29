@@ -814,6 +814,8 @@ fn main() -> Result<()> {
     writeln!(apirs, "  s.trim_ascii_end().to_owned()")?;
     writeln!(apirs, "}}")?;
     writeln!(apirs)?;
+    writeln!(apirs, "const LBCELL: i32 = -5;")?;
+    writeln!(apirs)?;
     writeln!(apirs, "impl SpiceContext<'_> {{")?;
 
     let mut succeeded = 0;

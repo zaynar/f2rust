@@ -235,6 +235,20 @@ fn should_expose(entry: &Entry) -> bool {
             | "QUOTE"
             | "SHIFTL"
             | "SHIFTR"
+            | "INSSUB"
+            | "LBUILD"
+            | "MAXAC"
+            | "MINAC"
+            | "MEQUG"
+            | "MOVEC"
+            | "MOVED"
+            | "MOVEI"
+            | "MOVEL"
+            | "NEXTWD"
+            | "NTHWD"
+            | "ORDERC"
+            | "ORDERD"
+            | "ORDERI"
             | "CLEARC"
             | "CLEARD"
             | "CLEARI"
@@ -292,6 +306,9 @@ fn try_output_array_size(func: &str, arg: &str) -> Option<&'static str> {
     const DSCSIZ: &str = "5"; // 2 doubles + 6 ints
     const SIDLEN: &str = "40";
 
+    // keeper.f
+    const FILSIZ: &str = "255";
+
     match format!("{func}::{arg}").as_str() {
         "BLTFRM::IDSET" => None,
         "BODC2N::NAME" => Some("inc::zzbodtrn::MAXL"),
@@ -321,7 +338,7 @@ fn try_output_array_size(func: &str, arg: &str) -> Option<&'static str> {
         "CYCLEC::OUTSTR" => Some("(instr.len() as i32)"),
         "DAFHFN::FNAME" => Some("inc::zzddhman::FILEN"),
         "DAFHOF::FHSET" => None,
-        "DAFGS::SUM" => Some("128"), // SUMLEN in DAFRA
+        "DAFGS::SUM" => Some("128"),   // SUMLEN in DAFRA
         "DAFGN::NAME" => Some("1000"), // NAMLEN in DAFRA
         "DAFGDA::DATA" => Some("(eaddr + 1 - baddr).max(0)"),
         "DAFPS::SUM" => Some("(nd + (ni + 1)/2)"),
@@ -364,98 +381,84 @@ fn try_output_array_size(func: &str, arg: &str) -> Option<&'static str> {
         "DSKXV::XPTARR" => Some("nrays"),
         "DSKXV::FNDARR" => Some("nrays"),
         "DXTRCT::VALUES" => Some("maxwds"),
-        "EDTERM::TRMPTS" => Some("todo!()"),
-        "EKFIND::ERRMSG" => Some("todo!()"),
-        "EKIFLD::RCPTRS" => Some("todo!()"),
-        "EKPSEL::XBEGS" => Some("todo!()"),
-        "EKPSEL::XENDS" => Some("todo!()"),
-        "EKPSEL::ERRMSG" => Some("todo!()"),
-        "EKTNAM::TABLE" => Some("todo!()"),
-        "EKCII::COLUMN" => Some("todo!()"),
-        "EKSRCH::ERRMSG" => Some("todo!()"),
-        "EKGC::CDATA" => Some("todo!()"),
-        "EKRCED::DVALS" => Some("todo!()"),
-        "EKRCEI::IVALS" => Some("todo!()"),
-        "EKSSUM::TABNAM" => Some("todo!()"),
-        "EKSSUM::SIZES" => Some("todo!()"),
-        "EKSSUM::STRLNS" => Some("todo!()"),
-        "EKSSUM::INDEXD" => Some("todo!()"),
-        "EKSSUM::NULLOK" => Some("todo!()"),
-        "ENCHAR::STRING" => Some("todo!()"),
-        "ET2LST::TIME" => Some("todo!()"),
-        "ET2LST::AMPM" => Some("todo!()"),
-        "ET2UTC::UTCSTR" => Some("todo!()"),
-        "ETCAL::CALSTR" => Some("todo!()"),
-        "EXPLN::EXPL" => Some("todo!()"),
-        "FRMNAM::FRNAME" => Some("todo!()"),
-        "CIDFRM::FRNAME" => Some("todo!()"),
-        "CNMFRM::FRNAME" => Some("todo!()"),
-        "CCIFRM::FRNAME" => Some("todo!()"),
-        "GETFAT::ARCH" => Some("todo!()"),
-        "GETFAT::KERTYP" => Some("todo!()"),
-        "GETFOV::SHAPE" => Some("todo!()"),
-        "GETFOV::FRAME" => Some("todo!()"),
-        "GETFOV::BOUNDS" => Some("todo!()"),
-        "GETFVN::SHAPE" => Some("todo!()"),
-        "GETFVN::FRAME" => Some("todo!()"),
-        "GETFVN::BOUNDS" => Some("todo!()"),
-        "GETMSG::MSG" => Some("todo!()"),
-        "GFDIST::WORK" => Some("todo!()"),
-        "GFEVNT::WORK" => Some("todo!()"),
-        "GFILUM::WORK" => Some("todo!()"),
-        "GFPA::WORK" => Some("todo!()"),
-        "GFPOSC::WORK" => Some("todo!()"),
-        "GFRR::WORK" => Some("todo!()"),
-        "GFSEP::WORK" => Some("todo!()"),
-        "GFSNTC::WORK" => Some("todo!()"),
-        "GFSUBC::WORK" => Some("todo!()"),
-        "GFUDS::WORK" => Some("todo!()"),
-        "HX2DP::ERRMSG" => Some("todo!()"),
-        "HX2INT::ERRMSG" => Some("todo!()"),
-        "IDW2AT::ARCH" => Some("todo!()"),
-        "IDW2AT::TYPE" => Some("todo!()"),
-        "INSSUB::OUT" => Some("todo!()"),
-        "INT2HX::STRING" => Some("todo!()"),
-        "INTERD::C" => Some("todo!()"),
-        "INTERI::C" => Some("todo!()"),
-        "INTORD::STRING" => Some("todo!()"),
-        "INTSTR::STRING" => Some("todo!()"),
-        "INTTXT::STRING" => Some("todo!()"),
-        "KDATA::FILE" => Some("todo!()"),
-        "KDATA::FILTYP" => Some("todo!()"),
-        "KDATA::SRCFIL" => Some("todo!()"),
-        "KINFO::FILTYP" => Some("todo!()"),
-        "KINFO::SRCFIL" => Some("todo!()"),
-        "KPLFRM::IDSET" => Some("todo!()"),
-        "KXTRCT::SUBSTR" => Some("todo!()"),
-        "LATSRF::SRFPTS" => Some("todo!()"),
-        "LBUILD::LIST" => Some("todo!()"),
-        "LIMBPT::NPTS" => Some("todo!()"),
-        "LIMBPT::POINTS" => Some("todo!()"),
-        "LIMBPT::EPOCHS" => Some("todo!()"),
-        "LIMBPT::TANGTS" => Some("todo!()"),
-        "LJUCRS::OUTPUT" => Some("todo!()"),
-        "LUN2FN::FILNAM" => Some("todo!()"),
-        "MAXAC::MAXVAL" => Some("todo!()"),
-        "MEQUG::MOUT" => Some("todo!()"),
-        "MINAC::MINVAL" => Some("todo!()"),
-        "MOVED::ARRTO" => Some("todo!()"),
-        "MOVEI::ARRTO" => Some("todo!()"),
-        "MOVEL::ARRTO" => Some("todo!()"),
-        "MTXMG::MOUT" => Some("todo!()"),
-        "MTXVG::VOUT" => Some("todo!()"),
-        "MXMG::MOUT" => Some("todo!()"),
-        "MXMTG::MOUT" => Some("todo!()"),
-        "MXVG::VOUT" => Some("todo!()"),
-        "NEXTWD::NEXT" => Some("todo!()"),
-        "NEXTWD::REST" => Some("todo!()"),
-        "NPARSD::ERROR" => Some("todo!()"),
-        "NPARSI::ERROR" => Some("todo!()"),
-        "NTHWD::WORD" => Some("todo!()"),
-        "ORDERC::IORDER" => Some("todo!()"),
-        "ORDERD::IORDER" => Some("todo!()"),
-        "ORDERI::IORDER" => Some("todo!()"),
-        "OSCLTX::ELTS" => Some("todo!()"),
+        "EDTERM::TRMPTS" => Some("npts"),
+        "EKFIND::ERRMSG" => Some("inc::errhnd::LMSGLN"), // size used by tspice
+        "EKIFLD::RCPTRS" => Some("nrows"),
+        "EKPSEL::XBEGS" => Some("inc::ekqlimit::MAXSEL"),
+        "EKPSEL::XENDS" => Some("inc::ekqlimit::MAXSEL"),
+        "EKPSEL::ERRMSG" => Some("inc::errhnd::LMSGLN"),
+        "EKTNAM::TABLE" => Some("inc::ektnamsz::TNAMSZ"),
+        "EKCII::COLUMN" => Some("inc::ekattdsc::ADSCSZ"),
+        "EKSRCH::ERRMSG" => Some("inc::errhnd::LMSGLN"),
+        "EKGC::CDATA" => Some("inc::ekqlimit::MAXSTR"),
+        "EKRCED::DVALS" => None, // can't find any max for this
+        "EKRCEI::IVALS" => None,
+        "EKSSUM::TABNAM" => Some("inc::ektnamsz::TNAMSZ"),
+        "EKSSUM::SIZES" => Some("inc::ekglimit::MXCLSG"),
+        "EKSSUM::STRLNS" => Some("inc::ekglimit::MXCLSG"),
+        "EKSSUM::INDEXD" => Some("inc::ekglimit::MXCLSG"),
+        "EKSSUM::NULLOK" => Some("inc::ekglimit::MXCLSG"),
+        "ENCHAR::STRING" => Some("5"), // MINLEN
+        "ET2LST::TIME" => Some("50"),  // from t_et2lst
+        "ET2LST::AMPM" => Some("50"),
+        "ET2UTC::UTCSTR" => Some("(24 + prec)"),
+        "ETCAL::CALSTR" => Some("48"),
+        "EXPLN::EXPL" => Some("256"),
+        "FRMNAM::FRNAME" => Some(FRAME_NAME),
+        "CIDFRM::FRNAME" => Some(FRAME_NAME),
+        "CNMFRM::FRNAME" => Some(FRAME_NAME),
+        "CCIFRM::FRNAME" => Some(FRAME_NAME),
+        "GETFAT::ARCH" => Some("3"),
+        "GETFAT::KERTYP" => Some("4"),
+        "GETFOV::SHAPE" => Some("9"), // longest value is 'RECTANGLE'
+        "GETFOV::FRAME" => Some(FRAME_NAME),
+        "GETFOV::BOUNDS" => Some("room"),
+        "GETFVN::SHAPE" => Some("9"), // longest value is 'RECTANGLE'
+        "GETFVN::FRAME" => Some(FRAME_NAME),
+        "GETFVN::BOUNDS" => Some("room"),
+        "GETMSG::MSG" => Some("inc::errhnd::LMSGLN"),
+        "GFDIST::WORK" => Some("((mw + 1 - LBCELL) * inc::gf::NWDIST)"),
+        "GFEVNT::WORK" => Some("((mw + 1 - LBCELL) * nw)"),
+        "GFILUM::WORK" => Some("((mw + 1 - LBCELL) * inc::gf::NWILUM)"),
+        "GFPA::WORK" => Some("((mw + 1 - LBCELL) * inc::gf::NWPA)"),
+        "GFPOSC::WORK" => Some("((mw + 1 - LBCELL) * inc::gf::NWMAX)"),
+        "GFRR::WORK" => Some("((mw + 1 - LBCELL) * inc::gf::NWRR)"),
+        "GFSEP::WORK" => Some("((mw + 1 - LBCELL) * inc::gf::NWSEP)"),
+        "GFSNTC::WORK" => Some("((mw + 1 - LBCELL) * inc::gf::NWMAX)"),
+        "GFSUBC::WORK" => Some("((mw + 1 - LBCELL) * inc::gf::NWMAX)"),
+        "GFUDS::WORK" => Some("((mw + 1 - LBCELL) * nw)"),
+        "HX2DP::ERRMSG" => Some("inc::errhnd::LMSGLN"),
+        "HX2INT::ERRMSG" => Some("inc::errhnd::LMSGLN"),
+        "IDW2AT::ARCH" => Some("3"),
+        "IDW2AT::TYPE" => Some("4"),
+        "INT2HX::STRING" => Some("9"), // 32-bit
+        "INTERD::C" => None,
+        "INTERI::C" => None,
+        "INTORD::STRING" => Some("148"), // MAXORD
+        "INTSTR::STRING" => Some("80"),  // STRLEN
+        "INTTXT::STRING" => Some("146"), // 2 less than INTORD
+        "KDATA::FILE" => Some(FILSIZ),
+        "KDATA::FILTYP" => Some("8"), // TYPLEN in keeper.f
+        "KDATA::SRCFIL" => Some(FILSIZ),
+        "KINFO::FILTYP" => Some("8"),
+        "KINFO::SRCFIL" => Some(FILSIZ),
+        "KPLFRM::IDSET" => None,
+        "KXTRCT::SUBSTR" => Some("(terms.element_length() as i32)"),
+        "LATSRF::SRFPTS" => Some("npts"),
+        "LIMBPT::NPTS" => Some("ncuts"),
+        "LIMBPT::POINTS" => Some("maxn"),
+        "LIMBPT::EPOCHS" => Some("maxn"),
+        "LIMBPT::TANGTS" => Some("maxn"),
+        "LJUCRS::OUTPUT" => Some("(input.len() as i32)"),
+        "LUN2FN::FILNAM" => Some(FILSIZ),
+        "MTXMG::MOUT" => Some("(nc1 * nc2)"),
+        "MTXVG::VOUT" => Some("nc1"),
+        "MXMG::MOUT" => Some("(nr1 * nc2)"),
+        "MXMTG::MOUT" => Some("(nr1 * nr2)"),
+        "MXVG::VOUT" => Some("nr1"),
+        "NPARSD::ERROR" => Some("inc::errhnd::LMSGLN"),
+        "NPARSI::ERROR" => Some("inc::errhnd::LMSGLN"),
+        "OSCLTX::ELTS" => Some("inc::oscltx::OSCXSZ"),
         "PACKAD::OUT" => Some("todo!()"),
         "PACKAI::OUT" => Some("todo!()"),
         "PARSQS::VALUE" => Some("todo!()"),
