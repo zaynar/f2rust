@@ -402,6 +402,22 @@ fn eval_dims(dims: &[ast::Dimension], syms: &SymbolTable) -> Result<Vec<Option<i
     Ok(dims)
 }
 
+// Determine whether we should allocate it on the stack,
+// and return the number of elements
+fn use_stack_array(sym: &Symbol, syms: &SymbolTable) -> Result<Option<i32>> {
+    const MAX_SIZE: i32 = 256;
+
+    let is_char = matches!(sym.ast.base_type, DataType::Character);
+
+    let dims = eval_dims(&sym.ast.dims, syms)?;
+    if let Some(size) = dims.into_iter().reduce(|a, b| Some(a? * b?)).unwrap() {
+        if size <= MAX_SIZE && !is_char {
+            return Ok(Some(size));
+        }
+    }
+    Ok(None)
+}
+
 fn eval_character_len(len: &Option<LenSpecification>, syms: &SymbolTable) -> Result<Option<i32>> {
     Ok(match len {
         Some(LenSpecification::Integer(c)) => Some(*c),
@@ -772,9 +788,19 @@ impl CodeGenUnit<'_> {
             Ctx::SaveStruct => match sym.rs_ty {
                 RustType::SavePrimitive => format!("{name}: {ty}"),
                 RustType::SaveChar => format!("{name}: Vec<u8>"),
-                RustType::SaveActualArray => match sym.ast.dims.len() {
-                    1 => format!("{name}: ActualArray<{ty}>"),
-                    n => format!("{name}: ActualArray{n}D<{ty}>"),
+                RustType::SaveActualArray => match use_stack_array(&sym, &self.syms)? {
+                    Some(size) => {
+                        match sym.ast.dims.len() {
+                            1 => format!("{name}: StackArray<{ty}, {size}>"),
+                            n => format!("{name}: StackArray{n}D<{ty}, {size}>"),
+                        }
+                    }
+                    None => {
+                        match sym.ast.dims.len() {
+                            1 => format!("{name}: ActualArray<{ty}>"),
+                            n => format!("{name}: ActualArray{n}D<{ty}>"),
+                        }
+                    }
                 },
                 RustType::SaveActualCharArray => match sym.ast.dims.len() {
                     1 => format!("{name}: ActualCharArray"),
@@ -1705,22 +1731,31 @@ impl CodeGenUnit<'_> {
             } else {
                 // Allocate the array
 
-                let array = match sym.ast.dims.len() {
-                    1 => format!("Actual{char_label}Array"),
-                    n => format!("Actual{char_label}Array{n}D"),
+                let is_char = matches!(sym.ast.base_type, DataType::Character);
+
+                let (alloc, size_label) = match use_stack_array(sym, &self.syms)? {
+                    Some(size) => ("Stack", format!(", {size}")),
+                    None => ("Actual", "".to_owned())
                 };
 
-                let len_label = match sym.ast.base_type {
-                    DataType::Character => match char_len {
+                let array = match sym.ast.dims.len() {
+                    1 => format!("{alloc}{char_label}Array"),
+                    n => format!("{alloc}{char_label}Array{n}D"),
+                };
+
+                let len_label = if is_char {
+                    match char_len {
                         Some(e) => format!("{e}, "),
                         None => bail!("actual character array with undefined length"),
-                    },
-                    _ => "".to_owned(),
+                    }
+                } else {
+                    "".to_owned()
                 };
 
-                let ty = match sym.ast.base_type {
-                    DataType::Character => "".to_owned(),
-                    _ => format!("::<{}>", emit_datatype(&sym.ast.base_type)),
+                let ty = if is_char {
+                    "".to_owned()
+                } else {
+                    format!("::<{}{size_label}>", emit_datatype(&sym.ast.base_type))
                 };
                 code += &format!("let {mut_label}{name} = {array}{ty}::new({len_label}{dims});\n");
             }

@@ -14,10 +14,15 @@ use std::ops::{Index, IndexMut, RangeBounds, RangeInclusive};
 use std::slice::GetDisjointMutError;
 
 macro_rules! define_array {
-    ($dims:expr, $actual:ident, $dummy:ident, $dummy_mut:ident, $offset:ident, $index:ty,
+    ($dims:expr, $actual:ident, $stack:ident, $dummy:ident, $dummy_mut:ident, $offset:ident, $index:ty,
         ($($bn:ident: $Bn:ident),+)) => {
         pub struct $actual<T: 'static> {
             data: Vec<T>,
+            bounds: [(i32, i32); $dims],
+        }
+
+        pub struct $stack<T: 'static, const N: usize> {
+            data: [T; N],
             bounds: [(i32, i32); $dims],
         }
 
@@ -45,6 +50,26 @@ macro_rules! define_array {
 
                 Self {
                     data: vec![Default::default(); size as usize],
+                    bounds,
+                }
+            }
+        }
+
+        // Like $actual, but fixed-size and allocated on the stack
+        impl<T, const N: usize> $stack<T, N>
+        where
+            T: Default + Copy,
+        {
+            pub fn new($($bn: RangeInclusive<i32>),+) -> Self {
+                let bounds = [$(parse_bounds($bn)),+];
+                let size = bounds
+                    .iter()
+                    .map(|(lower, upper)| (upper - lower + 1).max(0))
+                    .product::<i32>();
+                assert!(size == N as i32);
+
+                Self {
+                    data: [Default::default(); N],
                     bounds,
                 }
             }
@@ -81,6 +106,15 @@ macro_rules! define_array {
             }
         }
 
+        impl<T, const N: usize> Index<$index> for $stack<T, N> {
+            type Output = T;
+
+            fn index(&self, index: $index) -> &Self::Output {
+                let offset = self.offset(index);
+                &self.data[offset]
+            }
+        }
+
         impl<T> Index<$index> for $dummy<'_, T> {
             type Output = T;
 
@@ -106,6 +140,13 @@ macro_rules! define_array {
             }
         }
 
+        impl<T, const N: usize> IndexMut<$index> for $stack<T, N> {
+            fn index_mut(&mut self, index: $index) -> &mut Self::Output {
+                let offset = self.offset(index);
+                &mut self.data[offset]
+            }
+        }
+
         impl<T> IndexMut<$index> for $dummy_mut<'_, T> {
             fn index_mut(&mut self, index: $index) -> &mut Self::Output {
                 let offset = self.offset(index);
@@ -124,6 +165,22 @@ macro_rules! define_array {
         }
 
         impl<T> ArrayOpsMut<T, $index> for $actual<T> {
+            fn data_mut(&mut self) -> &mut [T] {
+                &mut self.data
+            }
+        }
+
+        impl<T, const N: usize> ArrayOps<T, $index> for $stack<T, N> {
+            fn data(&self) -> &[T] {
+                &self.data
+            }
+
+            fn offset(&self, index: $index) -> usize {
+                $offset(self.bounds, index)
+            }
+        }
+
+        impl<T, const N: usize> ArrayOpsMut<T, $index> for $stack<T, N> {
             fn data_mut(&mut self) -> &mut [T] {
                 &mut self.data
             }
@@ -157,10 +214,10 @@ macro_rules! define_array {
     }
 }
 
-define_array!(1, ActualArray, DummyArray, DummyArrayMut, offset_1d, i32, (b0: B0));
-define_array!(2, ActualArray2D, DummyArray2D, DummyArrayMut2D, offset_2d, [i32; 2], (b0: B0, b1: B1));
-define_array!(3, ActualArray3D, DummyArray3D, DummyArrayMut3D, offset_3d, [i32; 3], (b0: B0, b1: B1, b2: B2));
-define_array!(4, ActualArray4D, DummyArray4D, DummyArrayMut4D, offset_4d, [i32; 4], (b0: B0, b1: B1, b2: B2, b3: B3));
+define_array!(1, ActualArray, StackArray, DummyArray, DummyArrayMut, offset_1d, i32, (b0: B0));
+define_array!(2, ActualArray2D, StackArray2D, DummyArray2D, DummyArrayMut2D, offset_2d, [i32; 2], (b0: B0, b1: B1));
+define_array!(3, ActualArray3D, StackArray3D, DummyArray3D, DummyArrayMut3D, offset_3d, [i32; 3], (b0: B0, b1: B1, b2: B2));
+define_array!(4, ActualArray4D, StackArray4D, DummyArray4D, DummyArrayMut4D, offset_4d, [i32; 4], (b0: B0, b1: B1, b2: B2, b3: B3));
 
 pub trait ArrayOps<T: 'static, I> {
     fn data(&self) -> &[T];
