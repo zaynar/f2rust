@@ -405,6 +405,25 @@ impl GrammarPatcher {
         None
     }
 
+    // See zzholdd.f
+    fn patch_zzholdd(&mut self, stmt: &grammar::Statement) -> Option<grammar::Statement> {
+        if let grammar::Statement::Call(name, args) = stmt {
+            if !matches!(name.as_str(), "ZZHOLDD") {
+                return None;
+            }
+            if let grammar::Expression::Symbol(s) = &args[0] {
+                if s == "ZZPUT" {
+                    return Some(grammar::Statement::Call(
+                        "ZZHOLDD_ZZPUT".to_owned(),
+                        args.clone(),
+                    ));
+                }
+            }
+        }
+
+        None
+    }
+
     fn patch(
         &mut self,
         code: Vec<(SourceLoc, grammar::Statement)>,
@@ -412,6 +431,7 @@ impl GrammarPatcher {
         code.into_iter()
             .map(|(loc, stmt)| {
                 let stmt = self.patch_swap(&stmt).unwrap_or(stmt);
+                let stmt = self.patch_zzholdd(&stmt).unwrap_or(stmt);
                 (loc, stmt)
             })
             .collect()

@@ -59,7 +59,7 @@ fn main() -> Result<()> {
     // this value to radians for computation using SPICE routines.
     // We'll store the equivalent value in radians in REVLIM.
 
-    let mut revlim = spice.rpd() * elvlim;
+    let revlim = spice.rpd() * elvlim;
 
     // Since we're interested in the apparent location of the
     // target, we use light time and stellar aberration
@@ -173,7 +173,7 @@ fn main() -> Result<()> {
         crdsys,
         coord,
         relate,
-        &mut revlim, // TODO: this shouldn't be mut
+        revlim,
         adjust,
         stepsz,
         &cnfine,
