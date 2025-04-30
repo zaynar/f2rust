@@ -26,3 +26,11 @@ path = "lessons/remote_sensing/subpts.rs"
 [[example]]
 name = "visibl"
 path = "lessons/event_finding/visibl.rs"
+
+[[example]]
+name = "scvel"
+path = "lessons/insitu_sensing/scvel.rs"
+
+[[example]]
+name = "erotat"
+path = "lessons/binary_pck/erotat.rs"
