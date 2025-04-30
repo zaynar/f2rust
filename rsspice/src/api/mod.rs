@@ -8,6 +8,12 @@ pub struct SpiceContext<'a> {
     ctx: f2rust_std::Context<'a>,
 }
 
+impl Default for SpiceContext<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> SpiceContext<'a> {
     pub fn new() -> Self {
         let ctx = f2rust_std::Context::new();
@@ -51,7 +57,7 @@ impl<'a> SpiceContext<'a> {
             // Return the error
             let short = short.trim_ascii_end();
             let long = long.trim_ascii_end();
-            Err(Error::from_spice(&short, &long))
+            Err(Error::from_spice(short, long))
         } else {
             Ok(())
         }

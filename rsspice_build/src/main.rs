@@ -663,22 +663,35 @@ fn main() -> Result<()> {
     {
         let mut modrs = File::create(gen_root.join("mod.rs"))?;
         writeln!(modrs, "//\n// GENERATED FILE\n//\n")?;
-        writeln!(modrs, "#![allow(non_snake_case)]")?;
-        writeln!(modrs, "#![allow(unused_parens, clippy::double_parens)]")?;
-        writeln!(modrs, "#![allow(unused_mut, unused_assignments)]")?;
-        writeln!(modrs, "#![allow(unused_imports)]")?;
-        writeln!(modrs, "#![allow(unused_variables)]")?;
-        writeln!(modrs, "#![allow(unreachable_code)]")?;
         writeln!(modrs, "#![allow(dead_code)]")?;
-        writeln!(modrs, "#![allow(clippy::while_immutable_condition)]")?;
+        writeln!(modrs, "#![allow(non_snake_case)]")?;
+        writeln!(modrs, "#![allow(unreachable_code)]")?;
+        writeln!(modrs, "#![allow(unused_imports)]")?;
+        writeln!(modrs, "#![allow(unused_mut, unused_assignments)]")?;
+        writeln!(modrs, "#![allow(unused_parens, clippy::double_parens)]")?;
+        writeln!(modrs, "#![allow(unused_variables)]")?;
+        // It can be useful to have clippy point out issues with the generated code.
+        // But a lot of the issues are with the FORTRAN code which we can't fix,
+        // or are false positives, or are cases where we deliberately emit non-ideal
+        // code because it's easier. So turn lots of them off:
         writeln!(modrs, "#![allow(clippy::assign_op_pattern)]")?;
-        writeln!(modrs, "#![allow(clippy::needless_return)]")?;
-        writeln!(modrs, "#![allow(clippy::unnecessary_cast)]")?;
-        writeln!(modrs, "#![allow(clippy::if_same_then_else)]")?;
-        writeln!(modrs, "#![allow(clippy::needless_bool_assign)]")?;
+        writeln!(modrs, "#![allow(clippy::collapsible_else_if)]")?;
         writeln!(modrs, "#![allow(clippy::collapsible_if)]")?;
+        writeln!(modrs, "#![allow(clippy::comparison_chain)]")?;
+        writeln!(modrs, "#![allow(clippy::if_same_then_else)]")?;
+        writeln!(modrs, "#![allow(clippy::let_and_return)]")?;
+        writeln!(modrs, "#![allow(clippy::manual_range_contains)]")?;
+        writeln!(modrs, "#![allow(clippy::needless_bool_assign)]")?;
+        writeln!(modrs, "#![allow(clippy::needless_borrow)]")?;
+        writeln!(modrs, "#![allow(clippy::needless_return)]")?;
+        writeln!(modrs, "#![allow(clippy::needless_update)]")?;
+        writeln!(modrs, "#![allow(clippy::nonminimal_bool)]")?;
+        writeln!(modrs, "#![allow(clippy::self_assignment)]")?;
         writeln!(modrs, "#![allow(clippy::too_many_arguments)]")?;
         writeln!(modrs, "#![allow(clippy::type_complexity)]")?;
+        writeln!(modrs, "#![allow(clippy::unnecessary_cast)]")?;
+        writeln!(modrs, "#![allow(clippy::unnecessary_to_owned)]")?;
+        writeln!(modrs, "#![allow(clippy::while_immutable_condition)]")?;
         writeln!(modrs)?;
         writeln!(modrs, "mod api;")?;
         writeln!(modrs, "pub mod required_reading;")?;

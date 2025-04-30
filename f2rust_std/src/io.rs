@@ -635,7 +635,7 @@ impl<'a> InternalFile<'a> {
     }
 }
 
-impl<'a> RecFile for InternalFile<'a> {
+impl RecFile for InternalFile<'_> {
     fn read(&mut self, recnum: Option<i32>) -> Result<Vec<u8>> {
         assert!(
             recnum.is_none(),
@@ -721,7 +721,7 @@ pub struct FsFileManager<'a> {
     cwd: PathBuf,
 }
 
-impl<'a> FsFileManager<'a> {
+impl FsFileManager<'_> {
     pub fn new(cwd: &Path) -> Self {
         Self {
             units: HashMap::from([(6, FsUnit::new(None, StdoutRecFile {}))]),
@@ -965,7 +965,7 @@ impl<'a> FileManager<'a> for VirtualFileManager<'a> {
                 specs.set_opened_number(Some(unit));
 
                 if let Some(path) = &u.path {
-                    specs.set_name(Some(&path));
+                    specs.set_name(Some(path));
                 } else {
                     specs.set_name(None);
                 }

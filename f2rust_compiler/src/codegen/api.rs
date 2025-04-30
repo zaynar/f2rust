@@ -934,8 +934,7 @@ impl CodeGen<'_> {
 
         if raw {
             if requires_ctx {
-                args.params
-                    .insert(0, "ctx: &mut SpiceContext<'a>".to_owned());
+                args.params.insert(0, "ctx: &mut SpiceContext".to_owned());
                 args.args.push("ctx.raw_context()".to_owned());
             }
         } else {
@@ -947,9 +946,7 @@ impl CodeGen<'_> {
             }
         }
 
-        let fn_lifetime = if raw && requires_ctx { "<'a>" } else { "" };
-
-        let is_function = matches!(self.shared.program.ast.ty, ast::ProgramUnitType::Function);
+        let is_function = matches!(self.shared.program.ast.ty, ProgramUnitType::Function);
         let ret_type = if is_function {
             &entry.codegen.syms.get(entry_name)?.ast.base_type
         } else {
@@ -980,13 +977,17 @@ impl CodeGen<'_> {
             if returns_result {
                 ret = format!("{result}<{ret}>");
             }
-            format!("-> {ret}")
+            if ret == "()" {
+                "".to_owned()
+            } else {
+                format!("-> {ret}")
+            }
         };
 
         code += &docs;
         writeln!(
             code,
-            "pub fn {fn_ident}{fn_lifetime}({params}) {ret} {{",
+            "pub fn {fn_ident}({params}) {ret} {{",
             fn_ident = safe_identifier(fn_name),
             params = args.params.join(", ")
         )?;
