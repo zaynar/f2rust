@@ -126,7 +126,7 @@ impl OpenSpecs<'_> {
         }
     }
 
-    fn access(&self) -> bool {
+    fn sequential(&self) -> bool {
         match self.access.map(|s| s.trim_ascii_end()) {
             None | Some(b"SEQUENTIAL") => true,
             Some(b"DIRECT") => false,
@@ -134,9 +134,9 @@ impl OpenSpecs<'_> {
         }
     }
 
-    fn form(&self) -> bool {
+    fn formatted(&self) -> bool {
         match self.form.map(|s| s.trim_ascii_end()) {
-            None => self.access.map(|s| s.trim_ascii_end()) == None,
+            None => self.sequential(),
             Some(b"FORMATTED") => true,
             Some(b"UNFORMATTED") => false,
             Some(v) => panic!("OPEN: invalid FORM={}", String::from_utf8_lossy(v)),
@@ -167,6 +167,15 @@ pub struct PosSpecs {
     pub unit: Option<i32>,
 }
 
+struct RecIo {
+    // To optimise seeking, this tracks the value of Seek::stream_position
+    stream_pos: u64,
+
+    sequential: bool,
+    formatted: bool,
+    recl: i32,
+}
+
 // Sequential IO:
 // Records are arbitrary length, terminated with '\n' (if formatted),
 // or preceded  *and* followed with u32 LE length (if unformatted).
@@ -182,119 +191,154 @@ pub struct PosSpecs {
 // Records are fixed length, no delimiters.
 // Formatted: space filled with ' '. Unformatted: space filled with '\0'.
 // Read/write always specify RECN.
-
-fn read_seq<R: BufRead>(formatted: bool, mut reader: R) -> Result<Vec<u8>> {
-    if formatted {
-        let mut buf = Vec::new();
-        if reader.read_until(b'\n', &mut buf)? == 0 {
-            return Err(Error::EndOfFile);
+impl RecIo {
+    fn new(sequential: bool, formatted: bool, recl: i32) -> Self {
+        Self {
+            stream_pos: 0,
+            sequential,
+            formatted,
+            recl,
         }
-        buf.pop(); // remove the '\n'
-        Ok(buf)
-    } else {
-        // Record has u32 LE len as both header and trailer. Use the header to
-        // read the whole thing
-        let mut len_bytes = [0u8; 4];
-        match reader.read_exact(&mut len_bytes) {
-            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+    }
+
+    fn read_seq<R: BufRead>(&mut self, mut reader: R) -> Result<Vec<u8>> {
+        assert!(self.sequential, "sequential read on non-sequential file");
+
+        if self.formatted {
+            let mut buf = Vec::new();
+            if reader.read_until(b'\n', &mut buf)? == 0 {
                 return Err(Error::EndOfFile);
             }
-            Err(e) => return Err(e.into()),
-            Ok(()) => (),
-        }
-        let len = u32::from_le_bytes(len_bytes);
+            self.stream_pos += buf.len() as u64;
+            buf.pop(); // remove the '\n'
+            Ok(buf)
+        } else {
+            // Record has u32 LE len as both header and trailer. Use the header to
+            // read the whole thing
+            let mut len_bytes = [0u8; 4];
+            match reader.read_exact(&mut len_bytes) {
+                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    return Err(Error::EndOfFile);
+                }
+                Err(e) => return Err(e.into()),
+                Ok(()) => (),
+            }
+            let len = u32::from_le_bytes(len_bytes);
 
-        let mut buf = vec![0; len as usize + 4];
-        reader.read_exact(&mut buf)?;
+            let mut buf = vec![0; len as usize + 4];
+            reader.read_exact(&mut buf)?;
 
-        // Remove the trailer, and verify it's consistent with len
-        let tail_bytes = buf.drain(buf.len() - 4..).collect::<Vec<_>>();
-        let tail_len = u32::from_le_bytes(tail_bytes.try_into().unwrap());
-        if tail_len != len {
-            return Err(Error::CorruptedRecord);
+            self.stream_pos += len as u64 + 8;
+
+            // Remove the trailer, and verify it's consistent with len
+            let tail_bytes = buf.drain(buf.len() - 4..).collect::<Vec<_>>();
+            let tail_len = u32::from_le_bytes(tail_bytes.try_into().unwrap());
+            if tail_len != len {
+                return Err(Error::CorruptedRecord);
+            }
+            Ok(buf)
         }
-        Ok(buf)
     }
-}
 
-fn write_seq<W: Write>(formatted: bool, record: &[u8], mut writer: W) -> Result<()> {
-    if formatted {
+    fn write_seq<W: Write>(&mut self, record: &[u8], mut writer: W) -> Result<()> {
+        assert!(self.sequential, "sequential write on non-sequential file");
+
+        if self.formatted {
+            writer.write_all(record)?;
+            writer.write_all(b"\n")?;
+            self.stream_pos += record.len() as u64 + 1;
+        } else {
+            let len = (record.len() as u32).to_le_bytes();
+            writer.write_all(&len)?;
+            writer.write_all(record)?;
+            writer.write_all(&len)?;
+            self.stream_pos += record.len() as u64 + 8;
+        }
+        Ok(())
+    }
+
+    fn read_direct<R: Read + Seek>(&mut self, recnum: i32, mut reader: R) -> Result<Vec<u8>> {
+        assert!(!self.sequential, "direct read on non-direct file");
+
+        if recnum <= 0 {
+            return Err(Error::InvalidRecordNumber(recnum));
+        }
+
+        // Use seek_relative to avoid BufReader discarding its buffer
+        let rec_pos = (recnum - 1) as u64 * self.recl as u64;
+        reader.seek_relative(rec_pos as i64 - self.stream_pos as i64)?;
+
+        let mut buf = vec![0; self.recl as usize];
+
+        // To match gfortran, as required by ZZASCII:
+        // If this record is entirely after EOF, return an error.
+        // If this record is interrupted by EOF, return the partial record;
+        // the rest of the buffer will have undefined contents (with no indication
+        // to the application of how much was actually read, which seems dangerous?)
+
+        let mut read = 0;
+        while read < buf.len() {
+            let n = reader.read(&mut buf[read..])?;
+            read += n;
+
+            // Abort on EOF
+            if n == 0 {
+                break;
+            }
+        }
+
+        self.stream_pos = rec_pos + read as u64;
+
+        if read == 0 {
+            Err(Error::NonExistentRecord(recnum))
+        } else {
+            Ok(buf)
+        }
+    }
+
+    fn write_direct<W: Write + Seek>(
+        &mut self,
+
+        recnum: i32,
+        numrecs: u64,
+
+        record: &[u8],
+        mut writer: W,
+    ) -> Result<()> {
+        assert!(!self.sequential, "direct write on non-direct file");
+
+        assert!(
+            record.len() as i32 <= self.recl,
+            "record length {} exceeded RECL {}",
+            record.len(),
+            self.recl
+        );
+
+        let rec_pos = (recnum - 1) as u64 * self.recl as u64;
+
+        // If we're >=1 record past the end of the file, we need to insert empty records
+        if (recnum - 1) as u64 > numrecs {
+            let fill = if self.formatted { b' ' } else { b'\0' };
+            let dummy = vec![fill; self.recl as usize];
+
+            writer.seek(SeekFrom::Start(numrecs * self.recl as u64))?;
+            for _ in numrecs..(recnum - 1) as u64 {
+                writer.write_all(&dummy)?;
+            }
+            self.stream_pos = rec_pos;
+        } else {
+            writer.seek_relative(rec_pos as i64 - self.stream_pos as i64)?;
+        }
+
         writer.write_all(record)?;
-        writer.write_all(b"\n")?;
-    } else {
-        let len = (record.len() as u32).to_le_bytes();
-        writer.write_all(&len)?;
-        writer.write_all(record)?;
-        writer.write_all(&len)?;
-    }
-    Ok(())
-}
-
-fn read_direct<R: Read + Seek>(recl: i32, recnum: i32, mut reader: R) -> Result<Vec<u8>> {
-    if recnum <= 0 {
-        return Err(Error::InvalidRecordNumber(recnum));
-    }
-
-    reader.seek(SeekFrom::Start((recnum - 1) as u64 * recl as u64))?;
-
-    let mut buf = vec![0; recl as usize];
-
-    // To match gfortran, as required by ZZASCII:
-    // If this record is entirely after EOF, return an error.
-    // If this record is interrupted by EOF, return the partial record;
-    // the rest of the buffer will have undefined contents (with no indication
-    // to the application of how much was actually read, which seems dangerous?)
-
-    let mut read = 0;
-    while read < buf.len() {
-        let n = reader.read(&mut buf[read..])?;
-        read += n;
-
-        // Abort on EOF
-        if n == 0 {
-            break;
+        if record.len() < self.recl as usize {
+            writer.write_all(&vec![0u8; self.recl as usize - record.len()])?;
         }
+
+        self.stream_pos = rec_pos + self.recl as u64;
+
+        Ok(())
     }
-
-    if read == 0 {
-        Err(Error::NonExistentRecord(recnum))
-    } else {
-        Ok(buf)
-    }
-}
-
-fn write_direct<W: Write + Seek>(
-    recl: i32,
-    recnum: i32,
-    numrecs: u64,
-    formatted: bool,
-    record: &[u8],
-    mut writer: W,
-) -> Result<()> {
-    assert!(
-        record.len() as i32 <= recl,
-        "record length {} exceeded RECL {recl}",
-        record.len()
-    );
-
-    // If we're >=1 record past the end of the file, we need to insert empty records
-    if (recnum - 1) as u64 > numrecs {
-        let fill = if formatted { b' ' } else { b'\0' };
-        let dummy = vec![fill; recl as usize];
-
-        writer.seek(SeekFrom::End(0))?;
-        for _ in numrecs..(recnum - 1) as u64 {
-            writer.write_all(&dummy)?;
-        }
-    }
-
-    writer.seek(SeekFrom::Start((recnum - 1) as u64 * recl as u64))?;
-    writer.write_all(record)?;
-    if record.len() < recl as usize {
-        writer.write_all(&vec![0u8; recl as usize - record.len()])?;
-    }
-
-    Ok(())
 }
 
 pub trait RecFile {
@@ -324,10 +368,7 @@ pub type RecFileRef<'a> = Rc<RefCell<dyn RecFile + 'a>>;
 struct FsRecFile {
     reader: Option<BufReader<std::fs::File>>,
     writer: Option<BufWriter<std::fs::File>>,
-
-    sequential: bool,
-    formatted: bool,
-    recl: i32,
+    rec_io: RecIo,
 
     // On the first sequential write, we must truncate the file
     truncated: bool,
@@ -335,6 +376,8 @@ struct FsRecFile {
     // Number of records in file, if known
     numrecs: Option<u64>,
 }
+
+const BUFREADER_CAPACITY: usize = 65536;
 
 // RecFile wrapper for a File
 impl FsRecFile {
@@ -348,47 +391,48 @@ impl FsRecFile {
         assert!(recl.unwrap_or(1) > 0, "RECL must be positive");
 
         Self {
-            reader: Some(BufReader::new(file)),
+            reader: Some(BufReader::with_capacity(BUFREADER_CAPACITY, file)),
             writer: None,
-
-            sequential,
-            formatted,
-            recl: recl.unwrap_or(0),
+            rec_io: RecIo::new(sequential, formatted, recl.unwrap_or(0)),
 
             truncated: false,
             numrecs: None,
         }
     }
 
-    fn reader(&mut self) -> Result<&mut BufReader<std::fs::File>> {
+    fn prepare_reader(&mut self) -> Result<()> {
         if let Some(mut w) = self.writer.take() {
             w.flush()?;
-            let pos = w.stream_position()?;
-            let mut r = BufReader::new(w.into_inner().map_err(|e| e.into_error())?);
-            r.seek(SeekFrom::Start(pos))?;
+            let mut r = BufReader::with_capacity(
+                BUFREADER_CAPACITY,
+                w.into_inner().map_err(|e| e.into_error())?,
+            );
+            r.seek(SeekFrom::Start(self.rec_io.stream_pos))?;
             self.reader = Some(r);
         }
 
-        Ok(self.reader.as_mut().unwrap())
+        Ok(())
     }
 
-    fn writer(&mut self) -> Result<&mut BufWriter<std::fs::File>> {
-        if let Some(mut r) = self.reader.take() {
-            let pos = r.stream_position()?;
+    fn prepare_writer(&mut self) -> Result<()> {
+        if let Some(r) = self.reader.take() {
             let mut w = BufWriter::new(r.into_inner());
-            w.seek(SeekFrom::Start(pos))?;
+            w.seek(SeekFrom::Start(self.rec_io.stream_pos))?;
             self.writer = Some(w);
         }
 
-        Ok(self.writer.as_mut().unwrap())
+        Ok(())
     }
 
     fn read_seq(&mut self) -> Result<Vec<u8>> {
-        read_seq(self.formatted, self.reader()?)
+        self.prepare_reader()?;
+        self.rec_io.read_seq(self.reader.as_mut().unwrap())
     }
 
     fn write_seq(&mut self, record: &[u8]) -> Result<()> {
-        write_seq(self.formatted, record, self.writer()?)?;
+        self.prepare_writer()?;
+        self.rec_io
+            .write_seq(record, self.writer.as_mut().unwrap())?;
 
         // The first sequential write should truncate the file.
         // (Subsequent writes don't need to, because they're only making the file longer)
@@ -399,6 +443,7 @@ impl FsRecFile {
             let pos = w.stream_position()?;
             let file = w.into_inner().map_err(|e| e.into_error())?;
 
+            // Truncate
             file.set_len(pos)?;
 
             // Convert File back into BufWriter
@@ -413,29 +458,27 @@ impl FsRecFile {
     }
 
     fn read_direct(&mut self, recnum: i32) -> Result<Vec<u8>> {
-        read_direct(self.recl, recnum, self.reader()?)
+        self.prepare_reader()?;
+        self.rec_io
+            .read_direct(recnum, self.reader.as_mut().unwrap())
     }
 
     fn write_direct(&mut self, recnum: i32, record: &[u8]) -> Result<()> {
+        self.prepare_writer()?;
+
         // Get the cached file size, or compute it
         let numrecs = match self.numrecs {
             Some(n) => n,
             None => {
-                let w = self.writer()?;
+                let w = self.writer.as_mut().unwrap();
                 w.seek(SeekFrom::End(0))?;
-                let file_len = w.stream_position()?;
-                file_len / (self.recl as u64)
+                self.rec_io.stream_pos = w.stream_position()?;
+                self.rec_io.stream_pos / (self.rec_io.recl as u64)
             }
         };
 
-        write_direct(
-            self.recl,
-            recnum,
-            numrecs,
-            self.formatted,
-            record,
-            self.writer()?,
-        )?;
+        self.rec_io
+            .write_direct(recnum, numrecs, record, self.writer.as_mut().unwrap())?;
 
         self.numrecs = Some(numrecs.max(recnum as u64));
 
@@ -446,20 +489,16 @@ impl FsRecFile {
 impl RecFile for FsRecFile {
     fn read(&mut self, recnum: Option<i32>) -> Result<Vec<u8>> {
         if let Some(recnum) = recnum {
-            assert!(!self.sequential, "direct read on non-direct file");
             self.read_direct(recnum)
         } else {
-            assert!(self.sequential, "sequential read on non-sequential file");
             self.read_seq()
         }
     }
 
     fn write(&mut self, recnum: Option<i32>, record: &[u8]) -> Result<()> {
         if let Some(recnum) = recnum {
-            assert!(!self.sequential, "direct write on non-direct file");
             self.write_direct(recnum, record)
         } else {
-            assert!(self.sequential, "sequential write on non-sequential file");
             self.write_seq(record)
         }
     }
@@ -473,15 +512,15 @@ impl RecFile for FsRecFile {
             r.seek(SeekFrom::Start(0))?;
         }
 
+        self.rec_io.stream_pos = 0;
+
         Ok(())
     }
 }
 
 struct VirtualRecFile {
     file: VirtualFileData,
-    sequential: bool,
-    formatted: bool,
-    recl: i32,
+    rec_io: RecIo,
 }
 
 // RecFile wrapper for a Vec<u8>, used for tests with a virtual filesystem
@@ -505,20 +544,18 @@ impl VirtualRecFile {
 
         Ok(Self {
             file,
-            sequential,
-            formatted,
-            recl: recl.unwrap_or(0),
+            rec_io: RecIo::new(sequential, formatted, recl.unwrap_or(0)),
         })
     }
 
     fn read_seq(&mut self) -> Result<Vec<u8>> {
         let mut file = self.file.borrow_mut();
-        read_seq(self.formatted, file.deref_mut())
+        self.rec_io.read_seq(file.deref_mut())
     }
 
     fn write_seq(&mut self, record: &[u8]) -> Result<()> {
         let mut file = self.file.borrow_mut();
-        write_seq(self.formatted, record, file.deref_mut())?;
+        self.rec_io.write_seq(record, file.deref_mut())?;
 
         // Truncate the file after this write
         let pos = file.stream_position()?;
@@ -529,46 +566,37 @@ impl VirtualRecFile {
 
     fn read_direct(&mut self, recnum: i32) -> Result<Vec<u8>> {
         let mut file = self.file.borrow_mut();
-        read_direct(self.recl, recnum, file.deref_mut())
+        self.rec_io.read_direct(recnum, file.deref_mut())
     }
 
     fn write_direct(&mut self, recnum: i32, record: &[u8]) -> Result<()> {
         let mut file = self.file.borrow_mut();
-        let numrecs = file.get_ref().len() as u64 / self.recl as u64;
-        write_direct(
-            self.recl,
-            recnum,
-            numrecs,
-            self.formatted,
-            record,
-            file.deref_mut(),
-        )
+        let numrecs = file.get_ref().len() as u64 / self.rec_io.recl as u64;
+        self.rec_io
+            .write_direct(recnum, numrecs, record, file.deref_mut())
     }
 }
 
 impl RecFile for VirtualRecFile {
     fn read(&mut self, recnum: Option<i32>) -> Result<Vec<u8>> {
         if let Some(recnum) = recnum {
-            assert!(!self.sequential, "direct read on non-direct file");
             self.read_direct(recnum)
         } else {
-            assert!(self.sequential, "sequential read on non-sequential file");
             self.read_seq()
         }
     }
 
     fn write(&mut self, recnum: Option<i32>, record: &[u8]) -> Result<()> {
         if let Some(recnum) = recnum {
-            assert!(!self.sequential, "direct write on non-direct file");
             self.write_direct(recnum, record)
         } else {
-            assert!(self.sequential, "sequential write on non-sequential file");
             self.write_seq(record)
         }
     }
 
     fn rewind(&mut self) -> Result<()> {
         self.file.borrow_mut().seek(SeekFrom::Start(0))?;
+        self.rec_io.stream_pos = 0;
         Ok(())
     }
 }
@@ -808,7 +836,7 @@ impl<'a> FileManager<'a> for FsFileManager<'a> {
                 unit,
                 FsUnit::new(
                     Some(path.clone()),
-                    FsRecFile::new(f, specs.access(), specs.form(), specs.recl),
+                    FsRecFile::new(f, specs.sequential(), specs.formatted(), specs.recl),
                 ),
             );
 
@@ -824,7 +852,7 @@ impl<'a> FileManager<'a> for FsFileManager<'a> {
                 unit,
                 FsUnit::new(
                     None,
-                    FsRecFile::new(f, specs.access(), specs.form(), specs.recl),
+                    FsRecFile::new(f, specs.sequential(), specs.formatted(), specs.recl),
                 ),
             );
         }
@@ -1010,7 +1038,7 @@ impl<'a> FileManager<'a> for VirtualFileManager<'a> {
                 unit,
                 VirtualUnit::new(
                     Some(path.clone()),
-                    VirtualRecFile::new(data, specs.access(), specs.form(), specs.recl)?,
+                    VirtualRecFile::new(data, specs.sequential(), specs.formatted(), specs.recl)?,
                 ),
             );
 
@@ -1028,7 +1056,7 @@ impl<'a> FileManager<'a> for VirtualFileManager<'a> {
                 unit,
                 VirtualUnit::new(
                     None,
-                    VirtualRecFile::new(data, specs.access(), specs.form(), specs.recl)?,
+                    VirtualRecFile::new(data, specs.sequential(), specs.formatted(), specs.recl)?,
                 ),
             );
         }
