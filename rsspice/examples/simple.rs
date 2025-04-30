@@ -18,6 +18,8 @@ use rsspice::*;
 
 use clap::Parser;
 
+const MAXPTS: usize = 10;
+
 /// This program calculates the angular separation of two
 /// target bodies as seen from an observing body.
 ///
@@ -48,26 +50,24 @@ struct Args {
     end: String,
 }
 
-const MAXPTS: usize = 10;
-
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let mut ctx = SpiceContext::new();
+    let mut spice = SpiceContext::new();
 
     // Load the leapseconds information into the SPICELIB kernel pool
     // so that the time conversion routines can gain access to it.
-    ctx.furnsh(&args.lsk)?;
+    spice.furnsh(&args.lsk)?;
 
     // Load the SPK ephemeris file.
-    ctx.furnsh(&args.ephem)?;
+    spice.furnsh(&args.ephem)?;
 
     // Convert the UTC times to ephemeris seconds past J2000 (ET),
     // since that is what the SPICELIB readers are expecting.
-    let et_beg = ctx.str2et(&args.begin)?;
-    let et_end = ctx.str2et(&args.end)?;
-    let utc_beg = ctx.et2utc(et_beg, "C", 0)?;
-    let utc_end = ctx.et2utc(et_end, "C", 0)?;
+    let et_beg = spice.str2et(&args.begin)?;
+    let et_end = spice.str2et(&args.end)?;
+    let utc_beg = spice.et2utc(et_beg, "C", 0)?;
+    let utc_end = spice.et2utc(et_end, "C", 0)?;
 
     // Calculate the difference between evaluation times.
     let delta = (et_end - et_beg) / (MAXPTS - 1) as f64;
@@ -78,16 +78,18 @@ fn main() -> Result<()> {
     for i in 0..MAXPTS {
         let et = et_beg + delta * i as f64;
 
-        let (state1, _lt) = ctx.spkezr(&args.first, et, "J2000", "LT+S", &args.observer)?;
-        let (state2, _lt) = ctx.spkezr(&args.second, et, "J2000", "LT+S", &args.observer)?;
+        let (state1, _lt) = spice.spkezr(&args.first, et, "J2000", "LT+S", &args.observer)?;
+        let (state2, _lt) = spice.spkezr(&args.second, et, "J2000", "LT+S", &args.observer)?;
 
-        let pos1 = state1.first_chunk::<3>().unwrap();
-        let pos2 = state2.first_chunk::<3>().unwrap();
+        // State includes position and velocity. Extract the position,
+        // and convert from slice to array
+        let pos1 = state1[0..3].try_into().unwrap();
+        let pos2 = state2[0..3].try_into().unwrap();
 
         // Save the time and the separation between the target bodies
         // (in degrees), as seen from the observer, for output to the
         // screen.
-        state.push((et, ctx.vsep(&pos1, &pos2) * ctx.dpr()));
+        state.push((et, spice.vsep(&pos1, &pos2) * spice.dpr()));
     }
 
     // Display the time and angular separation of the desired
@@ -111,7 +113,7 @@ fn main() -> Result<()> {
     println!("----------------------------------------------");
 
     for (et, sep) in state {
-        let utc_tim = ctx.et2utc(et, "C", 0)?;
+        let utc_tim = spice.et2utc(et, "C", 0)?;
         println!("  {utc_tim:20}     {sep:15.8} deg");
     }
 

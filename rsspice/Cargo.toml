@@ -14,3 +14,15 @@ tempfile = "3.19.1"
 
 [features]
 tspice = []
+
+[[example]]
+name = "convtm"
+path = "lessons/remote_sensing/convtm.rs"
+
+[[example]]
+name = "subpts"
+path = "lessons/remote_sensing/subpts.rs"
+
+[[example]]
+name = "visibl"
+path = "lessons/event_finding/visibl.rs"
