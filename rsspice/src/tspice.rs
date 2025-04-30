@@ -1,4 +1,6 @@
-#[allow(non_snake_case)]
+#![allow(non_snake_case)]
+
+#[cfg(test)]
 mod tests {
     use f2rust_std::{Context, Result};
     use tempfile::TempDir;
