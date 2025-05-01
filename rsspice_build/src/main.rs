@@ -941,7 +941,7 @@ impl DocParser {
             .replace("<", "\\<")
             .replace(
                 "http://naif.jpl.nasa.gov/naif/utilities.html",
-                "[http://naif.jpl.nasa.gov/naif/utilities.html](http://naif.jpl.nasa.gov/naif/utilities.html)",
+                "<http://naif.jpl.nasa.gov/naif/utilities.html>",
             )
     }
 

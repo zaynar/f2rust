@@ -17,16 +17,16 @@ const LBCELL: i32 = -5;
 fn main() -> Result<()> {
     let mut spice = SpiceContext::new();
 
+    spice.furnsh("gfoclt_ex1.tm")?;
+
     let mut confine = vec![0.0; (2 + 1 - LBCELL) as usize];
     let mut result = vec![0.0; (MAXWIN + 1 - LBCELL) as usize];
-
-    spice.furnsh("gfoclt_ex1.tm")?;
 
     spice.ssized(2, &mut confine)?;
     spice.ssized(MAXWIN, &mut result)?;
 
-    let et0 = spice.str2et("2025 JAN 01 00:00:00 TDB")?;
-    let et1 = spice.str2et("2030 JAN 01 00:00:00 TDB")?;
+    let et0 = spice.str2et("2027 JAN 01 00:00:00 TDB")?;
+    let et1 = spice.str2et("2029 JAN 01 00:00:00 TDB")?;
 
     spice.wninsd(et0, et1, &mut confine)?;
 

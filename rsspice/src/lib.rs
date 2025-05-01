@@ -1,9 +1,124 @@
-//! Pure Rust port of the SPICE Toolkit.
+//! Pure Rust port of the SPICE Toolkit for space geometry.
 //!
 //! This implementation is fully memory-safe and thread-safe,
-//! and (unlike other SPICE bindings) does not depend on an external C library.
-//! The code and API has been automatically translated from the FORTRAN version
-//! of the SPICE Toolkit.
+//! and does not depend on any external C/FORTRAN libraries.
+//! It implements nearly the entire SPICELIB API.
+//!
+//! The code has been automatically translated from the FORTRAN version
+//! of the SPICE Toolkit into Rust.
+//!
+//! It is completely unofficial, unsupported, and not heavily tested
+//! (though it does pass the Toolkit's regression tests).
+//! Use at your own risk.
+//!
+//! # Usage example
+//!
+//! This code demonstrates the general design:
+//!
+//! ```no_run
+//! use rsspice::*;
+//!
+//! const TIMFMT: &str = "YYYY MON DD HR:MN:SC.###### (TDB)::TDB";
+//! const MAXWIN: i32 = 2 * 100;
+//! const LBCELL: i32 = -5;
+//!
+//! // Find solar eclipses as seen from the center of the Earth.
+//! fn main() -> Result<()> {
+//!     let mut spice = SpiceContext::new();
+//!
+//!     spice.furnsh("gfoclt_ex1.tm")?;
+//!
+//!     let mut confine = vec![0.0; (2 + 1 - LBCELL) as usize];
+//!     let mut result = vec![0.0; (MAXWIN + 1 - LBCELL) as usize];
+//!
+//!     spice.ssized(2, &mut confine)?;
+//!     spice.ssized(MAXWIN, &mut result)?;
+//!
+//!     let et0 = spice.str2et("2027 JAN 01 00:00:00 TDB")?;
+//!     let et1 = spice.str2et("2029 JAN 01 00:00:00 TDB")?;
+//!
+//!     spice.wninsd(et0, et1, &mut confine)?;
+//!
+//!     spice.gfoclt(
+//!         "ANY",
+//!         "MOON", "ellipsoid", "IAU_MOON",
+//!         "SUN", "ellipsoid", "IAU_SUN",
+//!         "LT", "EARTH", 180.0, &confine,
+//!         &mut result,
+//!     )?;
+//!
+//!     for i in 1..=spice.wncard(&result)? {
+//!         let (left, right) = spice.wnfetd(&result, i)?;
+//!         println!(
+//!             "Interval {i}: {} - {}",
+//!             spice.timout(left, TIMFMT)?,
+//!             spice.timout(right, TIMFMT)?
+//!         );
+//!     }
+//!
+//!     Ok(())
+//! }
+//! ```
+//!
+//! The `SpiceContext` object encapsulates all the SPICE state, such as loaded
+//! kernels. There is no process-wide global state, so you can run multiple
+//! `SpiceContext`s concurrently in separate threads.
+//!
+//! There is a 1:1 mapping between functions in the FORTRAN API and
+//! in the Rust API, so you can refer to the extensive FORTRAN documentation.
+//!
+//! Arguments are mapped onto standard Rust types: `i32`, `&[f64]`, `&str`, etc.
+//! Output arguments are mapped onto return values. (E.g. `wnfetd`
+//! returns the tuple `(left, right)`).
+//! Input-output arguments are passed as `&mut` references.
+//!
+//! SPICE errors are mapped onto Rust's error system, so they can
+//! be easily handled with `Result` and `?`.
+//!
+//! FORTRAN arrays are typically indexed from 1, not 0.
+//! Functions like `wnfetd` similarly start counting from 1; we do not attempt
+//! any automatic translation of indexes.
+//! (This differs from the CSPICE implementation, and wrappers around
+//! CSPICE, which count from 0.)
+//!
+//! There is no special support for SPICE cells, and they
+//! do not map nicely onto Rust's 0-indexed arrays. You have
+//! to do the `LBCELL` size calculations yourself.
+//! This library is not attempting to provide an idiomatic high-level API.
+//!
+//! # Background
+//!
+//! SPICE is "an observation geometry system for space science missions",
+//! developed by NASA's
+//! [Navigation and Ancillary Information Facility](https://naif.jpl.nasa.gov/)
+//! (NAIF).
+//!
+//! A large amount of geometric data about planets, moons, and spacecraft is
+//! publicly available as SPICE data, which can be processed using the SPICE Toolkit
+//! software and APIs. NAIF also provides a lot of documentation
+//! of the system.
+//!
+//! The SPICE Toolkit is originally developed in FORTRAN, with an official
+//! translation to C. Official and unofficial bindings for the C library
+//! are available in several other languages.
+//! `rsspice` is an unofficial translation from FORTRAN to Rust, with
+//! a number of benefits and drawbacks:
+//!
+//! * Memory-safe: Rust's bounds-checking ensures that many errors will be
+//! detected at runtime and will not result in data corruption.
+//!
+//! * Thread-safe: The FORTRAN and C implementations depend heavily on global
+//! state. `rsspice` moves that state into the `SpiceContext` object, allowing
+//! concurrency within a single process.
+//!
+//! * Portability: This should work on any platform that Rust supports,
+//! including WebAssembly (albeit with some complications around filesystem access).
+//!
+//! * Much less testing: `rsspice` includes a translation of the TSPICE
+//! regression tests, which are reasonably extensive but do not have
+//! full coverage of the whole API. There is a higher risk of bugs than
+//! in a wrapper around the well-tested FORTRAN/C implementations.
+//!
 //!
 //! # API mapping
 //!
@@ -201,5 +316,23 @@ mod tspice;
 
 pub use api::*;
 
+/// Collection of reference documents describing the various SPICE subsystems
+///
+/// This can also be read at <https://naif.jpl.nasa.gov/pub/naif/toolkit_docs/FORTRAN/req/index.html>
 pub use crate::generated::required_reading;
+
+/// Lower-level SPICELIB API
+///
+/// This module provides the complete SPICELIB API, with a very similar structure to the
+/// original FORTRAN API, including the full API reference documentation.
+///
+/// Most applications should use the [`SpiceContext`] methods instead, as they are
+/// slightly more convenient.
+///
+/// The `raw` functions require the caller to allocate space for outputs and pass them as
+/// `&mut` references. `SpiceContext` automatically allocates the space and converts output
+/// arguments into return values.
+///
+/// Most `raw` functions still require a `SpiceContext` instance to store their
+/// 'global' state.
 pub use crate::generated::spicelib::api as raw;
