@@ -1,9 +1,5 @@
 use rsspice::*;
 
-// Global GF parameters: we import from this file
-// the definition of the GF workspace size parameter
-use rsspice::raw::inc::gf::NWMAX;
-
 // Format string for time output:
 const TDBFMT: &str = "YYYY MON DD HR:MN:SC.### TDB ::TDB";
 
@@ -165,7 +161,7 @@ fn main() -> Result<()> {
     // window, during which the apparent target has elevation
     // at least equal to the elevation limit.
 
-    let _work = spice.gfposc(
+    spice.gfposc(
         target,
         frame,
         abcorr,
@@ -178,7 +174,6 @@ fn main() -> Result<()> {
         stepsz,
         &cnfine,
         MAXWIN,
-        NWMAX,
         &mut riswin,
     )?;
 

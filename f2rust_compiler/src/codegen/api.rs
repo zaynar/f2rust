@@ -288,7 +288,13 @@ fn should_expose(entry: &Entry) -> bool {
     true
 }
 
+/// Whether an argument should be mapped onto a return tuple
 fn should_return_arg(entry: &Entry, arg_dirs: &IndexMap<&str, &str>, darg: &str) -> Result<bool> {
+    // Documented as I-O, but really O
+    if entry.ast.name == "DSKMI2" && darg == "WORK" {
+        return Ok(true);
+    }
+
     if arg_dirs.get(darg) != Some(&"O") {
         return Ok(false);
     }
@@ -311,7 +317,7 @@ fn output_array_size(func: &str, arg: &str) -> Option<&'static str> {
     // There are probably bugs here.
     //
     // Basic approach:
-    // * Args documented as sets cannot be pure outputs. The caller needs to initialise it.
+    // * Args documented as sets cannot be pure outputs. The caller needs to initialise them.
     //   Return None for these.
     // * Some functions explicitly state the size of the arguments.
     // * Some state it in Required Reading.
@@ -404,6 +410,7 @@ fn output_array_size(func: &str, arg: &str) -> Option<&'static str> {
         "DSKGD::DSKDSC" => Some("inc::dla::DLADSZ"),
         "DSKI02::VALUES" => Some("room.max(0)"),
         "DSKMI2::SPAIXI" => Some("spxisz.max(0)"),
+        "DSKMI2::WORK" => Some("worksz.max(0)"),
         "DSKP02::PLATES" => Some("room.max(0)"),
         "DSKV02::VRTCES" => Some("room.max(0)"),
         "DSKXSI::DLADSC" => Some("inc::dla::DLADSZ"),
@@ -449,15 +456,15 @@ fn output_array_size(func: &str, arg: &str) -> Option<&'static str> {
         "GETFVN::FRAME" => Some(FRAME_NAME),
         "GETFVN::BOUNDS" => Some("room.max(0)"),
         "GETMSG::MSG" => Some("inc::errhnd::LMSGLN"),
-        "GFDIST::WORK" => Some("((mw + 1 - LBCELL) * inc::gf::NWDIST).max(0)"),
+        "GFDIST::WORK" => Some("((mw + 1 - LBCELL) * nw).max(0)"),
         "GFEVNT::WORK" => Some("((mw + 1 - LBCELL) * nw).max(0)"),
-        "GFILUM::WORK" => Some("((mw + 1 - LBCELL) * inc::gf::NWILUM).max(0)"),
-        "GFPA::WORK" => Some("((mw + 1 - LBCELL) * inc::gf::NWPA).max(0)"),
-        "GFPOSC::WORK" => Some("((mw + 1 - LBCELL) * inc::gf::NWMAX).max(0)"),
-        "GFRR::WORK" => Some("((mw + 1 - LBCELL) * inc::gf::NWRR).max(0)"),
-        "GFSEP::WORK" => Some("((mw + 1 - LBCELL) * inc::gf::NWSEP).max(0)"),
-        "GFSNTC::WORK" => Some("((mw + 1 - LBCELL) * inc::gf::NWMAX).max(0)"),
-        "GFSUBC::WORK" => Some("((mw + 1 - LBCELL) * inc::gf::NWMAX).max(0)"),
+        "GFILUM::WORK" => Some("((mw + 1 - LBCELL) * nw).max(0)"),
+        "GFPA::WORK" => Some("((mw + 1 - LBCELL) * nw).max(0)"),
+        "GFPOSC::WORK" => Some("((mw + 1 - LBCELL) * nw).max(0)"),
+        "GFRR::WORK" => Some("((mw + 1 - LBCELL) * nw).max(0)"),
+        "GFSEP::WORK" => Some("((mw + 1 - LBCELL) * nw).max(0)"),
+        "GFSNTC::WORK" => Some("((mw + 1 - LBCELL) * nw).max(0)"),
+        "GFSUBC::WORK" => Some("((mw + 1 - LBCELL) * nw).max(0)"),
         "GFUDS::WORK" => Some("((mw + 1 - LBCELL) * nw).max(0)"),
         "HX2DP::ERRMSG" => Some(ERRMSG),
         "HX2INT::ERRMSG" => Some(ERRMSG),
@@ -621,6 +628,39 @@ fn output_array_size(func: &str, arg: &str) -> Option<&'static str> {
     }
 }
 
+/// Output arguments that are allocated inside the API and should not be returned to the user
+fn output_arg_hide(func: &str, arg: &str) -> bool {
+    match format!("{func}::{arg}").as_str() {
+        // To match CSPICE, hide all the GF WORK arrays
+        "GFDIST::WORK" | "GFEVNT::WORK" | "GFILUM::WORK" | "GFPA::WORK" | "GFPOSC::WORK"
+        | "GFRR::WORK" | "GFSEP::WORK" | "GFSNTC::WORK" | "GFSUBC::WORK" | "GFUDS::WORK" => true,
+
+        // CSPICE doesn't hide these, but we might as well
+        "DSKMI2::WORK" => true,
+
+        _ => false,
+    }
+}
+
+/// Arguments that can be derived from other arguments or constants,
+/// and should not be an input to the API
+fn arg_derived(func: &str, arg: &str) -> Option<&'static str> {
+    match format!("{func}::{arg}").as_str() {
+        // To match CSPICE, hide the workspace window counts
+        "GFDIST::NW" => Some("inc::gf::NWDIST"),
+        "GFEVNT::NW" => Some("inc::gf::NWMAX"),
+        "GFILUM::NW" => Some("inc::gf::NWILUM"),
+        "GFPA::NW" => Some("inc::gf::NWPA"),
+        "GFPOSC::NW" => Some("inc::gf::NWMAX"),
+        "GFRR::NW" => Some("inc::gf::NWRR"),
+        "GFSEP::NW" => Some("inc::gf::NWSEP"),
+        "GFSNTC::NW" => Some("inc::gf::NWMAX"),
+        "GFSUBC::NW" => Some("inc::gf::NWMAX"),
+        "GFUDS::NW" => Some("inc::gf::NWMAX"),
+        _ => None,
+    }
+}
+
 struct ArgBuilder {
     params: Vec<String>,
     args: Vec<String>,
@@ -654,7 +694,11 @@ impl ArgBuilder {
                 self.args.push(arg.arg);
             } else {
                 if !self.add_return_arg(entry, arg_dirs, darg, &arg, &ident)? {
-                    self.params.push(arg.param);
+                    if let Some(derived) = arg_derived(&entry.ast.name, darg) {
+                        writeln!(self.init, "  let {ident} = {derived};")?;
+                    } else {
+                        self.params.push(arg.param);
+                    }
                     self.args.push(ident.clone());
                 }
             }
@@ -728,7 +772,7 @@ impl ArgBuilder {
 
             if darg == "FOUND" {
                 self.ret_found = true;
-            } else {
+            } else if !output_arg_hide(&entry.ast.name, darg) {
                 self.ret_ty.push(arg.ret_ty.clone());
                 self.ret_vals.push(ident.clone());
                 self.ret_names.push(arg.name.clone());
