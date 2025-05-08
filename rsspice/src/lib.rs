@@ -19,7 +19,7 @@
 //! use rsspice::*;
 //!
 //! const TIMFMT: &str = "YYYY MON DD HR:MN:SC.###### (TDB)::TDB";
-//! const MAXWIN: i32 = 2 * 100;
+//! const MAXWIN: usize = 2 * 100;
 //! const LBCELL: i32 = -5;
 //!
 //! // Find solar eclipses as seen from the center of the Earth.
@@ -28,11 +28,8 @@
 //!
 //!     spice.furnsh("gfoclt_ex1.tm")?;
 //!
-//!     let mut confine = vec![0.0; (2 + 1 - LBCELL) as usize];
-//!     let mut result = vec![0.0; (MAXWIN + 1 - LBCELL) as usize];
-//!
-//!     spice.ssized(2, &mut confine)?;
-//!     spice.ssized(MAXWIN, &mut result)?;
+//!     let mut confine = Cell::with_capacity(2);
+//!     let mut result = Cell::with_capacity(MAXWIN);
 //!
 //!     let et0 = spice.str2et("2027 JAN 01 00:00:00 TDB")?;
 //!     let et1 = spice.str2et("2029 JAN 01 00:00:00 TDB")?;
@@ -78,13 +75,12 @@
 //! FORTRAN arrays are typically indexed from 1, not 0.
 //! Functions like `wnfetd` similarly start counting from 1; we do not attempt
 //! any automatic translation of indexes.
-//! (This differs from the CSPICE implementation, and wrappers around
-//! CSPICE, which count from 0.)
+//! (This differs from the CSPICE port, and wrappers around CSPICE,
+//! which count from 0.)
 //!
-//! There is no special support for SPICE cells, and they
-//! do not map nicely onto Rust's 0-indexed arrays. You have
-//! to do the `LBCELL` size calculations yourself.
-//! This library is not attempting to provide an idiomatic high-level API.
+//! There is a special type for SPICE cells (including windows and sets).
+//! But [`Cell`] only provides very basic functionality;
+//! this library is not attempting to provide an idiomatic high-level API.
 //!
 //! # Background
 //!

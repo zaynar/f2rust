@@ -7,13 +7,10 @@ const TDBFMT: &str = "YYYY MON DD HR:MN:SC.### TDB ::TDB";
 const METAKR: &str = "visibl.tm";
 
 // Maximum number of events we can handle in our event set:
-const MAXEVT: i32 = 1000;
+const MAXEVT: usize = 1000;
 
 // Maximum result window size:
-const MAXWIN: i32 = 2 * MAXEVT;
-
-// SPICELIB cell bound:
-const LBCELL: i32 = -5;
+const MAXWIN: usize = 2 * MAXEVT;
 
 // Find and display the window of times when the MEX
 // spacecraft is above a specified elevation limit in the
@@ -23,21 +20,21 @@ fn main() -> Result<()> {
     let mut spice = SpiceContext::new();
 
     // Confinement window used to store interval to be searched:
-    let mut cnfine = vec![0.0; (MAXEVT + 1 - LBCELL) as usize];
+    let mut cnfine = Cell::with_capacity(MAXEVT);
 
     // Result window used to store occultation times:
-    let mut occwin = vec![0.0; (MAXWIN + 1 - LBCELL) as usize];
+    let mut occwin = Cell::with_capacity(MAXWIN);
 
     // Result window used to store occultation times
     // computed using DSK data:
-    let mut docwin = vec![0.0; (MAXWIN + 1 - LBCELL) as usize];
+    let mut docwin = Cell::with_capacity(MAXWIN);
 
     // Result window used to store rise/set times:
-    let mut riswin = vec![0.0; (MAXWIN + 1 - LBCELL) as usize];
+    let mut riswin = Cell::with_capacity(MAXWIN);
 
     // Result windows used to store visibility periods:
-    let mut dviswn = vec![0.0; (MAXWIN + 1 - LBCELL) as usize];
-    let mut eviswn = vec![0.0; (MAXWIN + 1 - LBCELL) as usize];
+    let mut dviswn = Cell::with_capacity(MAXWIN);
+    let mut eviswn = Cell::with_capacity(MAXWIN);
 
     // Load the meta-kernel.
     spice.furnsh(METAKR)?;
@@ -137,18 +134,7 @@ fn main() -> Result<()> {
     // Initialize the 'confinement' window with the interval
     // over which we'll conduct the search.
 
-    spice.ssized(MAXWIN, &mut cnfine)?;
     spice.wninsd(etbeg, etend, &mut cnfine)?;
-
-    // Initialize the result window; this window will contain
-    // the rise/set times found by our search.
-    spice.ssized(MAXWIN, &mut riswin)?;
-
-    // Initialize the occultation and visibility windows.
-    spice.ssized(MAXWIN, &mut occwin)?;
-    spice.ssized(MAXWIN, &mut docwin)?;
-    spice.ssized(MAXWIN, &mut eviswn)?;
-    spice.ssized(MAXWIN, &mut dviswn)?;
 
     // The adjustment value only applies to absolute extrema
     // searches;  simply give it an initial value of zero
@@ -173,7 +159,7 @@ fn main() -> Result<()> {
         adjust,
         stepsz,
         &cnfine,
-        MAXWIN,
+        MAXWIN as i32,
         &mut riswin,
     )?;
 

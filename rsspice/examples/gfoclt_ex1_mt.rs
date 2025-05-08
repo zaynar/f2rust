@@ -13,8 +13,7 @@ use rayon::prelude::*;
 use rsspice::*;
 
 const TIMFMT: &str = "YYYY MON DD HR:MN:SC.###### (TDB)::TDB";
-const MAXWIN: i32 = 2 * 100;
-const LBCELL: i32 = -5;
+const MAXWIN: usize = 2 * 100;
 
 fn main() -> Result<()> {
     let mut spice = SpiceContext::new();
@@ -54,18 +53,19 @@ fn occults(et0: f64, et1: f64) -> Result<Vec<(f64, f64)>> {
 
     spice.furnsh("gfoclt_ex1.tm")?;
 
-    let mut confine = vec![0.0; (2 + 1 - LBCELL) as usize];
-    let mut result = vec![0.0; (MAXWIN + 1 - LBCELL) as usize];
-
-    spice.ssized(2, &mut confine)?;
-    spice.ssized(MAXWIN, &mut result)?;
+    let mut confine = Cell::with_capacity(2);
+    let mut result = Cell::with_capacity(MAXWIN);
 
     spice.wninsd(et0, et1, &mut confine)?;
 
     spice.gfoclt(
         "ANY",
-        "MOON", "ellipsoid", "IAU_MOON",
-        "SUN", "ellipsoid", "IAU_SUN",
+        "MOON",
+        "ellipsoid",
+        "IAU_MOON",
+        "SUN",
+        "ellipsoid",
+        "IAU_SUN",
         "LT",
         "EARTH",
         180.0,
@@ -73,7 +73,5 @@ fn occults(et0: f64, et1: f64) -> Result<Vec<(f64, f64)>> {
         &mut result,
     )?;
 
-    (1..=spice.wncard(&result)?)
-        .map(|i| spice.wnfetd(&result, i))
-        .collect()
+    Ok(result.into_iter().tuples().collect())
 }
