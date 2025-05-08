@@ -13,28 +13,42 @@ use indexmap::IndexMap;
 use log::error;
 use std::fmt::Write;
 
-struct RawArg {
-    name: String,
-    ret_ty: String,
-    param: String,
-    arg: String,
-}
+// TODO: this is all a mess and could do with refactoring
 
-fn emit_sized_array(ty: &str, dims: &[Option<i32>]) -> (String, String, bool) {
+// Construct idiomatic types for arrays, e.g.:
+//   `INTEGER X(1:2, 10:19)` becomes `[[i32; 2]; 10]`
+//   `INTEGER X(1:*)` becomes `[i32]` as an argument, `Vec<i32>` as a return value
+fn emit_sized_array(ty: &str, dims: &[(Option<i32>, Option<i32>)]) -> (String, String, bool) {
     let mut r = ty.to_owned();
     let mut depth = 0;
     for dim in dims {
         depth += 1;
-        if let Some(n) = dim {
-            r = format!("[{r}; {n}]");
-        } else {
-            return (format!("[{r}]"), format!("Vec<{r}>"), depth > 1);
+        match dim {
+            (Some(l), Some(u)) => {
+                let n = u + 1 - l;
+                r = format!("[{r}; {n}]");
+            }
+            _ => return (format!("[{r}]"), format!("Vec<{r}>"), depth > 1),
         }
     }
     (r.clone(), r, depth > 1)
 }
 
-fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<RawArg> {
+/// Whether an array declaration is a cell (i.e. lower bound is LBCELL)
+fn is_cell(dims: &[(Option<i32>, Option<i32>)]) -> bool {
+    dims.len() == 1 && matches!(dims[0], (Some(-5), _))
+}
+
+#[derive(Debug)]
+struct RawArg {
+    name: String,
+    ret_ty: String,
+    param: String,
+    arg: String,
+    pub_arg: String,
+}
+
+fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable, raw: bool) -> Result<RawArg> {
     let sym = syms.get(name)?;
     let ty = emit_datatype(&sym.ast.base_type);
 
@@ -46,53 +60,86 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ra
             ret_ty: ty.clone(),
             param: format!("{ident}: {ty}"),
             arg: ident.clone(),
+            pub_arg: ident.clone(),
         },
         RustType::PrimitiveRefMut => RawArg {
             name: ident.clone(),
             ret_ty: ty.clone(),
             param: format!("{ident}: &mut {ty}"),
             arg: ident.clone(),
+            pub_arg: ident.clone(),
         },
 
-        RustType::DummyArray => {
-            let (array, ret_ty, flatten) = emit_sized_array(&ty, &eval_dims(&sym.ast.dims, syms)?);
-            RawArg {
-                name: ident.clone(),
-                ret_ty,
-                param: format!("{ident}: &{array}"),
-                arg: if flatten {
-                    format!("{ident}.as_flattened()")
-                } else {
-                    ident.clone()
-                },
-            }
-        }
-        RustType::DummyArrayMut => {
-            let (array, ret_ty, flatten) = emit_sized_array(&ty, &eval_dims(&sym.ast.dims, syms)?);
-            RawArg {
-                name: ident.clone(),
-                ret_ty,
-                param: format!("{ident}: &mut {array}"),
-                arg: if flatten {
-                    format!("{ident}.as_flattened_mut()")
-                } else {
-                    ident.clone()
-                },
+        RustType::DummyArray | RustType::DummyArrayMut => {
+            let is_mut = matches!(sym.rs_ty, RustType::DummyArrayMut);
+            let dims = eval_dims(&sym.ast.dims, syms)?;
+
+            if !raw && is_cell(&dims) {
+                RawArg {
+                    name: ident.clone(),
+                    ret_ty: format!("Cell<{ty}>"),
+                    param: format!(
+                        "{ident}: &{m}Cell<{ty}>",
+                        m = if is_mut { "mut " } else { "" }
+                    ),
+                    arg: ident.clone(),
+                    pub_arg: format!(
+                        "{ident}.as_raw{m}_slice()",
+                        m = if is_mut { "_mut" } else { "" }
+                    ),
+                }
+            } else {
+                let (array, ret_ty, flatten) = emit_sized_array(&ty, &dims);
+                RawArg {
+                    name: ident.clone(),
+                    ret_ty,
+                    param: format!("{ident}: &{m}{array}", m = if is_mut { "mut " } else { "" }),
+                    arg: if flatten {
+                        format!(
+                            "{ident}.as_flattened{m}()",
+                            m = if is_mut { "_mut" } else { "" }
+                        )
+                    } else {
+                        ident.clone()
+                    },
+                    pub_arg: ident.clone(),
+                }
             }
         }
 
-        RustType::DummyCharArray => RawArg {
-            name: ident.clone(),
-            ret_ty: "String".to_owned(),
-            param: format!("{ident}: CharArray"),
-            arg: ident.clone(),
-        },
-        RustType::DummyCharArrayMut => RawArg {
-            name: ident.clone(),
-            ret_ty: "String".to_owned(),
-            param: format!("{ident}: CharArrayMut"),
-            arg: ident.clone(),
-        },
+        RustType::DummyCharArray | RustType::DummyCharArrayMut => {
+            let is_mut = matches!(sym.rs_ty, RustType::DummyCharArrayMut);
+            let dims = eval_dims(&sym.ast.dims, syms)?;
+
+            if !raw && is_cell(&dims) {
+                RawArg {
+                    name: ident.clone(),
+                    ret_ty: "CharCell".to_owned(),
+                    param: format!(
+                        "{ident}: &{m}CharCell",
+                        m = if is_mut { "mut " } else { "" }
+                    ),
+                    arg: ident.clone(),
+                    pub_arg: format!("{ident}.as_arg{m}()", m = if is_mut { "_mut" } else { "" }),
+                }
+            } else if !raw {
+                RawArg {
+                    name: ident.clone(),
+                    ret_ty: "todo!()".to_owned(),
+                    param: format!("{ident}: &{m}CharVec", m = if is_mut { "mut " } else { "" }),
+                    arg: ident.clone(),
+                    pub_arg: format!("{ident}.as_arg{m}()", m = if is_mut { "_mut" } else { "" }),
+                }
+            } else {
+                RawArg {
+                    name: ident.clone(),
+                    ret_ty: "String".to_owned(),
+                    param: format!("{ident}: CharArray{m}", m = if is_mut { "Mut" } else { "" }),
+                    arg: ident.clone(),
+                    pub_arg: ident.clone(),
+                }
+            }
+        }
         RustType::CharSliceRef => {
             if let Some(size) = eval_character_len(&sym.ast.character_len, syms)? {
                 if size == 1 {
@@ -101,6 +148,7 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ra
                         ret_ty: "String".to_owned(),
                         param: format!("{ident}: char"),
                         arg: format!("&[u8::try_from({ident}).unwrap()]"),
+                        pub_arg: ident.clone(),
                     });
                 } else {
                     // This only happens in LTIME, which wants a 2-char string
@@ -111,6 +159,7 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ra
                 ret_ty: "String".to_owned(),
                 param: format!("{ident}: &str"),
                 arg: format!("{ident}.as_bytes()"),
+                pub_arg: ident.clone(),
             }
             // TODO: if the string is empty, we should pass " " instead,
             // or else prove the FORTRAN code doesn't mind zero-length strings
@@ -122,6 +171,7 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ra
                     ret_ty: "String".to_owned(),
                     param: format!("{ident}: &mut [u8; {size}]"),
                     arg: ident.clone(),
+                    pub_arg: ident.clone(),
                 }
             } else {
                 RawArg {
@@ -129,6 +179,7 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ra
                     ret_ty: "String".to_owned(),
                     param: format!("{ident}: &mut str"),
                     arg: format!("fstr::StrBytes::new({ident}).as_mut()"),
+                    pub_arg: ident.clone(),
                 }
             }
         }
@@ -137,6 +188,7 @@ fn emit_api_symbol(loc: &SourceLoc, name: &str, syms: &SymbolTable) -> Result<Ra
             ret_ty: ty.clone(),
             param: format!("{ident}: {ty}"),
             arg: ident.clone(),
+            pub_arg: ident.clone(),
         },
 
         RustType::PrimitiveMut
@@ -661,6 +713,7 @@ fn arg_derived(func: &str, arg: &str) -> Option<&'static str> {
     }
 }
 
+#[derive(Debug)]
 struct ArgBuilder {
     params: Vec<String>,
     args: Vec<String>,
@@ -686,20 +739,20 @@ impl ArgBuilder {
 
     fn build(&mut self, entry: &Entry, raw: bool, arg_dirs: &IndexMap<&str, &str>) -> Result<()> {
         for darg in &entry.ast.dargs {
-            let arg = emit_api_symbol(&entry.ast.loc, darg, &entry.codegen.syms)?;
-            let ident = safe_identifier(&arg.name);
+            let arg = emit_api_symbol(&entry.ast.loc, darg, &entry.codegen.syms, raw)?;
+            let ident = &arg.name;
 
             if raw {
                 self.params.push(arg.param);
                 self.args.push(arg.arg);
             } else {
-                if !self.add_return_arg(entry, arg_dirs, darg, &arg, &ident)? {
+                if !self.add_return_arg(entry, arg_dirs, darg, &arg)? {
                     if let Some(derived) = arg_derived(&entry.ast.name, darg) {
                         writeln!(self.init, "  let {ident} = {derived};")?;
                     } else {
                         self.params.push(arg.param);
                     }
-                    self.args.push(ident.clone());
+                    self.args.push(arg.pub_arg);
                 }
             }
         }
@@ -713,12 +766,12 @@ impl ArgBuilder {
         arg_dirs: &IndexMap<&str, &str>,
         darg: &String,
         arg: &RawArg,
-        ident: &String,
     ) -> Result<bool> {
         if !should_return_arg(&entry, &arg_dirs, darg)? {
             return Ok(false);
         }
 
+        let ident = &arg.name;
         let sym = entry.codegen.syms.get(darg)?;
         if matches!(sym.ast.base_type, DataType::Character) {
             let len = match &sym.ast.character_len {
@@ -750,7 +803,7 @@ impl ArgBuilder {
             self.ret_vals.push(format!("trim({ident})"));
             self.ret_names.push(arg.name.clone());
         } else {
-            if arg.ret_ty.starts_with("Vec<") {
+            if arg.ret_ty.starts_with("Vec<") || arg.ret_ty.starts_with("Cell<") {
                 let n = if let Some(n) = output_array_size(&entry.ast.name, darg) {
                     n.to_owned()
                 } else {

@@ -1,4 +1,9 @@
+mod cell;
+mod charvec;
 mod errors;
+
+pub use cell::*;
+pub use charvec::*;
 pub use errors::*;
 
 use crate::raw;

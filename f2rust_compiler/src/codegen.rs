@@ -379,7 +379,10 @@ impl Expression {
     }
 }
 
-fn eval_dims(dims: &[ast::Dimension], syms: &SymbolTable) -> Result<Vec<Option<i32>>> {
+fn eval_dims(
+    dims: &[ast::Dimension],
+    syms: &SymbolTable,
+) -> Result<Vec<(Option<i32>, Option<i32>)>> {
     let dims: Vec<_> = dims
         .iter()
         .map(|d| -> Result<_> {
@@ -391,11 +394,7 @@ fn eval_dims(dims: &[ast::Dimension], syms: &SymbolTable) -> Result<Vec<Option<i
                 Some(e) => e.eval_constant(syms)?,
                 None => None,
             };
-            if let (Some(lower), Some(upper)) = (lower, upper) {
-                Ok(Some(upper + 1 - lower))
-            } else {
-                Ok(None)
-            }
+            Ok((lower, upper))
         })
         .collect::<Result<_>>()?;
 
@@ -410,7 +409,12 @@ fn use_stack_array(sym: &Symbol, syms: &SymbolTable) -> Result<Option<i32>> {
     let is_char = matches!(sym.ast.base_type, DataType::Character);
 
     let dims = eval_dims(&sym.ast.dims, syms)?;
-    if let Some(size) = dims.into_iter().reduce(|a, b| Some(a? * b?)).unwrap() {
+    if let Some(size) = dims
+        .into_iter()
+        .map(|(l, u)| Some(u? + 1 - l?))
+        .reduce(|a, b| Some(a? * b?))
+        .unwrap()
+    {
         if size <= MAX_SIZE && !is_char {
             return Ok(Some(size));
         }
@@ -789,18 +793,14 @@ impl CodeGenUnit<'_> {
                 RustType::SavePrimitive => format!("{name}: {ty}"),
                 RustType::SaveChar => format!("{name}: Vec<u8>"),
                 RustType::SaveActualArray => match use_stack_array(&sym, &self.syms)? {
-                    Some(size) => {
-                        match sym.ast.dims.len() {
-                            1 => format!("{name}: StackArray<{ty}, {size}>"),
-                            n => format!("{name}: StackArray{n}D<{ty}, {size}>"),
-                        }
-                    }
-                    None => {
-                        match sym.ast.dims.len() {
-                            1 => format!("{name}: ActualArray<{ty}>"),
-                            n => format!("{name}: ActualArray{n}D<{ty}>"),
-                        }
-                    }
+                    Some(size) => match sym.ast.dims.len() {
+                        1 => format!("{name}: StackArray<{ty}, {size}>"),
+                        n => format!("{name}: StackArray{n}D<{ty}, {size}>"),
+                    },
+                    None => match sym.ast.dims.len() {
+                        1 => format!("{name}: ActualArray<{ty}>"),
+                        n => format!("{name}: ActualArray{n}D<{ty}>"),
+                    },
                 },
                 RustType::SaveActualCharArray => match sym.ast.dims.len() {
                     1 => format!("{name}: ActualCharArray"),
@@ -1735,7 +1735,7 @@ impl CodeGenUnit<'_> {
 
                 let (alloc, size_label) = match use_stack_array(sym, &self.syms)? {
                     Some(size) => ("Stack", format!(", {size}")),
-                    None => ("Actual", "".to_owned())
+                    None => ("Actual", "".to_owned()),
                 };
 
                 let array = match sym.ast.dims.len() {

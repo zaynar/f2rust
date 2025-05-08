@@ -832,12 +832,12 @@ fn main() -> Result<()> {
 
     let mut apirs = File::create(gen_root.join("api.rs"))?;
     writeln!(apirs, "//\n// GENERATED FILE\n//\n")?;
-    writeln!(apirs, "use crate::{{raw, Result, SpiceContext}};")?;
     writeln!(apirs, "use super::spicelib::*;")?;
     writeln!(
         apirs,
-        "use f2rust_std::{{CharArray, CharArrayMut, Context}};"
+        "use crate::{{Cell, CharCell, CharVec, Result, SpiceContext, raw}};"
     )?;
+    writeln!(apirs, "use f2rust_std::Context;")?;
     writeln!(apirs)?;
     writeln!(apirs, "fn blank(len: i32) -> String {{")?;
     writeln!(apirs, "  \" \".repeat(len as usize)")?;
@@ -874,6 +874,7 @@ fn main() -> Result<()> {
                 if api {
                     writeln!(file, "use crate::SpiceContext;")?;
                 }
+                writeln!(file)?;
 
                 file.write_all(code.as_bytes())?;
 
