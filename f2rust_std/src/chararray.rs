@@ -1,25 +1,36 @@
-//! CHARACTER arrays. These have peculiar behaviour in FORTRAN: they are stored in memory as
-//! a contiguous array of bytes, split into an array of equal-length strings, but that length
-//! can vary.
-//!
-//! If a function declares a dummy argument as `CHARACTER*(*)`, it will use the same string
-//! length as the actual argument provided by the caller. But if it declares `CHARACTER*(N)`,
-//! the same bytes will be reinterpreted as strings of length `N`.
-//!
-//! To support this, the API uses `CharArray` which wraps a `&[u8]` slice and a string length.
-//! Functions using `DummyCharArray` can either adopt this length or replace it.
-
 use crate::util::{offset_1d, offset_2d, offset_3d, offset_4d, parse_bounds};
 use std::ops::{Index, IndexMut, RangeBounds, RangeInclusive};
 use std::slice::GetDisjointMutError;
 
-/// Represents any N-dimensional array of CHARACTER, in the Rust API.
+/// FORTRAN-style CHARACTER arrays.
+///
+/// These have peculiar behaviour in FORTRAN: they are stored in memory as
+/// a contiguous array of bytes, split into an array of equal-length strings, but that length
+/// can vary.
+///
+/// If a function declares a dummy argument as `CHARACTER*(*)`, it will use the same string
+/// length as the actual argument provided by the caller. But if it declares `CHARACTER*(N)`,
+/// the same bytes will be reinterpreted as strings of length `N`.
+///
+/// To support this, the translated APIs use `CharArray` which wraps a `&[u8]` slice and a string
+/// length. Functions using `DummyCharArray` can either adopt this length or replace it.
 pub struct CharArray<'a> {
     data: &'a [u8],
     element_length: usize,
 }
 
 impl<'a> CharArray<'a> {
+    /// Constructs an array over a sequence of characters, split into strings
+    /// of size `element_length`
+    pub fn new(data: &'a [u8], element_length: usize) -> Self {
+        assert_eq!(data.len() % element_length, 0);
+        Self {
+            data,
+            element_length,
+        }
+    }
+
+    /// Constructs a single-element array.
     pub fn from_ref(data: &'a [u8]) -> Self {
         let element_length = data.len();
         Self {
@@ -40,13 +51,26 @@ impl<'a> CharArray<'a> {
     }
 }
 
-/// Represents any mutable N-dimensional array of CHARACTER, in the Rust API.
+/// FORTRAN-style CHARACTER arrays.
+///
+/// Mutable version of [`CharArray`].
 pub struct CharArrayMut<'a> {
     data: &'a mut [u8],
     element_length: usize,
 }
 
 impl<'a> CharArrayMut<'a> {
+    /// Constructs an array over a sequence of characters, split into strings
+    /// of size `element_length`
+    pub fn new(data: &'a mut [u8], element_length: usize) -> Self {
+        assert_eq!(data.len() % element_length, 0);
+        Self {
+            data,
+            element_length,
+        }
+    }
+
+    /// Constructs a single-element array.
     pub fn from_mut(data: &'a mut [u8]) -> Self {
         let element_length = data.len();
         Self {
