@@ -46,15 +46,15 @@ fn main() -> Result<()> {
         let mut file = File::create(gen_path)?;
 
         for (dst, _filename) in &generated {
-            file.write_all(format!("include!(r\"{}\");\n", dst.display()).as_bytes())?;
+            writeln!(file, "include!(r\"{}\");", dst.display())?;
         }
-        file.write_all(b"fn get_generated_files() -> Vec<(&'static str, fn(&mut Context) -> f2rust_std::Result<()>)> {\n")?;
-        file.write_all(b"  vec![\n")?;
+        writeln!(file, "fn get_generated_files() -> Vec<(&'static str, fn(&mut Context) -> f2rust_std::Result<()>)> {{")?;
+        writeln!(file, "  vec![")?;
         for (_dst, filename) in &generated {
-            file.write_all(format!("    (\"{filename}\", {filename}::TEST),\n").as_bytes())?;
+            writeln!(file, "    (\"{filename}\", {filename}::TEST),")?;
         }
-        file.write_all(b"  ]\n")?;
-        file.write_all(b"}\n")?;
+        writeln!(file, "  ]")?;
+        writeln!(file, "}}")?;
     }
 
     Ok(())
@@ -72,9 +72,9 @@ fn build(src: &Path, dst: &Path, filename: &str) -> Result<()> {
     let mut glob = globan::GlobalAnalysis::new(&[], vec![program_unit]);
     glob.analyse()?;
 
-    let code = glob.codegen(namespace, filename, false)?;
+    let (code, _api) = glob.codegen(namespace, filename, false)?;
 
-    let code = format!("mod {filename} {{\n{code}\n}}\n");
+    let code = format!("mod {filename} {{use f2rust_std::*;\n\n{code}\n}}\n");
 
     std::fs::write(dst, code.as_bytes())?;
 

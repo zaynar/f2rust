@@ -8,9 +8,12 @@
 #![allow(clippy::unnecessary_cast)]
 #![allow(clippy::if_same_then_else)]
 
-use std::{error::Error, path::PathBuf, process::ExitCode};
-
 use libtest_mimic::{Arguments, Failed, Trial};
+use std::{
+    error::Error,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
 
 use f2rust_std::Context;
 use f2rust_std::io::{FileManager, FsFileManager};
@@ -32,7 +35,7 @@ fn main() -> Result<ExitCode, Box<dyn Error>> {
         let crate_dir = crate_dir.clone();
         let test = Trial::test(name, move || {
             let mut stdout = vec![];
-            let mut fs = FsFileManager::new();
+            let mut fs = FsFileManager::new(Path::new("."));
             fs.capture_stdout(&mut stdout);
             let mut ctx = Context::with_file_manager(fs);
 
