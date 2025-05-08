@@ -2,14 +2,18 @@
 //!
 //! This implementation is fully memory-safe and thread-safe,
 //! and does not depend on any external C/FORTRAN libraries.
-//! It implements nearly the entire SPICELIB API.
+//! It provides nearly the entire SPICELIB API.
 //!
 //! The code has been automatically translated from the FORTRAN version
 //! of the SPICE Toolkit into Rust.
 //!
 //! It is completely unofficial, unsupported, and not heavily tested
-//! (though it does pass the Toolkit's regression tests).
-//! Use at your own risk.
+//! (though it does pass the Toolkit's regression tests so it's probably
+//! not too bad). Use at your own risk.
+//!
+//! In particular, NAIF cannot provide support for this library or for
+//! any users of it. Use the [GitHub project](https://github.com/zaynar/rsspice)
+//! for any issues or queries.
 //!
 //! # Usage example
 //!
@@ -57,17 +61,17 @@
 //! }
 //! ```
 //!
-//! The `SpiceContext` object encapsulates all the SPICE state, such as loaded
+//! The [`SpiceContext`] object encapsulates all the SPICE state, such as loaded
 //! kernels. There is no process-wide global state, so you can run multiple
 //! `SpiceContext`s concurrently in separate threads.
 //!
-//! There is a 1:1 mapping between functions in the FORTRAN API and
+//! There is an almost 1:1 mapping between functions in the FORTRAN API and
 //! in the Rust API, so you can refer to the extensive FORTRAN documentation.
+//! (The API docs and [required reading](required_reading) are mirrored in rustdoc.
+//! Further tutorials and lessons are available from [NAIF](https://naif.jpl.nasa.gov/).)
 //!
 //! Arguments are mapped onto standard Rust types: `i32`, `&[f64]`, `&str`, etc.
-//! Output arguments are mapped onto return values. (E.g. `wnfetd`
-//! returns the tuple `(left, right)`).
-//! Input-output arguments are passed as `&mut` references.
+//! Output arguments are mapped onto return values.
 //!
 //! SPICE errors are mapped onto Rust's error system, so they can
 //! be easily handled with `Result` and `?`.
@@ -116,7 +120,7 @@
 //! in a wrapper around the well-tested FORTRAN/C implementations.
 //!
 //!
-//! # API mapping
+//! # API mapping details
 //!
 //! The API is mechanically translated from the FORTRAN API, following a number
 //! of rules to make it closer to idiomatic Rust:
@@ -128,28 +132,33 @@
 //! If one of the outputs is called `FOUND`, it will not be returned explicitly;
 //! instead the function will return an `Option<_>`.
 //!
-//! There are some exceptions, including array 'output' arguments where the
-//! implementation reads the size of the provided array. In this case,
+//! There are some exceptions, typically array outputs where there is no
+//! well-defined maximum size that we can allocate automatically. In this case
 //! they are mapped onto `&mut` parameters, and you must initialise the
 //! array appropriately before the call.
 //!
-//! ## Errors
-//!
-//! If a function can fail, it will return [`rsspice::Result<_>`](Result).
-//! This includes failures reported through SPICE's error system,
-//! plus unhandled IO errors, attempts by the FORTRAN code to call `STOP`/`EXIT`,
-//! and other internal errors.
+//! For returned errors, see [`Error`].
 //!
 //! ## Strings
 //!
-//! Input strings are `&str`, outputs are `String`, mixed input-output
-//! are `&mut str`.
+//! Input strings are `&str`, outputs are typically `String`, mixed input-output
+//! and some outputs are `&mut str`.
 //!
 //! Since FORTRAN 77 does not have dynamic allocation, output strings are
 //! allocated at the maximum possible size, and FORTRAN will pad the output
 //! with trailing space characters.
 //! We trim the trailing spaces before returning a `String`.
 //! When using `&mut str`, you are responsible for allocating and trimming.
+//!
+//! ```
+//! use rsspice::*;
+//! let mut spice = SpiceContext::new();
+//! let mut outstr = " ".repeat(80);
+//! spice.replwd("Hello world", 1, "Goodbye", &mut outstr);
+//! assert_eq!(outstr.trim_ascii_end(), "Goodbye world");
+//! ```
+//!
+//! For FORTRAN `CHARACTER` arrays, see [`CharVec`].
 //!
 //! FORTRAN 77 barely even understands ASCII, never mind UTF-8.
 //! Input strings are simply interpreted as a sequence of bytes.
@@ -165,68 +174,19 @@
 //! * Documented as "DO NOT CALL THIS ROUTINE", or return a `BOGUSENTRY` error
 //! * Redundant with basic Rust functionality, particularly string manipulation
 //!
-//! # Raw API
-//!
-//! An alternative version of the API is available in the [`raw`] module.
-//! This is a closer match to the FORTRAN API, without the special handling
-//! of return values.
-//! Each `raw` function reproduces the original FORTRAN API documentation,
-//! detailing every input/output argument.
-//! You probably shouldn't need to use this API directly,
-//! but the documentation is very helpful.
-//!
-//!
-//! # ...
-//!
-//! Because of its FORTRAN origins, the Rust API has a number of quirks:
-//!
-//! ## `SpiceContext`
-//!
-//! The SPICELIB API is fundamentally designed around global state.
-//! To avoid any Rust globals, we encapsulate all of that state in the [`SpiceContext`] object;
-//! any API that involves 'global' state takes a `SpiceContext` as the
-//! first argument. Multiple threads can run concurrently with separate `SpiceContext`s.
-//!
-//! ## Error handling
-//!
-//! We integrate [SPICELIB's error handling mechanism](required_reading::error) with Rust's.
-//! Any function that is documented as signaling a `SPICE(FOO)` exception
-//! will return a corresponding [`Error::FOO`](Error) from the Rust API.
-//!
-//! Some exceptions are recoverable: you can detect them, react appropriately,
-//! and continue using the API. Other exceptions may result in an inconsistent state.
-//! By default you should treat errors as fatal (or return them up the call stack
-//! with `?`), and check the documentation for which ones you can safely handle.
-//!
-//! We also return `Error` for some other cases, including unhandled IO errors,
-//! and FORTRAN code attempting to terminate the process with `STOP` or `EXIT`.
-//!
-//! Specifically: we run SPICELIB in `RETURN` mode, meaning it will
-//! report errors then return up the call stack. Once it reaches the Rust API wrapper,
-//! we `RESET` the SPICELIB error state and return the `Error`.
-//! You should not use SPICELIB's error API directly, as it will likely conflict
-//! with this wrapper.
-//!
-//! ```
-//! use rsspice::*;
-//! let mut ctx = SpiceContext::new();
-//! assert!(matches!(raw::dacosh(&mut ctx, 0.0), Err(Error::INVALIDARGUMENT(..))));
-//! // You can continue using the same ctx after catching the error
-//! assert_eq!(raw::dacosh(&mut ctx, 1.0).unwrap(), 0.0);
-//! ```
-//!
 //! ## Array arguments
 //!
 //! 3D vector arguments are typically represented as `&[f64; 3]`.
 //! You can conveniently use `nalgebra::Vector3` for these:
 //!
 //! ```
-//! use rsspice::*;
-//! use approx::assert_relative_eq;
+//! # use rsspice::*;
+//! # use approx::assert_relative_eq;
 //! use nalgebra as na;
+//! # let mut spice = SpiceContext::new();
 //! let v = na::Vector3::new(1.0, 2.0, 3.0);
-//! let mut r = na::Vector3::zeros();
-//! raw::vrotv(v.as_ref(), &[0.0, 0.0, 1.0], std::f64::consts::FRAC_PI_2, r.as_mut());
+//! let r = na::Vector3::from(
+//!     spice.vrotv(v.as_ref(), &[0.0, 0.0, 1.0], std::f64::consts::FRAC_PI_2));
 //! assert_relative_eq!(r, na::Vector3::new(-2.0, 1.0, 3.0));
 //! ```
 //!
@@ -234,33 +194,30 @@
 //! `try_into().unwrap()` (which will panic if the slice is too small):
 //!
 //! ```
-//! use rsspice::*;
-//! use approx::assert_relative_eq;
+//! # use rsspice::*;
+//! # use approx::assert_relative_eq;
+//! # let mut spice = SpiceContext::new();
 //! let v = [0.0, 1.0, 2.0, 3.0, 4.0];
-//! let mut r = vec![0.0; 3];
-//! raw::vrotv(&v[1..4].try_into().unwrap(),
+//! let r = spice.vrotv(&v[1..4].try_into().unwrap(),
 //!     &[0.0, 0.0, 1.0],
-//!     std::f64::consts::FRAC_PI_2,
-//!     r.as_mut_slice().try_into().unwrap());
+//!     std::f64::consts::FRAC_PI_2);
 //! assert_relative_eq!(r.as_slice(), [-2.0, 1.0, 3.0].as_slice());
 //! ```
 //!
-//! Matrices are represented as `&[[f64; 3]; 3]` in column-major order,
-//! compatible with `nalgebra::Matrix3`:
+//! Matrices are represented as `&[[f64; 3]; 3]` in column-major order
+//! (i.e. the first column is stored in memory first, then the second column, etc).
+//! This is compatible with `nalgebra::Matrix3`:
 //!
 //! ```
-//! use rsspice::*;
-//! use approx::assert_relative_eq;
+//! # use rsspice::*;
+//! # use approx::assert_relative_eq;
 //! use nalgebra as na;
+//! # let mut spice = SpiceContext::new();
 //! let m = na::Matrix3::new(
 //!     0.0, -1.0, 0.0,
 //!     0.5,  0.0, 0.0,
 //!     0.0,  0.0, 1.0);
-//! let mut mout = na::Matrix3::zeros();
-//! raw::invert(
-//!     m.as_ref(),
-//!     mout.as_mut(),
-//! );
+//! let mout = na::Matrix3::from(spice.invert(m.as_ref()));
 //! assert_relative_eq!(
 //!     mout,
 //!     na::Matrix3::new(
@@ -270,39 +227,20 @@
 //! );
 //! ```
 //!
-//! ## Strings
+//! When reading any FORTRAN example code, note that multidimensional arrays in
+//! Rust have indexes in the opposite order to FORTRAN:
+//! `M(I, J)` corresponds to `m[j][i]`.
+//! But `nalgebra` uses FORTRAN-like indexing: `m[(i, j)]`.
 //!
-//! Input strings are implemented as `&str`, and typically behave as you would expect.
+//! # Raw API
 //!
-//! Output strings are implemented as `&mut str`, meaning the caller must allocate
-//! enough space before the call. Read the function's documentation to find the requirements.
-//! If the string is too small, the output may be truncated, or you may get a bounds-check
-//! panic.
-//!
-//! FORTRAN strings are padded with space characters. You should typically fill the string
-//! with spaces before the call, and use `trim_ascii_end()` to remove them afterwards.
-//!
-//! ```
-//! use rsspice::*;
-//! let mut ctx = SpiceContext::new();
-//! let mut calstr = " ".repeat(48); // docs say this should be >=48 characters
-//! raw::etcal(&mut ctx, 0.0, &mut calstr);
-//! assert_eq!(calstr.trim_ascii_end(), "2000 JAN 01 12:00:00.000");
-//! ```
-//!
-//! FORTRAN 77 barely even understands ASCII, never mind UTF-8.
-//! Input strings are simply interpreted as a sequence of bytes.
-//! For output strings, the implementation will panic if it ends up producing a non-UTF-8
-//! string; this should not happen unless you pass non-ASCII characters into the API
-//! (so don't do that).
-//!
-//! ## String arrays
-//!
-//! In FORTRAN, arrays of strings are effectively an array of bytes plus a string length.
-//! Every string in the array must have the same length.
-//! Short strings must padded with space characters.
-//!
-//! TODO: Design/document the API for this.
+//! An alternative version of the API is available in the [`raw`] module.
+//! This is a closer match to the FORTRAN API, without the special handling
+//! of return values, cells, etc.
+//! Each `raw` function reproduces the original FORTRAN API documentation,
+//! detailing every input/output argument.
+//! You probably shouldn't need to use this API directly,
+//! but the documentation is very helpful.
 
 mod api;
 mod generated;
@@ -312,12 +250,12 @@ mod tspice;
 
 pub use api::*;
 
-/// Collection of reference documents describing the various SPICE subsystems
+/// Collection of reference documents describing the various SPICE subsystems.
 ///
 /// This can also be read at <https://naif.jpl.nasa.gov/pub/naif/toolkit_docs/FORTRAN/req/index.html>
 pub use crate::generated::required_reading;
 
-/// Lower-level SPICELIB API
+/// Lower-level SPICELIB API.
 ///
 /// This module provides the complete SPICELIB API, with a very similar structure to the
 /// original FORTRAN API, including the full API reference documentation.

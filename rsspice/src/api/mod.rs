@@ -9,6 +9,13 @@ pub use errors::*;
 use crate::raw;
 use f2rust_std::io::FileManager;
 
+/// SPICELIB API wrapper.
+///
+/// This provides access to most SPICELIB APIs.
+/// It also stores all the 'global' state -- you can use multiple `SpiceContext`s concurrently
+/// in separate threads.
+///
+/// See the [crate documentation](crate) for details.
 pub struct SpiceContext<'a> {
     ctx: f2rust_std::Context<'a>,
 }
@@ -20,6 +27,7 @@ impl Default for SpiceContext<'_> {
 }
 
 impl<'a> SpiceContext<'a> {
+    /// Constructs a new `SpiceContext`.
     pub fn new() -> Self {
         let ctx = f2rust_std::Context::new();
         let mut r = Self { ctx };
@@ -27,6 +35,8 @@ impl<'a> SpiceContext<'a> {
         r
     }
 
+    /// Constructs a new `SpiceContext`, where all filesystem access will
+    /// go through `FileManager`. This is useful for tests and WebAssembly.
     pub fn with_vfs<F: FileManager<'a> + 'a>(file_manager: F) -> Self {
         let ctx = f2rust_std::Context::with_file_manager(file_manager);
         let mut r = Self { ctx };
@@ -34,6 +44,7 @@ impl<'a> SpiceContext<'a> {
         r
     }
 
+    /// Prepare SPICELIB's error handling system.
     fn setup_errors(&mut self) {
         // Don't print errors to stdout
         let mut list = "NONE".to_owned();
@@ -44,10 +55,7 @@ impl<'a> SpiceContext<'a> {
         raw::erract(self, "SET", &mut action).unwrap();
     }
 
-    pub fn raw_context(&mut self) -> &mut f2rust_std::Context<'a> {
-        &mut self.ctx
-    }
-
+    /// Called after each fallible SPICELIB function, to detect and convert errors.
     pub(crate) fn handle_errors(&mut self) -> Result<()> {
         if raw::failed(self) {
             // Get the error messages
@@ -66,6 +74,13 @@ impl<'a> SpiceContext<'a> {
         } else {
             Ok(())
         }
+    }
+
+    /// Returns the underlying `f2rust_std::Context`.
+    /// This is an implementation detail that users should never need,
+    /// except possibly with some callback function pointers.
+    pub(crate) fn raw_context(&mut self) -> &mut f2rust_std::Context<'a> {
+        &mut self.ctx
     }
 }
 

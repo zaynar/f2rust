@@ -1,7 +1,44 @@
 use std::fmt::Formatter;
 
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// SPICELIB errors.
+///
+/// If a SPICELIB function can fail, it will return [`rsspice::Result<_>`](Result).
+/// This includes failures reported through SPICE's error system;
+/// the possible errors are documented with each function.
+/// It also includes unhandled IO errors,
+/// attempts by the FORTRAN code to terminate the process with `STOP`/`EXIT`
+/// (these are translated into `Error` so multithreaded applications can handle them nicely),
+/// and other internal errors.
+///
+/// For example, [`str2et`](crate::raw::str2et) is documented as signaling `SPICE(UNPARSEDTIME)`.
+/// In the Rust API, it will return `Err(Error::UNPARSEDTIME(long_description))`.
+/// In most cases, you can catch any expected errors, react appropriately,
+/// then continue using the same `SpiceContext`.
+///
+/// ```
+/// # use rsspice::*;
+/// # let mut spice = SpiceContext::new();
+/// # spice.furnsh("../testdata/lsk/naif0012.tls").unwrap();
+/// assert!(matches!(spice.str2et("bogus"), Err(Error::UNPARSEDTIME(..))));
+/// // Continue using the same context
+/// assert!(spice.str2et("2000-01-01T00:00:00").is_ok());
+/// ```
+///
+/// ## Details
+///
+/// We configure [SPICELIB's error handling mechanism](crate::required_reading::error) in
+/// `RETURN` mode, meaning it will report errors then return up the call stack.
+/// Once it reaches the Rust API wrapper, we use `GETSMS`/`GETLMS` to get the error
+/// message and map it onto the matching `Error` value, then `RESET` the SPICELIB error state.
+///
+/// You should not use SPICELIB's error API directly, as it will likely conflict
+/// with this wrapper.
 pub enum Error {
     InternalError(f2rust_std::Error),
+
+    // This should never happen,
     UnknownSpiceError(String, String),
 
     // rg "^\s*CALL\s*SIGERR\s*\(" tspice/src/spicelib/ | perl -lne'/SPICE\((.*?)\)/; print "$1(String),"' | sort -u
@@ -1858,5 +1895,3 @@ impl std::fmt::Display for Error {
         }
     }
 }
-
-pub type Result<T> = std::result::Result<T, Error>;
