@@ -346,91 +346,96 @@ fn bounded_data_mut<'a, T>(bounds: &[(i32, i32)], r: &'a mut [T]) -> &'a mut [T]
     }
 }
 
-#[test]
-fn test_equivalence_array() {
-    let mut orig: ActualArray<f64> = ActualArray::new(1..=2);
-    orig[1] = 1.0;
-    orig[2] = 2.0;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let mut ints = DummyArrayMut::<i32>::from_equiv(orig.as_slice_mut(), 1..);
+    #[test]
+    fn test_equivalence_array() {
+        let mut orig: ActualArray<f64> = ActualArray::new(1..=2);
+        orig[1] = 1.0;
+        orig[2] = 2.0;
 
-    assert_eq!(ints[1], 0x00000000);
-    assert_eq!(ints[2], 0x3ff00000);
-    assert_eq!(ints[3], 0x00000000);
-    assert_eq!(ints[4], 0x40000000);
+        let mut ints = DummyArrayMut::<i32>::from_equiv(orig.as_slice_mut(), 1..);
 
-    ints[2] = 0x40000000;
-    ints[4] = 0x3ff00000;
+        assert_eq!(ints[1], 0x00000000);
+        assert_eq!(ints[2], 0x3ff00000);
+        assert_eq!(ints[3], 0x00000000);
+        assert_eq!(ints[4], 0x40000000);
 
-    assert_eq!(orig[1], 2.0);
-    assert_eq!(orig[2], 1.0);
-}
+        ints[2] = 0x40000000;
+        ints[4] = 0x3ff00000;
 
-#[test]
-fn test_equivalence_val() {
-    let mut orig: f64 = 1.0;
+        assert_eq!(orig[1], 2.0);
+        assert_eq!(orig[2], 1.0);
+    }
 
-    let mut ints = DummyArrayMut::<i32>::from_equiv(std::slice::from_mut(&mut orig), 1..);
+    #[test]
+    fn test_equivalence_val() {
+        let mut orig: f64 = 1.0;
 
-    assert_eq!(ints[1], 0x00000000);
-    assert_eq!(ints[2], 0x3ff00000);
+        let mut ints = DummyArrayMut::<i32>::from_equiv(std::slice::from_mut(&mut orig), 1..);
 
-    ints[2] = 0x40000000;
+        assert_eq!(ints[1], 0x00000000);
+        assert_eq!(ints[2], 0x3ff00000);
 
-    assert_eq!(orig, 2.0);
-}
+        ints[2] = 0x40000000;
 
-#[test]
-fn test_disjoint_mut() {
-    let mut data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        assert_eq!(orig, 2.0);
+    }
 
-    let mut arr = DummyArrayMut::new(&mut data, 1..);
+    #[test]
+    fn test_disjoint_mut() {
+        let mut data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-    assert_eq!(arr[1], 1);
-    assert_eq!(arr[2], 2);
+        let mut arr = DummyArrayMut::new(&mut data, 1..);
 
-    let [d1, d5, d4] = arr.get_disjoint_mut([1, 5, 4]).unwrap();
-    assert_eq!(*d1, 1);
-    assert_eq!(*d5, 5);
-    assert_eq!(*d4, 4);
-    *d4 = 40;
+        assert_eq!(arr[1], 1);
+        assert_eq!(arr[2], 2);
 
-    assert_eq!(arr.as_slice(), [1, 2, 3, 40, 5, 6, 7, 8, 9, 10]);
+        let [d1, d5, d4] = arr.get_disjoint_mut([1, 5, 4]).unwrap();
+        assert_eq!(*d1, 1);
+        assert_eq!(*d5, 5);
+        assert_eq!(*d4, 4);
+        *d4 = 40;
 
-    assert_eq!(
-        arr.get_disjoint_mut([1, 5, 5]),
-        Err(GetDisjointMutError::OverlappingIndices)
-    );
-    assert_eq!(
-        arr.get_disjoint_mut([1, 20, 5]),
-        Err(GetDisjointMutError::IndexOutOfBounds)
-    );
-}
+        assert_eq!(arr.as_slice(), [1, 2, 3, 40, 5, 6, 7, 8, 9, 10]);
 
-#[test]
-fn test_disjoint_slice() {
-    let mut data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        assert_eq!(
+            arr.get_disjoint_mut([1, 5, 5]),
+            Err(GetDisjointMutError::OverlappingIndices)
+        );
+        assert_eq!(
+            arr.get_disjoint_mut([1, 20, 5]),
+            Err(GetDisjointMutError::IndexOutOfBounds)
+        );
+    }
 
-    let mut arr = DummyArrayMut::new(&mut data, 1..);
+    #[test]
+    fn test_disjoint_slice() {
+        let mut data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-    assert_eq!(arr[1], 1);
-    assert_eq!(arr[2], 2);
+        let mut arr = DummyArrayMut::new(&mut data, 1..);
 
-    let [d1, d5, d4] = arr.get_disjoint_slices_mut([1, 5, 4]).unwrap();
-    assert_eq!(d1, [1, 2, 3]);
-    assert_eq!(d5, [5, 6, 7, 8, 9, 10]);
-    assert_eq!(d4, [4]);
-    d4[0] = 40;
+        assert_eq!(arr[1], 1);
+        assert_eq!(arr[2], 2);
 
-    assert_eq!(arr.as_slice(), [1, 2, 3, 40, 5, 6, 7, 8, 9, 10]);
+        let [d1, d5, d4] = arr.get_disjoint_slices_mut([1, 5, 4]).unwrap();
+        assert_eq!(d1, [1, 2, 3]);
+        assert_eq!(d5, [5, 6, 7, 8, 9, 10]);
+        assert_eq!(d4, [4]);
+        d4[0] = 40;
 
-    let [d1, d5a, d5b] = arr.get_disjoint_slices_mut([1, 5, 5]).unwrap();
-    assert_eq!(d1, [1, 2, 3, 40]);
-    assert_eq!(d5a, []);
-    assert_eq!(d5b, [5, 6, 7, 8, 9, 10]);
+        assert_eq!(arr.as_slice(), [1, 2, 3, 40, 5, 6, 7, 8, 9, 10]);
 
-    assert_eq!(
-        arr.get_disjoint_slices_mut([1, 20, 5]),
-        Err(GetDisjointMutError::IndexOutOfBounds)
-    );
+        let [d1, d5a, d5b] = arr.get_disjoint_slices_mut([1, 5, 5]).unwrap();
+        assert_eq!(d1, [1, 2, 3, 40]);
+        assert_eq!(d5a, []);
+        assert_eq!(d5b, [5, 6, 7, 8, 9, 10]);
+
+        assert_eq!(
+            arr.get_disjoint_slices_mut([1, 20, 5]),
+            Err(GetDisjointMutError::IndexOutOfBounds)
+        );
+    }
 }
