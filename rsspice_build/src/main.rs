@@ -844,7 +844,7 @@ fn main() -> Result<()> {
     writeln!(apirs, "}}")?;
     writeln!(apirs)?;
     writeln!(apirs, "fn trim(s: String) -> String {{")?;
-    writeln!(apirs, "  s.trim_ascii_end().to_owned()")?;
+    writeln!(apirs, "  s.trim_end_matches(' ').to_owned()")?;
     writeln!(apirs, "}}")?;
     writeln!(apirs)?;
     writeln!(apirs, "const LBCELL: i32 = -5;")?;
