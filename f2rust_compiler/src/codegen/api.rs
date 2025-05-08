@@ -347,6 +347,11 @@ fn should_return_arg(entry: &Entry, arg_dirs: &IndexMap<&str, &str>, darg: &str)
         return Ok(true);
     }
 
+    // FUNCTION return value, not documented as an argument
+    if entry.ast.name == "ANA" && darg == "ANA" {
+        return Ok(true);
+    }
+
     if arg_dirs.get(darg) != Some(&"O") {
         return Ok(false);
     }
@@ -400,6 +405,7 @@ fn output_array_size(func: &str, arg: &str) -> Option<&'static str> {
     const ERRMSG: &str = "inc::errhnd::LMSGLN";
 
     match format!("{func}::{arg}").as_str() {
+        "ANA::ANA" => Some("2"),
         "BLTFRM::IDSET" => None,
         "BODC2N::NAME" => Some("inc::zzbodtrn::MAXL"),
         "BODC2S::NAME" => Some("inc::zzbodtrn::MAXL"),
