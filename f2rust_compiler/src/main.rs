@@ -56,7 +56,7 @@ fn main() -> Result<()> {
     let mut glob = globan::GlobalAnalysis::new(&[], vec![program_unit]);
     glob.analyse()?;
 
-    let code = glob.codegen(&namespace, filename, cli.pretty)?;
+    let (code, _api) = glob.codegen(&namespace, filename, cli.pretty)?;
 
     if let Some(output) = cli.output {
         std::fs::write(output, code.as_bytes())?;
