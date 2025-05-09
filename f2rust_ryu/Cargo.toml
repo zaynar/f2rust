@@ -1,7 +1,6 @@
 [package]
 name = "f2rust_ryu"
 version = "0.1.0"
-authors = ["Philip Taylor <philip@zaynar.co.uk>"]
 description = "ryu-based floating point to decimal mantissa/exponent conversion"
 edition = "2018"
 license = "Apache-2.0 OR BSL-1.0"
