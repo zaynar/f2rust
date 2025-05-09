@@ -6,6 +6,6 @@ edition = "2024"
 [dependencies]
 bytemuck = { version = "1.22.0", features = ["must_cast"] }
 chrono = { version = "0.4.40", features = ["alloc", "now"] }
-f2rust_ryu = { version = "1.0.20", path = "../f2rust_ryu" }
+f2rust_ryu = { version = "0.1.0", path = "../f2rust_ryu" }
 tempfile = "3.19.1"
 thiserror = "2.0.12"

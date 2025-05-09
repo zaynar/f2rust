@@ -1,15 +1,11 @@
 [package]
 name = "f2rust_ryu"
-version = "1.0.20"
-authors = ["David Tolnay <dtolnay@gmail.com>"]
-categories = ["value-formatting", "no-std", "no-std::no-alloc"]
-description = "Fast floating point to string conversion"
-documentation = "https://docs.rs/ryu"
+version = "0.1.0"
+authors = ["Philip Taylor <philip@zaynar.co.uk>"]
+description = "ryu-based floating point to decimal mantissa/exponent conversion"
 edition = "2018"
-exclude = ["build.rs", "performance.png", "chart/**"]
-keywords = ["float"]
 license = "Apache-2.0 OR BSL-1.0"
-repository = "https://github.com/dtolnay/ryu"
+repository = "https://github.com/zaynar/f2rust/f2rust_ryu"
 rust-version = "1.36"
 
 [features]
@@ -21,17 +17,3 @@ small = []
 
 [dependencies]
 no-panic = { version = "0.1", optional = true }
-
-[dev-dependencies]
-num_cpus = "1.8"
-rand = "0.9"
-rand_xorshift = "0.4"
-
-[package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu"]
-rustdoc-args = [
-    "--generate-link-to-definition",
-    "--extern-html-root-url=core=https://doc.rust-lang.org",
-    "--extern-html-root-url=alloc=https://doc.rust-lang.org",
-    "--extern-html-root-url=std=https://doc.rust-lang.org",
-]
