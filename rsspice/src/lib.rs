@@ -3,8 +3,7 @@
 //! This implementation is fully memory-safe and thread-safe,
 //! and does not depend on any external C/FORTRAN libraries.
 //! It provides nearly the entire SPICELIB API.
-//!
-//! The code has been automatically translated from the FORTRAN version
+//! The code has been mechanically translated from the FORTRAN version
 //! of the SPICE Toolkit into Rust.
 //!
 //! It is completely unofficial, unsupported, and not heavily tested
@@ -17,14 +16,13 @@
 //!
 //! # Usage example
 //!
-//! This code demonstrates the general design:
+//! This example demonstrates the general design:
 //!
 //! ```no_run
 //! use rsspice::*;
 //!
 //! const TIMFMT: &str = "YYYY MON DD HR:MN:SC.###### (TDB)::TDB";
 //! const MAXWIN: usize = 2 * 100;
-//! const LBCELL: i32 = -5;
 //!
 //! // Find solar eclipses as seen from the center of the Earth.
 //! fn main() -> Result<()> {
@@ -65,42 +63,43 @@
 //! kernels. There is no process-wide global state, so you can run multiple
 //! `SpiceContext`s concurrently in separate threads.
 //!
-//! There is an almost 1:1 mapping between functions in the FORTRAN API and
-//! in the Rust API, so you can refer to the extensive FORTRAN documentation.
+//! There is a 1:1 mapping between functions in the FORTRAN API and
+//! in the Rust API, so you can refer to the extensive FORTRAN documentation
+//! and adapt its examples relatively easily.
 //! (The API docs and [required reading](required_reading) are mirrored in rustdoc.
 //! Further tutorials and lessons are available from [NAIF](https://naif.jpl.nasa.gov/).)
 //!
-//! Arguments are mapped onto standard Rust types: `i32`, `&[f64]`, `&str`, etc.
-//! Output arguments are mapped onto return values.
-//!
+//! Arguments are not exactly a 1:1 mapping -- we try to turn them into more idiomatic Rust types.
+//! Output arguments are typically mapped onto return values.
 //! SPICE errors are mapped onto Rust's error system, so they can
 //! be easily handled with `Result` and `?`.
 //!
 //! FORTRAN arrays are typically indexed from 1, not 0.
 //! Functions like `wnfetd` similarly start counting from 1; we do not attempt
 //! any automatic translation of indexes.
-//! (This differs from the CSPICE port, and wrappers around CSPICE,
+//! (This differs from the CSPICE translation, and wrappers around CSPICE,
 //! which count from 0.)
 //!
-//! There is a special type for SPICE cells (including windows and sets).
-//! But [`Cell`] only provides very basic functionality;
-//! this library is not attempting to provide an idiomatic high-level API.
+//! There is a [`Cell`] type for SPICE cells (including windows and sets), as they are
+//! particularly awkward to handle with standard Rust types.
+//! But `Cell` only provides very basic functionality;
+//! this library is not attempting to provide a higher-level API than the original SPICELIB.
 //!
 //! # Background
 //!
 //! SPICE is "an observation geometry system for space science missions",
 //! developed by NASA's
-//! [Navigation and Ancillary Information Facility](https://naif.jpl.nasa.gov/)
-//! (NAIF).
+//! [Navigation and Ancillary Information Facility (NAIF)](https://naif.jpl.nasa.gov/).
 //!
 //! A large amount of geometric data about planets, moons, and spacecraft is
 //! publicly available as SPICE data, which can be processed using the SPICE Toolkit
-//! software and APIs. NAIF also provides a lot of documentation
+//! software and APIs. NAIF also provides thorough documentation
 //! of the system.
 //!
 //! The SPICE Toolkit is originally developed in FORTRAN, with an official
 //! translation to C. Official and unofficial bindings for the C library
-//! are available in several other languages.
+//! are available in several other languages (including
+//! [rust-spice](https://crates.io/crates/rust-spice)).
 //! `rsspice` is an unofficial translation from FORTRAN to Rust, with
 //! a number of benefits and drawbacks:
 //!
@@ -110,6 +109,8 @@
 //! * Thread-safe: The FORTRAN and C implementations depend heavily on global
 //! state. `rsspice` moves that state into the `SpiceContext` object, allowing
 //! concurrency within a single process.
+//! (See [a basic example](https://github.com/zaynar/rsspice/examples/gfoclt_ex1_mt.rs)
+//! using `rayon` to split work across threads.)
 //!
 //! * Portability: This should work on any platform that Rust supports,
 //! including WebAssembly (albeit with some complications around filesystem access).
@@ -119,11 +120,11 @@
 //! full coverage of the whole API. There is a higher risk of bugs than
 //! in a wrapper around the well-tested FORTRAN/C implementations.
 //!
-//!
 //! # API mapping details
 //!
 //! The API is mechanically translated from the FORTRAN API, following a number
-//! of rules to make it closer to idiomatic Rust:
+//! of rules to make it closer to idiomatic Rust.
+//! Understanding these can help when reading the FORTRAN documentation.
 //!
 //! ## Return values
 //!
@@ -135,7 +136,7 @@
 //! There are some exceptions, typically array outputs where there is no
 //! well-defined maximum size that we can allocate automatically. In this case
 //! they are mapped onto `&mut` parameters, and you must initialise the
-//! array appropriately before the call.
+//! array with an appropriate size before the call.
 //!
 //! For returned errors, see [`Error`].
 //!
@@ -151,8 +152,8 @@
 //! When using `&mut str`, you are responsible for allocating and trimming.
 //!
 //! ```
-//! use rsspice::*;
-//! let mut spice = SpiceContext::new();
+//! # use rsspice::*;
+//! # let mut spice = SpiceContext::new();
 //! let mut outstr = " ".repeat(80);
 //! spice.replwd("Hello world", 1, "Goodbye", &mut outstr);
 //! assert_eq!(outstr.trim_ascii_end(), "Goodbye world");
@@ -166,18 +167,27 @@
 //! string; this should not happen unless you pass non-ASCII characters into the API
 //! (so don't do that).
 //!
+//! ## Hidden arguments
+//!
+//! Some functions (like [`GFDIST`](raw::gfdist)) have a `WORK` argument,
+//! for temporary data storage.
+//! In `rsspice` we dynamically allocate that storage space, so the `WORK`
+//! argument and the corresponding `NW` size are removed from the API.
+//!
 //! ## Omitted functions
 //!
 //! A small number of functions are excluded from the API, because they are:
-//! * Private
-//! * Deprecated/obsolete
-//! * Documented as "DO NOT CALL THIS ROUTINE", or return a `BOGUSENTRY` error
-//! * Redundant with basic Rust functionality, particularly string manipulation
+//! * Private;
+//! * Deprecated/obsolete;
+//! * Documented as "DO NOT CALL THIS ROUTINE", or return a `BOGUSENTRY` error;
+//! * Redundant with basic Rust functionality, particularly string manipulation.
+//!
+//! These functions are still available in the [`raw`] API.
 //!
 //! ## Array arguments
 //!
 //! 3D vector arguments are typically represented as `&[f64; 3]`.
-//! You can conveniently use `nalgebra::Vector3` for these:
+//! You can conveniently use [`nalgebra`](https://nalgebra.org/) for these:
 //!
 //! ```
 //! # use rsspice::*;
@@ -252,7 +262,7 @@ pub use api::*;
 
 /// Collection of reference documents describing the various SPICE subsystems.
 ///
-/// This can also be read at <https://naif.jpl.nasa.gov/pub/naif/toolkit_docs/FORTRAN/req/index.html>
+/// Adapted from <https://naif.jpl.nasa.gov/pub/naif/toolkit_docs/FORTRAN/req/index.html>
 pub use crate::generated::required_reading;
 
 /// Lower-level SPICELIB API.

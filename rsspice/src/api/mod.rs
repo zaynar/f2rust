@@ -9,7 +9,7 @@ pub use errors::*;
 use crate::raw;
 use f2rust_std::io::FileManager;
 
-/// SPICELIB API wrapper.
+/// SPICELIB API.
 ///
 /// This provides access to most SPICELIB APIs.
 /// It also stores all the 'global' state -- you can use multiple `SpiceContext`s concurrently

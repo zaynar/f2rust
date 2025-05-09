@@ -22,6 +22,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// # let mut spice = SpiceContext::new();
 /// # spice.furnsh("../testdata/lsk/naif0012.tls").unwrap();
 /// assert!(matches!(spice.str2et("bogus"), Err(Error::UNPARSEDTIME(..))));
+///
 /// // Continue using the same context
 /// assert!(spice.str2et("2000-01-01T00:00:00").is_ok());
 /// ```

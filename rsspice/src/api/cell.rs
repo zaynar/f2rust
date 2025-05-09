@@ -51,13 +51,12 @@ mod internal {
 /// Dynamic arrays of `i32` or `f64`.
 ///
 /// [Cells](crate::required_reading::cells) are SPICELIB's equivalent to Rust's `Vec`.
-/// Every cell has size (`capacity`) and cardinality (`len`).
+/// Every cell has a size (`capacity`) and cardinality (`len`).
 /// SPICELIB functions may alter a cell's cardinality, as they add or remove elements,
 /// but they cannot alter its size.
 ///
 /// In the SPICELIB documentation, cells are declared like `INTEGER X(LBCELL:100)`,
 /// and the elements are accessed as `X(1)` to `X(100)` inclusive.
-///
 /// The equivalent in Rust is declared as `let x = Cell::with_capacity(100)`,
 /// and the elements are `x[0]` to `x[99]` inclusive.
 ///
@@ -76,7 +75,7 @@ where
 {
     /// Constructs a cell with the given capacity.
     ///
-    /// Equivalent to SSIZED/SSIZEI.
+    /// Equivalent to `SSIZED`/`SSIZEI`.
     pub fn with_capacity(capacity: usize) -> Self {
         let mut data = vec![T::default(); METADATA + capacity];
         for i in 0..MD_SIZE {
@@ -89,14 +88,14 @@ where
 
     /// Returns the cell's cardinality (the number of valid elements).
     ///
-    /// Equivalent to CARDD/CARDI.
+    /// Equivalent to `CARDD`/`CARDI`.
     pub fn len(&self) -> usize {
         self.data[MD_CARD].get_usize()
     }
 
     /// Returns the cell's size (the maximum cardinality).
     ///
-    /// Equivalent to SIZED/SIZEI.
+    /// Equivalent to `SIZED`/`SIZEI`.
     pub fn capacity(&self) -> usize {
         self.data[MD_SIZE].get_usize()
     }
@@ -108,7 +107,7 @@ where
 
     /// Pushes a value onto the cell. If `capacity` is too low, it will automatically grow.
     ///
-    /// Equivalent to APPNDD/APPNDI.
+    /// Equivalent to `APPNDD`/`APPNDI`.
     pub fn push(&mut self, value: T) {
         let len = self.data[MD_CARD].get_usize();
         self.reserve(1);
@@ -135,7 +134,7 @@ where
     ///
     /// If `new_len > capacity()`, the capacity will be automatically increased.
     ///
-    /// Equivalent to SCARDD/SCARDI.
+    /// Equivalent to `SCARDD`/`SCARDI`.
     pub fn resize(&mut self, new_len: usize, value: T) {
         if new_len > self.capacity() {
             self.reserve(new_len - self.capacity());
@@ -202,7 +201,7 @@ where
 /// Dynamic arrays of strings.
 ///
 /// [Cells](crate::required_reading::cells) are SPICELIB's equivalent to Rust's `Vec`.
-/// Every cell has size (`capacity`) and cardinality (`len`).
+/// Every cell has a size (`capacity`) and cardinality (`len`).
 /// SPICELIB functions may alter a cell's cardinality, as they add or remove elements,
 /// but they cannot alter its size.
 ///
@@ -211,7 +210,6 @@ where
 ///
 /// In the SPICELIB documentation, cells are declared like `CHARACTER*(20) X(LBCELL:100)`,
 /// and the elements are accessed as `X(1)` to `X(100)` inclusive.
-///
 /// The equivalent in Rust is declared as `let x = CharCell::with_capacity_and_length(100, 20)`,
 /// and the elements are `x[0]` to `x[99]` inclusive.
 ///
@@ -239,7 +237,7 @@ impl CharCell {
     /// Constructs a cell with the given capacity, containing strings
     /// of the given maximum length.
     ///
-    /// Equivalent to SSIZEC.
+    /// Equivalent to `SSIZEC`.
     pub fn with_capacity_and_length(capacity: usize, element_length: usize) -> Self {
         // Must have enough space to encode size/card
         assert!(
@@ -267,14 +265,14 @@ impl CharCell {
 
     /// Returns the cell's cardinality (the number of valid elements).
     ///
-    /// Equivalent to CARDC.
+    /// Equivalent to `CARDC`.
     pub fn len(&self) -> usize {
         self.get_usize(MD_CARD)
     }
 
     /// Returns the cell's size (the maximum cardinality).
     ///
-    /// Equivalent to SIZEC.
+    /// Equivalent to `SIZEC`.
     pub fn capacity(&self) -> usize {
         self.get_usize(MD_SIZE)
     }
@@ -289,7 +287,7 @@ impl CharCell {
     /// If `capacity` is too low, it will automatically grow.
     /// If the string is longer than `element_length`, it will be truncated.
     ///
-    /// Equivalent to APPNDC.
+    /// Equivalent to `APPNDC`.
     pub fn push(&mut self, value: &str) {
         let len = self.get_usize(MD_CARD);
         self.reserve(1);
@@ -317,7 +315,7 @@ impl CharCell {
     ///
     /// If `new_len > capacity()`, the capacity will be automatically increased.
     ///
-    /// Equivalent to SCARDC.
+    /// Equivalent to `SCARDC`.
     pub fn resize(&mut self, new_len: usize, value: &str) {
         if new_len > self.capacity() {
             self.reserve(new_len - self.capacity());
