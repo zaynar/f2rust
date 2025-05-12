@@ -10,4 +10,4 @@ libtest-mimic = "0.8.1"
 [build-dependencies]
 anyhow = "1.0.97"
 f2rust_compiler = { path = "../f2rust_compiler" }
-relative-path = "1.9.3"
+relative-path = "2.0.1"
