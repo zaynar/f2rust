@@ -574,6 +574,7 @@ impl<'a> ListDirectedWriter<'a> {
     }
 }
 
+// Outputs in (roughly) the same style as gfortran, to simplify testing
 impl Writer for ListDirectedWriter<'_> {
     fn start(&mut self) -> crate::Result<()> {
         self.w.start()
@@ -595,28 +596,16 @@ impl Writer for ListDirectedWriter<'_> {
     fn write_f32(&mut self, n: f32) -> crate::Result<()> {
         self.prev_char = false;
         self.w.write_all(b" ");
-
-        // XXX
-        let width = 16;
-        let mut str = format!("{n:.8}    ");
-        while str.len() < width {
-            str.insert(0, ' ');
-        }
-        self.w.write_all(&str.into_bytes());
+        self.w.write_all(&format_f(n as f64, 12, 8, None));
+        self.w.write_all(b"    ");
         Ok(())
     }
 
     fn write_f64(&mut self, n: f64) -> crate::Result<()> {
         self.prev_char = false;
         self.w.write_all(b" ");
-
-        // XXX
-        let width = 25;
-        let mut str = format!("{n:.16}    ");
-        while str.len() < width {
-            str.insert(0, ' ');
-        }
-        self.w.write_all(&str.into_bytes());
+        self.w.write_all(&format_f(n, 21, 16, None));
+        self.w.write_all(b"    ");
         Ok(())
     }
 
