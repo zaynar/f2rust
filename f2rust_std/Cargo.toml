@@ -2,6 +2,10 @@
 name = "f2rust_std"
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Standard library for FORTRAN-to-Rust translated programs"
+readme = "README.md"
+repository = "https://github.com/zaynar/f2rust"
 
 [dependencies]
 bytemuck = { version = "1.22.0", features = ["must_cast"] }

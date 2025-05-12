@@ -251,6 +251,20 @@
 //! detailing every input/output argument.
 //! You probably shouldn't need to use this API directly,
 //! but the documentation is very helpful.
+//!
+//! # License
+//!
+//! Much of this crate is derived from the SPICE Toolkit, which is made freely available
+//! by NAIF but does not have a clear licensing situation. See [LICENSE.md] for details.
+//!
+//! The non-Toolkit-derived code in this crate is licensed under either of
+//!
+//!  * Apache License, Version 2.0
+//!    ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+//!  * MIT license
+//!    ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+//!
+//! at your option.
 
 mod api;
 mod generated;

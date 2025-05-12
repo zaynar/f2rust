@@ -2,9 +2,10 @@
 name = "rsspice"
 version = "0.1.0"
 edition = "2024"
+license-file = "LICENSE.md"
 
 [dependencies]
-f2rust_std = { path = "../f2rust_std" }
+f2rust_std = { version = "0.1.0", path = "../f2rust_std" }
 
 [dev-dependencies]
 approx = "0.5.1"
