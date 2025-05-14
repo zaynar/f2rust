@@ -109,7 +109,7 @@ fn format_f(n: f64, w: usize, d: usize, plus: Option<bool>) -> Vec<u8> {
     //  m=12345 e=-1 d=4 =>  "1234.5000" - just need to put the '.' and '0's in the right place
     //  m=12345 e=-5 d=4 =>     "0.1235" - we need to round the number, and truncate
 
-    if n < 0.0 {
+    if n.signum() < 0.0 {
         out += "-";
     } else if plus.unwrap_or(false) {
         out += "+";
@@ -209,7 +209,7 @@ fn format_ed(
 
     let mut out = String::new();
 
-    if n < 0.0 {
+    if n.signum() < 0.0 {
         out += "-";
     } else if plus.unwrap_or(false) {
         out += "+";
@@ -290,6 +290,7 @@ mod tests {
             (-5.55555, "   -5.5556"),
             (-0.00554, "   -0.0055"),
             (-0.00555, "   -0.0056"),
+            (-0.0, "   -0.0000"),
         ] {
             assert_eq!(String::from_utf8_lossy(&format_f(n, 10, 4, None)), s);
         }
@@ -344,6 +345,7 @@ mod tests {
             (-0.55554, " -0.5555E+00"),
             (-0.55555, " -0.5556E+00"),
             (0.99999, "  0.1000E+01"),
+            (-0.0, " -0.0000E+00"),
         ] {
             assert_eq!(
                 String::from_utf8_lossy(&format_ed('E', n, 12, 4, None, None)),
@@ -360,6 +362,9 @@ mod tests {
             (0.0, 7, 1, "0.0E+00"),
             (0.0, 6, 1, ".0E+00"),
             (0.0, 5, 1, "*****"),
+            (-0.1, 8, 1, "-0.1E+00"),
+            (-0.1, 7, 1, "-.1E+00"),
+            (-0.1, 6, 1, "******"),
         ] {
             assert_eq!(
                 String::from_utf8_lossy(&format_ed('E', n, w, d, None, None)),
