@@ -82,6 +82,14 @@ fn format_edf_nonfinite(n: f64, w: usize) -> Option<Vec<u8>> {
     ))
 }
 
+fn d2d(n: f64) -> ryu_floating_decimal::FloatingDecimal64 {
+    if n == 0.0 {
+        ryu_floating_decimal::FloatingDecimal64 { mantissa: 0, exponent: 0 }
+    } else {
+        ryu_floating_decimal::d2d(n)
+    }
+}
+
 // TODO: This needs a lot more testing
 fn format_f(n: f64, w: usize, d: usize, plus: Option<bool>) -> Vec<u8> {
     if let Some(r) = format_edf_nonfinite(n, w) {
@@ -90,7 +98,7 @@ fn format_f(n: f64, w: usize, d: usize, plus: Option<bool>) -> Vec<u8> {
 
     let mut out = String::new();
 
-    let dec = f2rust_ryu::d2d(n);
+    let dec = d2d(n);
 
     // dec represents n as m*10^e
     //
@@ -205,7 +213,7 @@ fn format_ed(
         return r;
     }
 
-    let dec = f2rust_ryu::d2d(n);
+    let dec = d2d(n);
 
     let mut out = String::new();
 

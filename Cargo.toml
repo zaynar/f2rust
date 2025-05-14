@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
     "f2rust_compiler",
-    "f2rust_ryu",
     "f2rust_std",
     "f2rust_test",
     "rsspice",
