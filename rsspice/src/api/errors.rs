@@ -20,7 +20,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// ```
 /// # use rsspice::*;
 /// # let mut spice = SpiceContext::new();
-/// # spice.furnsh("../testdata/lsk/naif0012.tls").unwrap();
+/// # spice.furnsh("testdata/lsk/naif0012.tls").unwrap();
 /// assert!(matches!(spice.str2et("bogus"), Err(Error::UNPARSEDTIME(..))));
 ///
 /// // Continue using the same context

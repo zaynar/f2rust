@@ -38,7 +38,7 @@ pub fn VADDG(V1: &[f64], V2: &[f64], NDIM: i32, VOUT: &mut [f64]) {
 }
 ```
 
-## Running tests
+## Building
 
 ```sh
 cargo test -p f2rust_compiler
@@ -47,12 +47,38 @@ cargo run --bin f2rust_test
 
 # To translate the SPICE Toolkit:
 # First, read SPICE's distribution rules at https://naif.jpl.nasa.gov/naif/rules.html
+#
+# Some patches need to be applied, to fix bugs in the SPICE Toolkit and to work
+# around limitations in f2rust. The redistribution limitations mean we can't
+# provide this as a git repository - instead you'll have to download the original
+# code and apply the patches.
 wget https://naif.jpl.nasa.gov/pub/naif/misc/tspice/N0067/PC_Linux_64bit/tspice.tar
 tar xf tspice.tar
+cd tspice
+git init .
+git config --local core.autocrlf false   # if you are on Windows
+git add .
+git commit -m "Import tspice.tar"
+git am ../tspice-patches/*.patch
+cd ..
 
+# Perform the code generation. The code will go into rsspice/src/generated/
 cargo run --bin rsspice_build
-# The generated code will go into rsspice_gen/
+cargo fmt -p rsspice
+
+# Unit tests and doc tests
 cargo test -p rsspice
+
+# TSPICE regression tests
+cargo test -p rsspice -F tspice
+# ...but you may want to build with the (nightly-only) parallel front-end,
+# since it's pretty slow to build.
+# And maybe --release since it's pretty slow to run.
+RUSTFLAGS="-Z threads=8" cargo +nightly test -p rsspice -F tspice --release
+
+# Run examples
+(cd rsspice/lessons/remote_sensing; cargo run --example subpts -- "2004 jun 11 19:32:00")
+(cd rsspice/examples; cargo run --release --example gfoclt_ex1)
 ```
 
 ## Goals

@@ -59,6 +59,9 @@
 //! }
 //! ```
 //!
+//! (See more [examples](https://github.com/zaynar/f2rust/tree/main/rsspice/examples)
+//! and [lessons](https://github.com/zaynar/f2rust/tree/main/rsspice/lessons).)
+//!
 //! The [`SpiceContext`] object encapsulates all the SPICE state, such as loaded
 //! kernels. There is no process-wide global state, so you can run multiple
 //! `SpiceContext`s concurrently in separate threads.
@@ -109,7 +112,7 @@
 //! * Thread-safe: The FORTRAN and C implementations depend heavily on global
 //! state. `rsspice` moves that state into the `SpiceContext` object, allowing
 //! concurrency within a single process.
-//! (See [a basic example](https://github.com/zaynar/rsspice/examples/gfoclt_ex1_mt.rs)
+//! (See [a basic example](https://github.com/zaynar/f2rust/blob/main/rsspice/examples/gfoclt_ex1_mt.rs)
 //! using `rayon` to split work across threads.)
 //!
 //! * Portability: This should work on any platform that Rust supports,
