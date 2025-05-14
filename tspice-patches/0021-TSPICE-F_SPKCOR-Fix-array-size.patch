@@ -1,0 +1,27 @@
+From a190878f31c8b4cd57930c379bf66070dbf55e5a Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Sat, 19 Apr 2025 16:08:36 +0100
+Subject: [PATCH 21/40] TSPICE/F_SPKCOR: Fix array size
+
+ACC is declared with size 3, then passed to SPKAPS as STARG, which
+is declared with size 6.
+---
+ src/tspice/f_spkcor.f | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/tspice/f_spkcor.f b/src/tspice/f_spkcor.f
+index b9e609b..0218c00 100644
+--- a/src/tspice/f_spkcor.f
++++ b/src/tspice/f_spkcor.f
+@@ -308,7 +308,7 @@ C
+       CHARACTER*(LNSIZE)    TITLE
+  
+  
+-      DOUBLE PRECISION      ACC    ( 3 )
++      DOUBLE PRECISION      ACC    ( 6 )
+       DOUBLE PRECISION      COEFFS ( 0 : MAXDEG )
+       DOUBLE PRECISION      CORPOS ( 3 )
+       DOUBLE PRECISION      DELTA
+-- 
+2.25.1
+

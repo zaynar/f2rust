@@ -1,0 +1,31 @@
+From cef217a3787cd83d8a4c8f7ed9343cfefc70115e Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Tue, 6 May 2025 21:14:21 +0100
+Subject: [PATCH 39/40] f2rust: ZZPLATFM: Return more appropriate platform
+ identifiers
+
+---
+ src/spicelib/zzplatfm.f | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/spicelib/zzplatfm.f b/src/spicelib/zzplatfm.f
+index c85959c..6a45a25 100644
+--- a/src/spicelib/zzplatfm.f
++++ b/src/spicelib/zzplatfm.f
+@@ -391,11 +391,11 @@ C
+  
+  
+  
+-         ATTCPY (IDXOS) = 'LINUX'
++         ATTCPY (IDXOS) = 'RUST'
+  
+  
+  
+-         ATTCPY (IDXCMP) = 'GFORTRAN/64BIT'
++         ATTCPY (IDXCMP) = 'F2RUST'
+  
+  
+  
+-- 
+2.25.1
+

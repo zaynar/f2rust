@@ -1,0 +1,57 @@
+From 07be7c6e100cdea47cd18e11e80327e96a306458 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Thu, 17 Apr 2025 16:33:59 +0100
+Subject: [PATCH 31/40] f2rust: Avoid passing expression to mutable argument
+
+PARAMS('SET', ..., VALUE) will not actually assign to VALUE, but
+PARAMS('GET'...) will, and the compiler can't distinguish them. It
+complains when passing an expression as an argument that might be
+assigned to, so change the code to avoid that.
+---
+ src/inspekt/size.f | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/src/inspekt/size.f b/src/inspekt/size.f
+index 1e8cec0..19a3a42 100644
+--- a/src/inspekt/size.f
++++ b/src/inspekt/size.f
+@@ -109,6 +109,7 @@ C
+       INTEGER               ENDN
+       INTEGER               BEGINT
+       INTEGER               ENDT
++      INTEGER               VALUE
+  
+ C
+ C     Standard SPICE error handling
+@@ -142,21 +143,24 @@ C     Set the name size. Go back for the type template if this
+ C     is a variable.
+ C
+       IF ( SOURCE(BEGINC:ENDC) .EQ. '@setvarsize' ) THEN
++         VALUE = NBLEN ( SOURCE(BEGINN:ENDN) )
+          CALL PARAMS ( 'SET',
+      .                 'VARNAMESIZE',
+-     .                 NBLEN ( SOURCE(BEGINN:ENDN) ) )
++     .                 VALUE )
+  
+          BEGINT = CPOS  ( SOURCE, '{', ENDN   ) + 1
+          ENDT   = CPOS  ( SOURCE, '}', BEGINT ) - 1
+- 
++
++         VALUE = NBLEN ( SOURCE(BEGINT:ENDT) )
+          CALL PARAMS ( 'SET',
+      .                 'VARTYPESIZE',
+-     .                 NBLEN ( SOURCE(BEGINT:ENDT) ) )
++     .                 VALUE )
+  
+       ELSE IF ( SOURCE(BEGINC:ENDC) .EQ. '@setparamsize' ) THEN
++         VALUE = NBLEN ( SOURCE(BEGINN:ENDN) )
+          CALL PARAMS ( 'SET',
+      .                 'PARAMNAMESIZE',
+-     .                 NBLEN ( SOURCE(BEGINN:ENDN) ) )
++     .                 VALUE )
+       END IF
+  
+       CALL CHKOUT ( 'SIZE' )
+-- 
+2.25.1
+

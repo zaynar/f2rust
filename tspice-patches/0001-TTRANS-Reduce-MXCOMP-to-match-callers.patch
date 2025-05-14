@@ -1,0 +1,33 @@
+From da6df44f44daaec904a6ff7859fb2f1d9db3d0a2 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Sun, 13 Apr 2025 21:58:51 +0100
+Subject: [PATCH 01/40] TTRANS: Reduce MXCOMP to match callers
+
+TTRANS declares TVEC with size MXCOMP=10, but never accesses beyond
+TVEC(7). Most callers pass an actual argument with size 8, and
+F_TTRANS passes arguments with size 7.
+
+FORTRAN 77 says "the size of the dummy argument array must not exceed
+the size of the actual argument array", so this is an error.
+
+Set MXCOMP=7 to fix this.
+---
+ src/spicelib/ttrans.f | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/spicelib/ttrans.f b/src/spicelib/ttrans.f
+index f6165d9..3b734c2 100644
+--- a/src/spicelib/ttrans.f
++++ b/src/spicelib/ttrans.f
+@@ -48,7 +48,7 @@ C$ Declarations
+       INCLUDE               'zzctr.inc'
+ 
+       INTEGER               MXCOMP
+-      PARAMETER           ( MXCOMP = 10 )
++      PARAMETER           ( MXCOMP = 7 )
+ 
+       CHARACTER*(*)         FROM
+       CHARACTER*(*)         TO
+-- 
+2.25.1
+

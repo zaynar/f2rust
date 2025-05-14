@@ -1,0 +1,121 @@
+From 77446b8b89f308efd6bdd0f34bd2fb0573845cbe Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Fri, 18 Apr 2025 13:11:59 +0100
+Subject: [PATCH 17/40] TSPICE: Fix passing incorrectly-typed 0 to CHCKSD
+
+0.0 is REAL, and it needs to be DOUBLE PRECISION.
+---
+ src/tspice/f_rc2grd.f  | 20 ++++++++++----------
+ src/tspice/f_t_urand.f |  2 +-
+ 2 files changed, 11 insertions(+), 11 deletions(-)
+
+diff --git a/src/tspice/f_rc2grd.f b/src/tspice/f_rc2grd.f
+index b6fbe84..d2777e2 100644
+--- a/src/tspice/f_rc2grd.f
++++ b/src/tspice/f_rc2grd.f
+@@ -341,7 +341,7 @@ C
+ 
+          I      =   COL - 2*(J-1)
+ 
+-         CALL CHCKSD ( LABEL, MAPBD1, '=', BNDS1(I,J), 0.0, OK )
++         CALL CHCKSD ( LABEL, MAPBD1, '=', BNDS1(I,J), 0.D0, OK )
+  
+       END DO    
+ 
+@@ -362,7 +362,7 @@ C
+ 
+          I      =   ROW - 2*(J-1)
+ 
+-         CALL CHCKSD ( LABEL, MAPBD2, '=', BNDS2(I,J), 0.0, OK )
++         CALL CHCKSD ( LABEL, MAPBD2, '=', BNDS2(I,J), 0.D0, OK )
+  
+       END DO    
+ 
+@@ -648,7 +648,7 @@ C              of column COL.
+ C
+                K = 1 + NROWS*(COL-1)
+ 
+-               CALL CHCKSD ( LABEL, MAPBD1, '=', BNDS1(1,K), 0.0, OK )
++               CALL CHCKSD ( LABEL, MAPBD1, '=', BNDS1(1,K), 0.D0, OK )
+ 
+             ELSE
+ C
+@@ -657,7 +657,7 @@ C              of column XNCOLS.
+ C
+                K = 1 + NROWS*(COL-2)
+ 
+-               CALL CHCKSD ( LABEL, MAPBD1, '=', BNDS1(2,K), 0.0, OK )
++               CALL CHCKSD ( LABEL, MAPBD1, '=', BNDS1(2,K), 0.D0, OK )
+ 
+             END IF
+ 
+@@ -680,7 +680,7 @@ C              column of row ROW.
+ C
+                K = ROW
+ 
+-               CALL CHCKSD ( LABEL, MAPBD2, '=', BNDS2(1,K), 0.0, OK )
++               CALL CHCKSD ( LABEL, MAPBD2, '=', BNDS2(1,K), 0.D0, OK )
+ 
+             ELSE
+ C
+@@ -689,7 +689,7 @@ C              of column XNCOLS.
+ C
+                K = NROWS
+ 
+-               CALL CHCKSD ( LABEL, MAPBD2, '=', BNDS2(2,K), 0.0, OK )
++               CALL CHCKSD ( LABEL, MAPBD2, '=', BNDS2(2,K), 0.D0, OK )
+ 
+             END IF
+ 
+@@ -849,7 +849,7 @@ C              of column COL.
+ C
+                K = 1 + NROWS*(COL-1)
+ 
+-C               CALL CHCKSD ( LABEL, MAPBD1, '=', BNDS1(1,K), 0.0, OK )
++C               CALL CHCKSD ( LABEL, MAPBD1, '=', BNDS1(1,K), 0.D0, OK )
+ 
+             ELSE
+ C
+@@ -858,7 +858,7 @@ C              of column XNCOLS.
+ C
+                K = 1 + NROWS*(COL-2)
+ 
+-C               CALL CHCKSD ( LABEL, MAPBD1, '=', BNDS1(2,K), 0.0, OK )
++C               CALL CHCKSD ( LABEL, MAPBD1, '=', BNDS1(2,K), 0.D0, OK )
+ 
+             END IF
+ 
+@@ -881,7 +881,7 @@ C              column of row ROW.
+ C
+                K = XNROWS+1-ROW
+ 
+-               CALL CHCKSD ( LABEL, MAPBD2, '=', BNDS2(1,K), 0.0, OK )
++               CALL CHCKSD ( LABEL, MAPBD2, '=', BNDS2(1,K), 0.D0, OK )
+ 
+             ELSE
+ C
+@@ -890,7 +890,7 @@ C              of column XNCOLS.
+ C
+                K = 1
+ 
+-               CALL CHCKSD ( LABEL, MAPBD2, '=', BNDS2(2,K), 0.0, OK )
++               CALL CHCKSD ( LABEL, MAPBD2, '=', BNDS2(2,K), 0.D0, OK )
+ 
+             END IF
+ 
+diff --git a/src/tspice/f_t_urand.f b/src/tspice/f_t_urand.f
+index 9e6feb8..4d92910 100644
+--- a/src/tspice/f_t_urand.f
++++ b/src/tspice/f_t_urand.f
+@@ -180,7 +180,7 @@ C
+          NAME = 'Case 1 iteration #.'
+          CALL REPMI ( NAME, '#', I, NAME )
+ 
+-         CALL CHCKSD ( NAME, U, '=', U2, 0, OK )
++         CALL CHCKSD ( NAME, U, '=', U2, 0.D0, OK )
+ 
+ C         IF ( U .LT. 1.D-3 ) THEN
+ C            WRITE (*,*) 'U  = ', U
+-- 
+2.25.1
+

@@ -1,0 +1,292 @@
+From 1e63a59187f00a3318f9bbd605db3baaf2ea393a Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Wed, 16 Apr 2025 23:39:02 +0100
+Subject: [PATCH 29/40] f2rust: Add MOVEL, and use it for moving arrays of
+ LOGICAL
+
+Technically illegal in standard FORTRAN, but presumably normal compilers
+don't care. But our compiler does care.
+---
+ src/spicelib/movel.f  | 175 ++++++++++++++++++++++++++++++++++++++++++
+ src/tspice/f_fndcmp.f |  20 ++---
+ 2 files changed, 185 insertions(+), 10 deletions(-)
+ create mode 100644 src/spicelib/movel.f
+
+diff --git a/src/spicelib/movel.f b/src/spicelib/movel.f
+new file mode 100644
+index 0000000..b85290a
+--- /dev/null
++++ b/src/spicelib/movel.f
+@@ -0,0 +1,175 @@
++C$Procedure MOVEL  ( Move a logical array to another )
++
++      SUBROUTINE MOVEL ( ARRFRM, NDIM, ARRTO )
++
++C$ Abstract
++C
++C     Copy the elements of one logical array into another
++C     array.
++C
++C$ Disclaimer
++C
++C     THIS SOFTWARE AND ANY RELATED MATERIALS WERE CREATED BY THE
++C     CALIFORNIA INSTITUTE OF TECHNOLOGY (CALTECH) UNDER A U.S.
++C     GOVERNMENT CONTRACT WITH THE NATIONAL AERONAUTICS AND SPACE
++C     ADMINISTRATION (NASA). THE SOFTWARE IS TECHNOLOGY AND SOFTWARE
++C     PUBLICLY AVAILABLE UNDER U.S. EXPORT LAWS AND IS PROVIDED "AS-IS"
++C     TO THE RECIPIENT WITHOUT WARRANTY OF ANY KIND, INCLUDING ANY
++C     WARRANTIES OF PERFORMANCE OR MERCHANTABILITY OR FITNESS FOR A
++C     PARTICULAR USE OR PURPOSE (AS SET FORTH IN UNITED STATES UCC
++C     SECTIONS 2312-2313) OR FOR ANY PURPOSE WHATSOEVER, FOR THE
++C     SOFTWARE AND RELATED MATERIALS, HOWEVER USED.
++C
++C     IN NO EVENT SHALL CALTECH, ITS JET PROPULSION LABORATORY, OR NASA
++C     BE LIABLE FOR ANY DAMAGES AND/OR COSTS, INCLUDING, BUT NOT
++C     LIMITED TO, INCIDENTAL OR CONSEQUENTIAL DAMAGES OF ANY KIND,
++C     INCLUDING ECONOMIC DAMAGE OR INJURY TO PROPERTY AND LOST PROFITS,
++C     REGARDLESS OF WHETHER CALTECH, JPL, OR NASA BE ADVISED, HAVE
++C     REASON TO KNOW, OR, IN FACT, SHALL KNOW OF THE POSSIBILITY.
++C
++C     RECIPIENT BEARS ALL RISK RELATING TO QUALITY AND PERFORMANCE OF
++C     THE SOFTWARE AND ANY RELATED MATERIALS, AND AGREES TO INDEMNIFY
++C     CALTECH AND NASA FOR ALL THIRD-PARTY CLAIMS RESULTING FROM THE
++C     ACTIONS OF RECIPIENT IN THE USE OF THE SOFTWARE.
++C
++C$ Required_Reading
++C
++C     None.
++C
++C$ Keywords
++C
++C     ARRAY
++C
++C$ Declarations
++
++      IMPLICIT NONE
++
++      LOGICAL         ARRFRM ( * )
++      INTEGER         NDIM
++      LOGICAL         ARRTO  ( * )
++
++C$ Brief_I/O
++C
++C     VARIABLE  I/O  DESCRIPTION
++C     --------  ---  --------------------------------------------------
++C     ARRFRM     I   Logical array to be moved.
++C     NDIM       I   Number of elements to copy, i.e. the dimension
++C                    of ARRFRM and ARRTO.
++C     ARRTO      O   Destination array.
++C
++C$ Detailed_Input
++C
++C     ARRFRM   is an array from which to copy items.
++C
++C     NDIM     is the number of items to copy.
++C
++C$ Detailed_Output
++C
++C     ARRTO    is the array to which items should be copied.
++C
++C$ Parameters
++C
++C     None.
++C
++C$ Exceptions
++C
++C     Error free.
++C
++C$ Files
++C
++C     None.
++C
++C$ Particulars
++C
++C     This routine is simply shorthand for the following 3 lines of
++C     code.
++C
++C             DO I = 1, NDIM
++C                ARRTO(I) = ARRFRM(I)
++C             END DO
++C
++C$ Examples
++C
++C     Often one needs to make a temporary copy of an array so that
++C     it can be manipulated without altering the original array.
++C     As pointed out in particulars, you could just do this within
++C     the code that needs the copy. However, if you have several
++C     arrays to copy, you can cut the number of lines of code that
++C     are needed by a third.
++C
++C     For example:
++C
++C          DO I = 1, 19
++C             TEMPA(I) = A(I)
++C          END DO
++C
++C          DO I = 1, 38
++C             TEMPB(I) = B(I)
++C          END DO
++C
++C     Can be rewritten as
++C
++C          CALL MOVEI ( A, 19, TEMPA )
++C          CALL MOVEI ( B, 38, TEMPB )
++C
++C$ Restrictions
++C
++C     None.
++C
++C$ Literature_References
++C
++C     None.
++C
++C$ Author_and_Institution
++C
++C     J. Diaz del Rio    (ODC Space)
++C     W.M. Owen          (JPL)
++C     W.L. Taber         (JPL)
++C
++C$ Version
++C
++C-    SPICELIB Version 1.1.0, 12-AUG-2021 (JDR)
++C
++C        Added IMPLICIT NONE statement.
++C
++C        Edited the header to comply with NAIF standard.
++C
++C-    SPICELIB Version 1.0.1, 10-MAR-1992 (WLT)
++C
++C        Comment section for permuted index source lines was added
++C        following the header.
++C
++C-    SPICELIB Version 1.0.0, 31-JAN-1990 (WMO)
++C
++C-&
++
++
++C$ Index_Entries
++C
++C     move a integer array to another integer array
++C
++C-&
++
++
++C$ Revisions
++C
++C-     Beta Version 1.0.1, 4-FEB-1989 (WLT)
++C
++C      Header fully filled out.
++C
++C-&
++
++
++C
++C     Local variables
++C
++      INTEGER I
++
++
++      DO I = 1, NDIM
++        ARRTO(I) = ARRFRM(I)
++      END DO
++
++
++      RETURN
++      END
+diff --git a/src/tspice/f_fndcmp.f b/src/tspice/f_fndcmp.f
+index 5a710df..373b2c1 100644
+--- a/src/tspice/f_fndcmp.f
++++ b/src/tspice/f_fndcmp.f
+@@ -630,7 +630,7 @@ C     Get a copy of the input grid, since GRID is an in-out argument.
+ C
+       N = NCOLS * NROWS
+ 
+-      CALL MOVEI ( GRID, N, GRID1 )
++      CALL MOVEL ( GRID, N, GRID1 )
+ 
+ C
+ C     Find the gaps in the grid.
+@@ -745,7 +745,7 @@ C     Get a copy of the input grid, since GRID is an in-out argument.
+ C
+       N = NCOLS * NROWS
+ 
+-      CALL MOVEI ( GRID, N, GRID1 )
++      CALL MOVEL ( GRID, N, GRID1 )
+ 
+ 
+ C
+@@ -854,7 +854,7 @@ C     Get a copy of the input grid, since GRID is an in-out argument.
+ C
+       N = NCOLS * NROWS
+ 
+-      CALL MOVEI ( GRID, N, GRID1 )
++      CALL MOVEL ( GRID, N, GRID1 )
+ 
+ 
+ C
+@@ -968,7 +968,7 @@ C     Get a copy of the input grid, since GRID is an in-out argument.
+ C
+       N = NCOLS * NROWS
+ 
+-      CALL MOVEI ( GRID, N, GRID1 )
++      CALL MOVEL ( GRID, N, GRID1 )
+ 
+  
+ C
+@@ -1083,7 +1083,7 @@ C     Get a copy of the input grid, since GRID is an in-out argument.
+ C
+       N = NCOLS * NROWS
+ 
+-      CALL MOVEI ( GRID, N, GRID1 )
++      CALL MOVEL ( GRID, N, GRID1 )
+ 
+  
+ C
+@@ -1199,7 +1199,7 @@ C     Get a copy of the input grid, since GRID is an in-out argument.
+ C
+       N = NCOLS * NROWS
+ 
+-      CALL MOVEI ( GRID, N, GRID1 )
++      CALL MOVEL ( GRID, N, GRID1 )
+ 
+  
+ C
+@@ -1315,7 +1315,7 @@ C     Get a copy of the input grid, since GRID is an in-out argument.
+ C
+       N = NCOLS * NROWS
+ 
+-      CALL MOVEI ( GRID, N, GRID1 )
++      CALL MOVEL ( GRID, N, GRID1 )
+ 
+  
+ C
+@@ -1435,7 +1435,7 @@ C     Get a copy of the input grid, since GRID is an in-out argument.
+ C
+       N = NCOLS * NROWS
+ 
+-      CALL MOVEI ( GRID, N, GRID1 )
++      CALL MOVEL ( GRID, N, GRID1 )
+ 
+  
+ C
+@@ -1590,7 +1590,7 @@ C
+ C
+ C     Get a copy of the input grid, since GRID is an in-out argument.
+ C
+-      CALL MOVEI ( GRID, N, GRID1 )
++      CALL MOVEL ( GRID, N, GRID1 )
+ 
+  
+ C
+@@ -1749,7 +1749,7 @@ C         WRITE (*,*) 'N, NGAP = ', N, NGAP
+ C
+ C        Get a copy of the input grid, since GRID is an in-out argument.
+ C
+-         CALL MOVEI ( GRID, NGRID, GRID1 )
++         CALL MOVEL ( GRID, NGRID, GRID1 )
+  
+ C
+ C        Find the gaps in the grid.
+-- 
+2.25.1
+

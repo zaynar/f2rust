@@ -1,0 +1,26 @@
+From eacacc6d2c109629124f6f3e9a22bb1325b36889 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Sat, 3 May 2025 23:52:58 +0100
+Subject: [PATCH 13/40] TSPICE/F_XFMSTA: Fix type of DIM
+
+BODVRD outputs DIM as INTEGER.
+---
+ src/tspice/f_xfmsta.f | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/tspice/f_xfmsta.f b/src/tspice/f_xfmsta.f
+index 722dd0d..d4e3bad 100644
+--- a/src/tspice/f_xfmsta.f
++++ b/src/tspice/f_xfmsta.f
+@@ -143,7 +143,7 @@ C     Local Variables
+ C
+       CHARACTER*(30)        COSYS (6)
+ 
+-      DOUBLE PRECISION      DIM
++      INTEGER               DIM
+       DOUBLE PRECISION      LOWERP
+       DOUBLE PRECISION      LOWERV
+       DOUBLE PRECISION      TOL
+-- 
+2.25.1
+

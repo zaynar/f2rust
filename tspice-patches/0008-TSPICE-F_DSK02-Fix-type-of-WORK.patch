@@ -1,0 +1,55 @@
+From a714f127f92f89ba9d7e583b141bc3007b0bfb43 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Sat, 3 May 2025 23:39:07 +0100
+Subject: [PATCH 08/40] TSPICE/F_DSK02: Fix type of WORK
+
+DSKMI2 (unlike most functions) declares WORK as INTEGER.
+Fix callers that passed a DOUBLE PRECISION instead.
+---
+ src/tspice/f_dsk02.f  | 2 +-
+ src/tspice/f_dskw02.f | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/tspice/f_dsk02.f b/src/tspice/f_dsk02.f
+index 01108fe..abb69a6 100644
+--- a/src/tspice/f_dsk02.f
++++ b/src/tspice/f_dsk02.f
+@@ -240,7 +240,6 @@ C
+       DOUBLE PRECISION      VRTCS3 ( 3 * MAXV )
+       DOUBLE PRECISION      XFORM  ( 3, 3 )
+       DOUBLE PRECISION      XNORML ( 3 )
+-      DOUBLE PRECISION      WORK   ( 2, WORKSZ )
+ 
+       INTEGER               ADDR
+       INTEGER               BODYID
+@@ -287,6 +286,7 @@ C
+       INTEGER               VLSIZE
+       INTEGER               VLSIZ3
+       INTEGER               VTXLSZ
++      INTEGER               WORK   ( 2, WORKSZ )
+       INTEGER               XNCGR
+       INTEGER               XNP
+       INTEGER               XNV
+diff --git a/src/tspice/f_dskw02.f b/src/tspice/f_dskw02.f
+index 1abff4c..28ed978 100644
+--- a/src/tspice/f_dskw02.f
++++ b/src/tspice/f_dskw02.f
+@@ -217,7 +217,6 @@ C
+       DOUBLE PRECISION      VRTCS3 ( 3 * MAXV )
+       DOUBLE PRECISION      X
+       DOUBLE PRECISION      XFORM  ( 3, 3 )
+-      DOUBLE PRECISION      WORK   ( 2, WORKSZ )
+ 
+       INTEGER               ADDR
+       INTEGER               BODYID
+@@ -260,6 +259,7 @@ C
+       INTEGER               VLSIZ3
+       INTEGER               VTXLSZ
+       INTEGER               W
++      INTEGER               WORK   ( 2, WORKSZ )
+       INTEGER               XNCGR
+       INTEGER               XNP
+       INTEGER               XNV
+-- 
+2.25.1
+

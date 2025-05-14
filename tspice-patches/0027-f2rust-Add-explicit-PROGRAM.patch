@@ -1,0 +1,24 @@
+From 821f79a1c1bc87a610bb1785bea1518d19617ee5 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Wed, 16 Apr 2025 14:29:58 +0100
+Subject: [PATCH 27/40] f2rust: Add explicit PROGRAM
+
+FORTRAN says this is optional, but our compiler currently requires it.
+---
+ src/tspice/tspice.pgm | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/tspice/tspice.pgm b/src/tspice/tspice.pgm
+index a137cc5..96d3974 100644
+--- a/src/tspice/tspice.pgm
++++ b/src/tspice/tspice.pgm
+@@ -1,3 +1,6 @@
++      PROGRAM TSPICE
++      IMPLICIT NONE
++
+ C$ Abstract
+ C
+ C    This program performs a set of standard tests on the SPICE
+-- 
+2.25.1
+

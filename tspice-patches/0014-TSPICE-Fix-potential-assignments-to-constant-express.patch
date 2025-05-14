@@ -1,0 +1,99 @@
+From 272286084587deb5ad2b1b934db962fa59892b9a Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Wed, 16 Apr 2025 18:41:39 +0100
+Subject: [PATCH 14/40] TSPICE: Fix potential assignments to
+ constant/expression
+
+ZZHOLDD can assign to its VALUE argument, even on a ZZPUT operation
+(in the error return paths).
+
+F_GFUDS passes the constants 1.D-4 and CNVTOL to GFSTOL, which calls
+ZZHOLDD. Assigning to constants is not allowed and might crash.
+
+Similarly F_ZZGFDIU/F_ZZGFCOU pass a function-call expression to
+ZZGFREF, which calls ZZHOLDD. Assigning to expressions is not allowed.
+
+Use a local variable to pass the values safely.
+---
+ src/tspice/f_gfuds.f   | 7 +++++--
+ src/tspice/f_zzgfcou.f | 6 ++++--
+ src/tspice/f_zzgfdiu.f | 5 +++--
+ 3 files changed, 12 insertions(+), 6 deletions(-)
+
+diff --git a/src/tspice/f_gfuds.f b/src/tspice/f_gfuds.f
+index 9e5f742..ef3188b 100644
+--- a/src/tspice/f_gfuds.f
++++ b/src/tspice/f_gfuds.f
+@@ -187,6 +187,7 @@ C
+       DOUBLE PRECISION      RESLRR ( LBCELL : MAXWIN )
+       DOUBLE PRECISION      CNFINE ( LBCELL : MAXWIN )
+       DOUBLE PRECISION      WORK   ( LBCELL : MAXWIN, NWUDS )
++      DOUBLE PRECISION      TOL
+ 
+       INTEGER               COUNT
+       INTEGER               I
+@@ -640,7 +641,8 @@ C
+ C     Reset tol.
+ C
+ 
+-      CALL GFSTOL ( 1.D-4 )
++      TOL = 1.D-4
++      CALL GFSTOL ( TOL )
+       CALL CHCKXC ( .FALSE., ' ',   OK )
+ 
+       CALL GFUDS ( GFQ,    GFDECR,
+@@ -667,7 +669,8 @@ C
+ C
+ C     Reset the convergence tolerance.
+ C
+-      CALL GFSTOL ( CNVTOL )
++      TOL = CNVTOL
++      CALL GFSTOL ( TOL )
+ 
+ 
+ C
+diff --git a/src/tspice/f_zzgfcou.f b/src/tspice/f_zzgfcou.f
+index c0d2a8c..5ec1aad 100644
+--- a/src/tspice/f_zzgfcou.f
++++ b/src/tspice/f_zzgfcou.f
+@@ -1872,7 +1872,8 @@ C                       the reference value reset function.
+ C
+ C                       All values are less than DPMAX(), we hope.
+ C
+-                        CALL ZZGFREF( DPMAX() )
++                        REFVAL = DPMAX()
++                        CALL ZZGFREF( REFVAL )
+ 
+                         CALL CHCKXC ( .FALSE., ' ', OK )
+ 
+@@ -1901,7 +1902,8 @@ C
+ C                       Now make sure the quantities are not less than
+ C                       DPMIN().
+ C
+-                        CALL ZZGFREF( DPMIN() )
++                        REFVAL = DPMIN()
++                        CALL ZZGFREF( REFVAL )
+ 
+                         CALL CHCKXC ( .FALSE., ' ', OK )
+ 
+diff --git a/src/tspice/f_zzgfdiu.f b/src/tspice/f_zzgfdiu.f
+index 7d04141..955f658 100644
+--- a/src/tspice/f_zzgfdiu.f
++++ b/src/tspice/f_zzgfdiu.f
+@@ -453,10 +453,11 @@ C           Set the reference value so as to invert the
+ C           expected relationship to the reference value.
+ C
+             IF ( XLSTHN ) THEN
+-               CALL ZZGFREF ( DPMIN() )
++               REFVAL = DPMIN()
+              ELSE
+-               CALL ZZGFREF ( DPMAX() )
++               REFVAL = DPMAX()
+             END IF
++            CALL ZZGFREF ( REFVAL )
+ 
+             CALL CHCKXC   ( .FALSE., ' ', OK )
+ 
+-- 
+2.25.1
+

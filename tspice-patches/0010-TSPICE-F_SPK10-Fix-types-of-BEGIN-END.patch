@@ -1,0 +1,43 @@
+From e5324b1a75416defc328b02c16d6577794e370ae Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Sat, 3 May 2025 23:46:14 +0100
+Subject: [PATCH 10/40] TSPICE/F_SPK10: Fix types of BEGIN/END
+
+SPKUDS outputs them as INTEGERs.
+---
+ src/tspice/f_spk10.f | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/tspice/f_spk10.f b/src/tspice/f_spk10.f
+index 16af630..1fd7f20 100644
+--- a/src/tspice/f_spk10.f
++++ b/src/tspice/f_spk10.f
+@@ -165,14 +165,12 @@ C
+       CHARACTER*(LNSIZE)    LOW2LN ( 20 )
+ 
+       DOUBLE PRECISION      ARG
+-      DOUBLE PRECISION      BEGIN
+       DOUBLE PRECISION      GEOPHS ( 8 )
+       DOUBLE PRECISION      DARGDT
+       DOUBLE PRECISION      DENOM
+       DOUBLE PRECISION      DESCR  ( 6 )
+       DOUBLE PRECISION      DWDT
+       DOUBLE PRECISION      ELEMS  ( 290 )
+-      DOUBLE PRECISION      END
+       DOUBLE PRECISION      EPOCH  ( NMIX  )
+       DOUBLE PRECISION      ET
+       DOUBLE PRECISION      EXPST  ( 6 )
+@@ -196,8 +194,10 @@ C
+       DOUBLE PRECISION      VEL    ( 3 )
+       DOUBLE PRECISION      W
+ 
++      INTEGER               BEGIN
+       INTEGER               BODY
+       INTEGER               CENTER
++      INTEGER               END
+       INTEGER               FRAME
+       INTEGER               HANDLE
+       INTEGER               I
+-- 
+2.25.1
+

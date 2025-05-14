@@ -1,0 +1,119 @@
+From bd1a2b1005b053a42da2388a3b587ed75ea9828a Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Thu, 1 May 2025 12:47:46 +0100
+Subject: [PATCH 38/40] f2rust: Add non-mutating variant of ZZHOLDD
+
+ZZHOLDD(ZZPUT) shouldn't mutate VALUE, but actually
+it can do on error paths (and even if it couldn't, f2rust
+couldn't distinguish it from ZZGET cases). That mutability
+propagates outwards to the public API. To avoid that, we
+patch calls to use this PUT-only entry instead (see
+rsspice_build GrammarPatcher)
+---
+ src/spicelib/zzholdd.f | 92 +++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 91 insertions(+), 1 deletion(-)
+
+diff --git a/src/spicelib/zzholdd.f b/src/spicelib/zzholdd.f
+index 8c18513..25c3a08 100644
+--- a/src/spicelib/zzholdd.f
++++ b/src/spicelib/zzholdd.f
+@@ -401,5 +401,95 @@ C
+ 
+       END IF
+ 
+-      END
++      RETURN
++
++
++
++      ENTRY ZZHOLDD_ZZPUT ( OP, ID, OK, VALUE )
++C     [f2rust] ZZHOLDD(ZZPUT) shouldn't mutate VALUE, but actually
++C     it can do on error paths (and even if it couldn't, f2rust
++C     couldn't distinguish it from ZZGET cases). That mutability
++C     propagates outwards to the public API. To avoid that, we
++C     patch calls to use this PUT-only entry instead (see
++C     rsspice_build GrammarPatcher)
++
++C
++C     Standard SPICE error handling.
++C
++      IF ( RETURN() ) THEN
++         OK    = .FALSE.
++         RETURN
++      END IF
++
++
++C
++C     Confirm a proper ID value.
++C
++      IF ( BRCKTI(ID, 1, NID) .NE. ID ) THEN
++
++         OK    = .FALSE.
++
++         CALL CHKIN  ( 'ZZHOLDD'                               )
++         CALL SETMSG ( 'ID value unknown. ID value #1 '
++     .         //      'not an element of [1, #2]. Confirm'
++     .         //      'the ID value exists in the zzholdd.inc '
++     .         //      'parameter file.'                       )
++         CALL ERRINT ( '#1', ID                                )
++         CALL ERRINT ( '#2', NID                               )
++         CALL SIGERR ( 'SPICE(UNKNOWNID)'                      )
++         CALL CHKOUT ( 'ZZHOLDD'                               )
++         RETURN
+ 
++      END IF
++
++
++C
++C     Initialize the FIRST array; perform once per program run.
++C
++      IF ( INIT ) THEN
++
++         DO I = 1, NID
++            FIRST( I ) = .TRUE.
++         END DO
++
++         INIT = .FALSE.
++
++      END IF
++
++
++C
++C     Perform the operation as described by OP.
++C
++      IF ( OP .EQ. ZZPUT ) THEN
++
++C
++C        Store a value for later use. Set FIRST to false
++C        so subsequent get calls will work.
++C
++         IF ( FIRST( ID ) ) THEN
++
++            FIRST( ID ) = .FALSE.
++
++         END IF
++
++         SVALUE( ID ) = VALUE
++
++      ELSE
++
++C
++C        Unknown value for 'OP'. Signal an error.
++C
++         OK    = .FALSE.
++
++         CALL CHKIN  ( 'ZZHOLDD'                          )
++         CALL SETMSG ( 'Unknown operation. Confirm the OP '
++     .         //      'value # exists in the zzholdd.inc '
++     .         //      'parameter file.'                  )
++         CALL ERRINT ( '#', OP                            )
++         CALL SIGERR ( 'SPICE(UNKNOWNOP)'                 )
++         CALL CHKOUT ( 'ZZHOLDD'                          )
++         RETURN
++
++      END IF
++
++      END
+-- 
+2.25.1
+

@@ -1,0 +1,67 @@
+From 9f8cf0cca7dd1a1f5bfdaac50a07b5668bb9b3fe Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Sat, 3 May 2025 23:37:57 +0100
+Subject: [PATCH 05/40] INSPEKT: Fix type of DIDPMT
+
+PAGPMT outputs INTEGER, not LOGICAL.
+---
+ src/inspekt/hlpmen.f | 4 ++--
+ src/inspekt/nspshc.f | 6 +++---
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/src/inspekt/hlpmen.f b/src/inspekt/hlpmen.f
+index 550a27e..d3a5a49 100644
+--- a/src/inspekt/hlpmen.f
++++ b/src/inspekt/hlpmen.f
+@@ -136,7 +136,7 @@ C
+  
+       LOGICAL               FTITLE
+       LOGICAL               DOPMT
+-      LOGICAL               DIDPMT
++      INTEGER               DIDPMT
+  
+       LOGICAL               LSTAT ( 3 )
+       LOGICAL               SSTAT ( 3 )
+@@ -495,7 +495,7 @@ C
+  
+          IF (       SIZE .GT. 0
+      .        .AND. DOPMT
+-     .        .AND. .NOT. DIDPMT ) THEN
++     .        .AND. DIDPMT .EQ. 0 ) THEN
+ C
+ C           Issue our own prompt since we didn't do one last
+ C           time. (This gives the user a chance to read the
+diff --git a/src/inspekt/nspshc.f b/src/inspekt/nspshc.f
+index 8332ffb..ffd251d 100644
+--- a/src/inspekt/nspshc.f
++++ b/src/inspekt/nspshc.f
+@@ -199,7 +199,7 @@ C
+       INTEGER               RECNO
+       INTEGER               TOGET
+  
+-      LOGICAL               DIDPMT
++      INTEGER               DIDPMT
+       LOGICAL               SEND
+       LOGICAL               SOME
+  
+@@ -330,7 +330,7 @@ C
+ C                 We give the user the chance to bail out of
+ C                 a dump of comments.
+ C
+-                  IF ( DIDPMT .AND. RESPNS .EQ. 'Q' ) THEN
++                  IF ( DIDPMT .NE. 0 .AND. RESPNS .EQ. 'Q' ) THEN
+                      QUIT = .TRUE.
+                      RETURN
+                   END IF
+@@ -373,7 +373,7 @@ C
+ C           We give the user the chance to bail out of
+ C           a dump of comments.
+ C
+-            IF ( DIDPMT .AND. RESPNS .EQ. 'Q' ) THEN
++            IF ( DIDPMT .NE. 0 .AND. RESPNS .EQ. 'Q' ) THEN
+                QUIT = .TRUE.
+                RETURN
+             END IF
+-- 
+2.25.1
+

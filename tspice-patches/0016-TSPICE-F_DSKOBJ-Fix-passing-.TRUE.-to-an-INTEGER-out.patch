@@ -1,0 +1,26 @@
+From d4c8b53a109b46c6bf332c471d83ba75f4c2b803 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Fri, 18 Apr 2025 13:11:34 +0100
+Subject: [PATCH 16/40] TSPICE/F_DSKOBJ: Fix passing .TRUE. to an INTEGER
+ output argument
+
+---
+ src/tspice/f_dskobj.f | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/tspice/f_dskobj.f b/src/tspice/f_dskobj.f
+index 7a60587..c4131f3 100644
+--- a/src/tspice/f_dskobj.f
++++ b/src/tspice/f_dskobj.f
+@@ -545,7 +545,7 @@ C --- Case --------------------------------------------------------
+ C
+       CALL TCASE ( 'DSKOBJ: file is a DAF.' )
+ 
+-      CALL TSTSPK ( SPK0, .FALSE., .TRUE. )
++      CALL TSTSPK ( SPK0, .FALSE., HANDLE )
+       CALL CHCKXC( .FALSE., ' ', OK )
+ 
+       CALL DSKOBJ ( SPK0, BODSET )
+-- 
+2.25.1
+

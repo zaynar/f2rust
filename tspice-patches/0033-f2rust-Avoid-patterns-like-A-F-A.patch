@@ -1,0 +1,243 @@
+From 89a5da69e3f973a8283909ca388ae4363215341f Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Fri, 18 Apr 2025 13:18:25 +0100
+Subject: [PATCH 33/40] f2rust: Avoid patterns like "A(F(A)) = ..."
+
+Rust doesn't like this because it mutably borrows the outer A for the
+assignment, before immutably borrowing the inner A for the expression.
+Really our compiler should extract the expression into a local variable,
+but this only occurs in a few places so do it manually instead.
+---
+ src/frmdiff/rtdiff.f | 14 ++++++++++----
+ src/mkspk/chckdo.f   | 13 ++++++++-----
+ src/spkdiff/stdiff.f | 13 +++++++++----
+ src/support/m2core.f |  6 ++++--
+ src/support/podbgd.f |  4 +++-
+ src/support/podbgi.f |  6 ++++--
+ 6 files changed, 38 insertions(+), 18 deletions(-)
+
+diff --git a/src/frmdiff/rtdiff.f b/src/frmdiff/rtdiff.f
+index 90d05b6..74b2bbb 100644
+--- a/src/frmdiff/rtdiff.f
++++ b/src/frmdiff/rtdiff.f
+@@ -206,6 +206,8 @@ C
+       CHARACTER*(LINSIZ)    INFMSG ( INFMAX )
+       LOGICAL               INFPRT ( INFMAX )
+ 
++      INTEGER               TRIMMED
++
+ 
+ C
+ C     Save everything to prevent potential memory problems in f2c'ed
+@@ -260,12 +262,14 @@ C
+ C
+ C           Append interval duration as seconds and D:H:M:S string.
+ C
++            TRIMMED = RTRIM(DMPSTR)+1
+             CALL DPFMT ( CMPWIN(I+1)-CMPWIN(I),
+      .                   DURPIC,
+-     .                   DMPSTR(RTRIM(DMPSTR)+1:) )
++     .                   DMPSTR(TRIMMED:) )
+ 
++            TRIMMED = RTRIM(DMPSTR)+1
+             CALL DR2STR( CMPWIN(I+1)-CMPWIN(I),
+-     .                   DMPSTR(RTRIM(DMPSTR)+1:) )
++     .                   DMPSTR(TRIMMED:) )
+ 
+ C
+ C           Print output string.
+@@ -315,12 +319,14 @@ C
+ C
+ C           Append interval duration as seconds and D:H:M:S string.
+ C
++            TRIMMED = RTRIM(DMPSTR)+1
+             CALL DPFMT ( CMPWIN(I+1)-CMPWIN(I),
+      .                   DURPIC,
+-     .                   DMPSTR(RTRIM(DMPSTR)+1:) )
++     .                   DMPSTR(TRIMMED:) )
+ 
++            TRIMMED = RTRIM(DMPSTR)+1
+             CALL DR2STR( CMPWIN(I+1)-CMPWIN(I),
+-     .                   DMPSTR(RTRIM(DMPSTR)+1:) )
++     .                   DMPSTR(TRIMMED:) )
+ 
+ C
+ C           Print output string.
+diff --git a/src/mkspk/chckdo.f b/src/mkspk/chckdo.f
+index a437fb9..8402680 100644
+--- a/src/mkspk/chckdo.f
++++ b/src/mkspk/chckdo.f
+@@ -171,6 +171,7 @@ C     Local variables
+ C
+       INTEGER               L
+       LOGICAL               FOUND
++      INTEGER               TRIMMED
+ C
+ C     Error line variable. Size LINLEN declared in the include file.
+ C
+@@ -223,7 +224,7 @@ C
+          CALL REPMC ( ERRLIN, '#', KDATOR, ERRLIN )
+ 
+          IF ( ISRCHI ( 9, NPARAM, PARAM ) .EQ. 0  ) THEN 
+-          
++
+             CALL INSSUB( ERRLIN, ' ''#'',', RTRIM(ERRLIN)+1, ERRLIN )
+             CALL REPMC ( ERRLIN, '#', DOVAL (9), ERRLIN )
+             FOUND = .FALSE.
+@@ -233,7 +234,7 @@ C
+          DO L = 13, 15
+                          
+             IF ( ISRCHI ( L , NPARAM, PARAM ) .EQ. 0  ) THEN 
+-         
++
+                CALL INSSUB( ERRLIN, ' ''#'',', RTRIM(ERRLIN)+1, ERRLIN)
+                CALL REPMC ( ERRLIN, '#', DOVAL ( L ), ERRLIN )
+                FOUND = .FALSE.
+@@ -254,7 +255,7 @@ C
+          DO L = 2,7
+                          
+             IF ( ISRCHI ( L , NPARAM, PARAM ) .EQ. 0  ) THEN 
+-         
++
+                CALL INSSUB( ERRLIN, ' ''#'',', RTRIM(ERRLIN)+1, ERRLIN)
+                CALL REPMC ( ERRLIN, '#', DOVAL ( L ), ERRLIN )
+                FOUND = .FALSE.
+@@ -291,7 +292,8 @@ C     Signal the error if any of the required parameters wasn't found.
+ C     
+       IF ( .NOT. FOUND )  THEN
+ 
+-         ERRLIN(RTRIM(ERRLIN):RTRIM(ERRLIN)) = '.'
++         TRIMMED = RTRIM(ERRLIN)
++         ERRLIN(TRIMMED:TRIMMED) = '.'
+          CALL SETMSG ( ERRLIN )
+          CALL SIGERR ( 'SPICE(MISSINGDATAORDERTK)' )
+                
+@@ -335,7 +337,8 @@ C     Signal the error if any of the required parameters wasn't found.
+ C     
+       IF ( .NOT. FOUND )  THEN
+          
+-         ERRLIN(RTRIM(ERRLIN):RTRIM(ERRLIN)) = '.'
++         TRIMMED = RTRIM(ERRLIN)
++         ERRLIN(TRIMMED:TRIMMED) = '.'
+          CALL SETMSG ( ERRLIN )
+          CALL SIGERR ( 'SPICE(MISSINGDATAORDERTK)' )
+          
+diff --git a/src/spkdiff/stdiff.f b/src/spkdiff/stdiff.f
+index 20f5bad..127e3f4 100644
+--- a/src/spkdiff/stdiff.f
++++ b/src/spkdiff/stdiff.f
+@@ -217,6 +217,7 @@ C     Local variables
+ C
+       INTEGER               J
+       INTEGER               I
++      INTEGER               TRIMMED
+ 
+       CHARACTER*(SWDSIZ)    SWDSTR
+       CHARACTER*(WRDSIZ)    OUTCH    ( 4 )
+@@ -395,12 +396,14 @@ C
+ C
+ C           Append interval duration as seconds and D:H:M:S string.
+ C
++            TRIMMED = RTRIM(DMPSTR)+1
+             CALL DPFMT ( CMPWIN(I+1)-CMPWIN(I),
+      .                   DURPIC,
+-     .                   DMPSTR(RTRIM(DMPSTR)+1:) )
++     .                   DMPSTR(TRIMMED:) )
+ 
++            TRIMMED = RTRIM(DMPSTR)+1
+             CALL DR2STR( CMPWIN(I+1)-CMPWIN(I),
+-     .                   DMPSTR(RTRIM(DMPSTR)+1:) )
++     .                   DMPSTR(TRIMMED:) )
+ 
+ C
+ C           Print output string.
+@@ -469,12 +472,14 @@ C
+ C
+ C           Append interval duration as seconds and D:H:M:S string.
+ C
++            TRIMMED = RTRIM(DMPSTR)+1
+             CALL DPFMT ( CMPWIN(I+1)-CMPWIN(I),
+      .                   DURPIC,
+-     .                   DMPSTR(RTRIM(DMPSTR)+1:) )
++     .                   DMPSTR(TRIMMED:) )
+ 
++            TRIMMED = RTRIM(DMPSTR)+1
+             CALL DR2STR( CMPWIN(I+1)-CMPWIN(I),
+-     .                   DMPSTR(RTRIM(DMPSTR)+1:) )
++     .                   DMPSTR(TRIMMED:) )
+ 
+ C
+ C           Print output string.
+diff --git a/src/support/m2core.f b/src/support/m2core.f
+index 5bdabb0..2ce161b 100644
+--- a/src/support/m2core.f
++++ b/src/support/m2core.f
+@@ -202,6 +202,7 @@ C
+       INTEGER               SE
+       INTEGER               DB
+       INTEGER               DE
++      INTEGER               CB
+       INTEGER               OVERSB
+       INTEGER               LASTSB
+       INTEGER               OVERSE
+@@ -1270,8 +1271,9 @@ C
+                            CALL SUFFIX ( ',',       0, CAUSE )
+  
+                         END DO
+- 
+-                        CAUSE(1)(QLSTNB(CAUSE(1)):) = ' }.'
++
++                        CB = QLSTNB(CAUSE(1))
++                        CAUSE(1)(CB:) = ' }.'
+  
+                      END IF
+  
+diff --git a/src/support/podbgd.f b/src/support/podbgd.f
+index 8f8ead4..eff8e14 100644
+--- a/src/support/podbgd.f
++++ b/src/support/podbgd.f
+@@ -158,6 +158,7 @@ C     Local variables
+ C
+       INTEGER               HAVE
+       INTEGER               NEED
++      INTEGER               PODCRD
+  
+ C
+ C     Standard SPICE error handling.
+@@ -188,7 +189,8 @@ C     group is stored in the first empty slot of the pod; when the
+ C     new group is removed, this will be reinstated as the offset of
+ C     the active group.
+ C
+-      POD(CARDD(POD) + 1) = POD(GRPOFF)
++      PODCRD = CARDD(POD) + 1
++      POD(PODCRD) = POD(GRPOFF)
+  
+ C
+ C     This requires the cardinality of the pod to increase by one.
+diff --git a/src/support/podbgi.f b/src/support/podbgi.f
+index 5c972d3..ff7ce73 100644
+--- a/src/support/podbgi.f
++++ b/src/support/podbgi.f
+@@ -158,6 +158,7 @@ C     Local variables
+ C
+       INTEGER               HAVE
+       INTEGER               NEED
++      INTEGER               PODCRD
+  
+ C
+ C     Standard SPICE error handling.
+@@ -188,8 +189,9 @@ C     group is stored in the first empty slot of the pod; when the
+ C     new group is removed, this will be reinstated as the offset of
+ C     the active group.
+ C
+-      POD(CARDI(POD) + 1) = POD(GRPOFF)
+- 
++      PODCRD = CARDI(POD) + 1
++      POD(PODCRD) = POD(GRPOFF)
++
+ C
+ C     This requires the cardinality of the pod to increase by one.
+ C
+-- 
+2.25.1
+

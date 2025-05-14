@@ -1,0 +1,129 @@
+From 24fadf53f857ddfa505e2397fbf9e4c558c4bbc0 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Fri, 18 Apr 2025 01:10:05 +0100
+Subject: [PATCH 32/40] f2rust: Clone WORK array to avoid aliasing problems
+
+ZZGFLONG passes its WORK array to ZZGFRELX (which modifies it), and
+also passes a section of WORK as RESULT in the same call. It's not
+clear whether ZZGFRELX might (illegally) access the same elements
+through both arguments, so I don't think we can safely pass disjoint
+slices.
+
+It's also not clear what size RESULT is, so we can't e.g. make ZZGFLONG
+allocate a small local array for that and copy it back into WORK.
+
+Instead, have ZZGFLONG make a mutable clone of WORK on every call, to
+keep it safely isolated from RESULT. I don't think ZZGFRELX returns any
+meaningful data in WORK so it's probably okay to discard it like this?
+
+This is not ideal for performance, but tough luck.
+---
+ src/spicelib/zzgflong.f | 22 +++++++++++-----------
+ 1 file changed, 11 insertions(+), 11 deletions(-)
+
+diff --git a/src/spicelib/zzgflong.f b/src/spicelib/zzgflong.f
+index a09561e..2d4f044 100644
+--- a/src/spicelib/zzgflong.f
++++ b/src/spicelib/zzgflong.f
+@@ -1774,7 +1774,7 @@ C
+      .                     ZZGFUDLT,     ZZGFCOSG,
+      .                     '=',          PRXVAL,          LOCTOL,
+      .                     0.D0,         CNFINE,          MW,
+-     .                     NW,           WORK,            RPT,
++     .                     NW,           F2RUST_ARRAY_CLONE(WORK), RPT,
+      .                     UDREPI,       UDREPU,          UDREPF,
+      .                     RPTPRE,       RPTSUF,          BAIL,
+      .                     UDBAIL,       WORK(LB,F1)               )
+@@ -1789,7 +1789,7 @@ C
+      .                     ZZGFUDLT,     ZZGFCOCG,
+      .                     '=',          PRXVAL,          LOCTOL,
+      .                     0.D0,         CNFINE,          MW,
+-     .                     NW,           WORK,            RPT,
++     .                     NW,           F2RUST_ARRAY_CLONE(WORK), RPT,
+      .                     UDREPI,       UDREPU,          UDREPF,
+      .                     RPTPRE,       RPTSUF,          BAIL,
+      .                     UDBAIL,       WORK(LB,F1)               )
+@@ -1897,7 +1897,7 @@ C
+      .                   ZZGFUDLT,  ZZGFCOCG,
+      .                   PRXREL,    PRXVAL,              LOCTOL,
+      .                   0.D0,      CNFINE,              MW,
+-     .                   NW,        WORK,                RPT,
++     .                   NW,        F2RUST_ARRAY_CLONE(WORK), RPT,
+      .                   UDREPI,    UDREPU,              UDREPF,
+      .                   RPTPRE,    RPTSUF,              BAIL,
+      .                   UDBAIL,    WORK(LB,LEFT)                 )
+@@ -1940,7 +1940,7 @@ C
+      .                   ZZGFUDLT,  ZZGFCOCG,
+      .                   PRXREL,    PRXVAL,              LOCTOL,
+      .                   0.D0,      WORK(LB,LEFT),       MW,
+-     .                   NW,        WORK,                RPT,
++     .                   NW,        F2RUST_ARRAY_CLONE(WORK), RPT,
+      .                   UDREPI,    UDREPU,              UDREPF,
+      .                   RPTPRE,    RPTSUF,              BAIL,
+      .                   UDBAIL,    WORK(LB,COMPL)               )
+@@ -2008,7 +2008,7 @@ C
+      .                      ZZGFUDLT,  ZZGFCOG,
+      .                      UOP,       0.D0,                LOCTOL,
+      .                      0.D0,      WORK(LB,S),          MW,
+-     .                      NW,        WORK,                RPT,
++     .                      NW,        F2RUST_ARRAY_CLONE(WORK), RPT,
+      .                      UDREPI,    UDREPU,              UDREPF,
+      .                      RPTPRE,    RPTSUF,              BAIL,
+      .                      UDBAIL,    WORK(LB,RES)                  )
+@@ -2108,7 +2108,7 @@ C
+      .               ZZGFUDLT,     ZZGFCOSG,
+      .               '>',          PRXVAL,          LOCTOL,
+      .               0.D0,         CNFINE,          MW,
+-     .               NW,           WORK,            RPT,
++     .               NW,           F2RUST_ARRAY_CLONE(WORK), RPT,
+      .               UDREPI,       UDREPU,          UDREPF,
+      .               RPTPRE,       RPTSUF,          BAIL,
+      .               UDBAIL,       WORK(LB,TOP)              )
+@@ -2154,7 +2154,7 @@ C
+      .               ZZGFUDLT,     ZZGFCOSG,
+      .               '<',          PRXVAL,          LOCTOL,
+      .               0.D0,         CNFINE,          MW,
+-     .               NW,           WORK,            RPT,
++     .               NW,           F2RUST_ARRAY_CLONE(WORK), RPT,
+      .               UDREPI,       UDREPU,          UDREPF,
+      .               RPTPRE,       RPTSUF,          BAIL,
+      .               UDBAIL,       WORK(LB,BOT)              )
+@@ -2201,7 +2201,7 @@ C
+      .               ZZGFUDLT,     ZZGFCOCG,
+      .               '>',          0.D0,            LOCTOL,
+      .               0.D0,         CNFINE,          MW,
+-     .               NW,           WORK,            RPT,
++     .               NW,           F2RUST_ARRAY_CLONE(WORK), RPT,
+      .               UDREPI,       UDREPU,          UDREPF,
+      .               RPTPRE,       RPTSUF,          BAIL,
+      .               UDBAIL,       WORK(LB,RIGHT)            )
+@@ -2367,7 +2367,7 @@ C
+      .                     ZZGFUDLT,  ZZGFCOCG,
+      .                     UOP,       0.D0,                LOCTOL,
+      .                     0.D0,      WORK(LB,REGION(I)),  MW,
+-     .                     NW,        WORK,                RPT,
++     .                     NW,        F2RUST_ARRAY_CLONE(WORK), RPT,
+      .                     UDREPI,    UDREPU,              UDREPF,
+      .                     RPTPRE,    RPTSUF,              BAIL,
+      .                     UDBAIL,    RESULT                      )
+@@ -2819,7 +2819,7 @@ C
+      .                      ZZGFUDLT,  ZZGFCOG,
+      .                      '<',       PRXVAL,      LOCTOL,
+      .                      0.D0,      WORK(LB,S),  MW,
+-     .                      NW,        WORK,        RPT,
++     .                      NW,        F2RUST_ARRAY_CLONE(WORK), RPT,
+      .                      UDREPI,    UDREPU,      UDREPF,
+      .                      RPTPRE,    RPTSUF,      BAIL,
+      .                      UDBAIL,    WORK(LB,F2)          )
+@@ -2838,7 +2838,7 @@ C
+      .                      ZZGFUDLT,  ZZGFCOG,
+      .                      '<',       PRXVAL,      LOCTOL,
+      .                      0.D0,      WORK(LB,S),  MW,
+-     .                      NW,        WORK,        RPT,
++     .                      NW,        F2RUST_ARRAY_CLONE(WORK), RPT,
+      .                      UDREPI,    UDREPU,      UDREPF,
+      .                      RPTPRE,    RPTSUF,      BAIL,
+      .                      UDBAIL,    WORK(LB,F2)            )
+-- 
+2.25.1
+

@@ -1,0 +1,55 @@
+From 129e177cb34531600bfe85d5d64fe4cb3275dabf Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Sat, 19 Apr 2025 15:48:08 +0100
+Subject: [PATCH 20/40] ZZEKUE0[456]: Fix incorrect declarations of array as
+ scalar
+
+The callers and callees all declare IVALS/etc as arrays.
+---
+ src/spicelib/zzekue04.f | 2 +-
+ src/spicelib/zzekue05.f | 2 +-
+ src/spicelib/zzekue06.f | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/spicelib/zzekue04.f b/src/spicelib/zzekue04.f
+index 21f9230..6ce68e9 100644
+--- a/src/spicelib/zzekue04.f
++++ b/src/spicelib/zzekue04.f
+@@ -53,7 +53,7 @@ C$ Declarations
+       INTEGER               COLDSC ( CDSCSZ )
+       INTEGER               RECPTR
+       INTEGER               NVALS
+-      INTEGER               IVALS
++      INTEGER               IVALS  ( * )
+       LOGICAL               ISNULL
+  
+ C$ Brief_I/O
+diff --git a/src/spicelib/zzekue05.f b/src/spicelib/zzekue05.f
+index b0a00db..fd38f1c 100644
+--- a/src/spicelib/zzekue05.f
++++ b/src/spicelib/zzekue05.f
+@@ -53,7 +53,7 @@ C$ Declarations
+       INTEGER               COLDSC ( CDSCSZ )
+       INTEGER               RECPTR
+       INTEGER               NVALS
+-      DOUBLE PRECISION      DVALS
++      DOUBLE PRECISION      DVALS ( * )
+       LOGICAL               ISNULL
+  
+ C$ Brief_I/O
+diff --git a/src/spicelib/zzekue06.f b/src/spicelib/zzekue06.f
+index 380ce4c..0856943 100644
+--- a/src/spicelib/zzekue06.f
++++ b/src/spicelib/zzekue06.f
+@@ -56,7 +56,7 @@ C$ Declarations
+       INTEGER               COLDSC ( CDSCSZ )
+       INTEGER               RECPTR
+       INTEGER               NVALS
+-      CHARACTER*(*)         CVALS
++      CHARACTER*(*)         CVALS ( * )
+       LOGICAL               ISNULL
+  
+ C$ Brief_I/O
+-- 
+2.25.1
+

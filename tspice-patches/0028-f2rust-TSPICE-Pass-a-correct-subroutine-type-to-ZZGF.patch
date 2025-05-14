@@ -1,0 +1,104 @@
+From 766aebe1f0c970a483f59938a5a45b9e56130fb8 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Wed, 16 Apr 2025 18:03:52 +0100
+Subject: [PATCH 28/40] f2rust: TSPICE: Pass a correct subroutine type to
+ ZZGFILDC
+
+ZZGFILDC does not use UDFUNC, but it declares that argument so it can
+be passed to ZZGFSOLV as UDFUNB. ZZGFSOLV says:
+
+  CALL UDFUNS ( ET, VALUE )
+  CALL UDFUNB ( UDFUNS, ET, BOOL )
+
+i.e. the first argument to ZZGFILDC must be like UDFUNS.
+
+UDDC has very different arguments, so it's the wrong thing to pass to
+ZZGFILDC, and breaks static type checking.
+
+Use ZZGFILGQ instead, which has the correct argument types (and is
+already passed to ZZGFILDC by GFEVNT).
+---
+ src/tspice/f_zzgfilu.f | 18 ++++++++----------
+ 1 file changed, 8 insertions(+), 10 deletions(-)
+
+diff --git a/src/tspice/f_zzgfilu.f b/src/tspice/f_zzgfilu.f
+index 7b9464a..683e667 100644
+--- a/src/tspice/f_zzgfilu.f
++++ b/src/tspice/f_zzgfilu.f
+@@ -113,9 +113,7 @@ C
+       DOUBLE PRECISION      RPD
+       DOUBLE PRECISION      SPD
+ 
+-      EXTERNAL              UDDC
+-
+-C     
++C
+ C     Local parameters
+ C
+       CHARACTER*(*)         PCK 
+@@ -574,7 +572,7 @@ C
+       CALL CHCKXC ( .FALSE., ' ',   OK )
+ 
+ 
+-      CALL ZZGFILDC ( UDDC, 0.D0, ISDEC )
++      CALL ZZGFILDC ( ZZGFILGQ, 0.D0, ISDEC )
+ 
+       CALL CHCKXC ( .TRUE., 'SPICE(SPKINSUFFDATA)',   OK )
+ 
+@@ -590,7 +588,7 @@ C
+       CALL CHCKXC ( .FALSE., ' ',   OK )
+ 
+ 
+-      CALL ZZGFILDC ( UDDC, 0.D0, ISDEC )
++      CALL ZZGFILDC ( ZZGFILGQ, 0.D0, ISDEC )
+ 
+       CALL CHCKXC ( .TRUE., 'SPICE(SPKINSUFFDATA)',   OK )
+ 
+@@ -607,7 +605,7 @@ C
+       CALL CHCKXC ( .FALSE., ' ',   OK )
+ 
+ 
+-      CALL ZZGFILDC ( UDDC, 0.D0, ISDEC )
++      CALL ZZGFILDC ( ZZGFILGQ, 0.D0, ISDEC )
+ 
+       CALL CHCKXC ( .TRUE., 'SPICE(SPKINSUFFDATA)',   OK )
+  
+@@ -621,7 +619,7 @@ C
+      .                'ITRF93',     ABCORR, OBSRVR,  SPOINT )
+       CALL CHCKXC ( .FALSE., ' ',   OK )
+  
+-      CALL ZZGFILDC ( UDDC, 0.D0, ISDEC )
++      CALL ZZGFILDC ( ZZGFILGQ, 0.D0, ISDEC )
+       CALL CHCKXC ( .TRUE., 'SPICE(FRAMEDATANOTFOUND)',   OK )
+ 
+  
+@@ -754,7 +752,7 @@ C
+ 
+          ET = ET0 + (I-1)*SPD()
+ 
+-         CALL ZZGFILDC ( UDDC, ET, ISDEC )
++         CALL ZZGFILDC ( ZZGFILGQ, ET, ISDEC )
+          CALL CHCKXC ( .FALSE., ' ', OK )
+ 
+          CALL ZZILUSTA ( METHOD, TARGET, ILLUM,  ET,
+@@ -810,7 +808,7 @@ C
+ 
+          ET = ET0 + (I-1)*SPD()
+ 
+-         CALL ZZGFILDC ( UDDC, ET, ISDEC )
++         CALL ZZGFILDC ( ZZGFILGQ, ET, ISDEC )
+          CALL CHCKXC ( .FALSE., ' ', OK )
+ 
+          CALL ZZILUSTA ( METHOD, TARGET, ILLUM,  ET,
+@@ -868,7 +866,7 @@ C
+ 
+          ET = ET0 + (I-1)*SPD()
+ 
+-         CALL ZZGFILDC ( UDDC, ET, ISDEC )
++         CALL ZZGFILDC ( ZZGFILGQ, ET, ISDEC )
+          CALL CHCKXC ( .FALSE., ' ', OK )
+ 
+          CALL ZZILUSTA ( METHOD, TARGET, ILLUM,  ET,
+-- 
+2.25.1
+

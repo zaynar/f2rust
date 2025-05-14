@@ -1,0 +1,40 @@
+From 839952a74d2e0b1ac9293a1b4d3851e7a3f8526c Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Mon, 14 Apr 2025 17:30:53 +0100
+Subject: [PATCH 02/40] ZZCKCV05: Fix DOUBLE PRECISION being passed to ERRINT
+
+SUBTYP is the INTEGER equivalent of BUFFER(1), so use that instead.
+---
+ src/spicelib/zzckcv05.f | 2 +-
+ src/support/zzckcvr5.f  | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/spicelib/zzckcv05.f b/src/spicelib/zzckcv05.f
+index a2f5f04..6c94b2d 100644
+--- a/src/spicelib/zzckcv05.f
++++ b/src/spicelib/zzckcv05.f
+@@ -318,7 +318,7 @@ C
+          RSIZE = C05PS3
+       ELSE
+          CALL SETMSG ( 'CK type 5 subtype <#> is not supported.' )
+-         CALL ERRINT ( '#', BUFFER(1)                            )
++         CALL ERRINT ( '#', SUBTYP                               )
+          CALL SIGERR ( 'SPICE(NOTSUPPORTED)'                     )
+          CALL CHKOUT ( 'ZZCKCV05'                                )
+          RETURN
+diff --git a/src/support/zzckcvr5.f b/src/support/zzckcvr5.f
+index 9d8c9c9..4c2c247 100644
+--- a/src/support/zzckcvr5.f
++++ b/src/support/zzckcvr5.f
+@@ -197,7 +197,7 @@ C
+          RSIZE = C05PS3
+       ELSE
+          CALL SETMSG ( 'CK type 5 subtype <#> is not supported.' )
+-         CALL ERRINT ( '#', BUFFER(1)                            )
++         CALL ERRINT ( '#', SUBTYP                               )
+          CALL SIGERR ( 'SPICE(NOTSUPPORTED)'                     )
+          CALL CHKOUT ( 'ZZCKCVR5'                                )
+          RETURN
+-- 
+2.25.1
+

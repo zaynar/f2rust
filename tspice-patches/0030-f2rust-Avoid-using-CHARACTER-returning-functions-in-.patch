@@ -1,0 +1,152 @@
+From cd95bf39247dfcd2eae1a8f7c8b81ca3c6d3d463 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Thu, 17 Apr 2025 15:55:24 +0100
+Subject: [PATCH 30/40] f2rust: Avoid using CHARACTER-returning functions in
+ expressions
+
+Because of Rust's ownership rules, functions that return CHARACTER
+cannot return a reference. To avoid the cost of dynamically allocating
+every return value, we get the caller to pass its own CHARACTER object
+as an extra argument to receive the result.
+
+The compiler special-cases "X = F()" (turning into "CALL F(X)") for this,
+but doing the same for more complex expressions involving concatenation
+is tricky, so we don't bother implementing that yet. Instead, change the
+code to avoid tricky cases.
+---
+ src/testutil/t_pck09.f | 12 +++++++++---
+ src/tspice/f_framex.f  | 11 +++++++----
+ src/tspice/f_tabtxt.f  | 14 ++++++++++----
+ 3 files changed, 26 insertions(+), 11 deletions(-)
+
+diff --git a/src/testutil/t_pck09.f b/src/testutil/t_pck09.f
+index 5a83961..eff4cc8 100644
+--- a/src/testutil/t_pck09.f
++++ b/src/testutil/t_pck09.f
+@@ -148,6 +148,9 @@ C
+ C
+ C     Local Variables.
+ C
++      CHARACTER*(10)        BEGDATC
++      CHARACTER*(10)        BEGTXTC
++
+       INTEGER               LNSIZE
+       PARAMETER           ( LNSIZE = 80 )
+  
+@@ -166,6 +169,9 @@ C
+ 
+  
+  
++      BEGDATC = BEGDAT()
++      BEGTXTC = BEGTXT()
++
+       PCK(  1 ) = 'KPL/PCK'
+       PCK(  2 ) = ' '
+       PCK(  3 ) = ' '
+@@ -802,8 +808,8 @@ C
+      .//           'mment blocks and data blocks.'
+       PCK( 429 ) = '     Comment blocks, which contain free-f'
+      .//           'orm descriptive or explanatory'
+-      PCK( 430 ) = '     text, are preceded by a '//BEGTXT()
+-     .//           ' token. Data blocks follow a '//BEGDAT()
++      PCK( 430 ) = '     text, are preceded by a '//BEGTXTC
++     .//           ' token. Data blocks follow a '//BEGDATC
+       PCK( 431 ) = '     token. In order to be rec'
+      .//           'ognized, each of these tokens'
+       PCK( 432 ) = '     must be placed on a line by itself.'
+@@ -811,7 +817,7 @@ C
+       PCK( 434 ) = '     The portion of the file preceding th'
+      .//           'e first data block is treated'
+       PCK( 435 ) = '     as a comment block; it doesn''t requ'
+-     .//           'ire an initial '//BEGTXT()
++     .//           'ire an initial '//BEGTXTC
+       PCK( 436 ) = '     token.'
+       PCK( 437 ) = ' '
+       PCK( 438 ) = '     This file identifies data using a se'
+diff --git a/src/tspice/f_framex.f b/src/tspice/f_framex.f
+index 7aabe59..0ebf578 100644
+--- a/src/tspice/f_framex.f
++++ b/src/tspice/f_framex.f
+@@ -166,7 +166,9 @@ C
+       LOGICAL               ISTRUE
+  
+       CHARACTER*(LNSIZE)    MESSGE
+- 
++
++      CHARACTER*(16)        BEGDATC
++
+  
+  
+ C
+@@ -282,8 +284,9 @@ C
+  
+          CALL KILFIL ( 'framedat.cnk'        )
+          CALL TXTOPN ( 'framedat.cnk', SUNIT )
+- 
+-         WRITE (SUNIT,*)  BEGDAT()
++
++         BEGDATC = BEGDAT()
++         WRITE (SUNIT,*)  BEGDATC
+          WRITE (SUNIT,*) 'FRAME_20000_CLASS    = 2 '
+          WRITE (SUNIT,*) 'FRAME_20000_CENTER   = -399 '
+          WRITE (SUNIT,*) 'FRAME_20000_CLASS_ID = -499 '
+@@ -526,7 +529,7 @@ C
+      .//           'and make sure that the frame subsystem can '
+      .//           'locate the preferred frame. ' )
+  
+- 
++
+          TEXT(  1 ) = BEGDAT()
+          TEXT(  2 ) = 'OBJECT_EARTH_FRAME = ''ITRF93'''
+          TEXT(  3 ) = 'OBJECT_199_FRAME   = ''J2000'''
+diff --git a/src/tspice/f_tabtxt.f b/src/tspice/f_tabtxt.f
+index 41f8851..34f673c 100644
+--- a/src/tspice/f_tabtxt.f
++++ b/src/tspice/f_tabtxt.f
+@@ -161,6 +161,9 @@ C
+ 
+       LOGICAL               FOUND
+ 
++      CHARACTER*(20)        BEGDATC
++      CHARACTER*(20)        BEGTXTC
++
+ C
+ C     Open the test family.
+ C
+@@ -188,26 +191,29 @@ C     the file has an instance of each structural feature.
+ C
+       CALL SSIZEC ( MAXBUF, FILBUF )
+ 
++      BEGDATC = BEGDAT()
++      BEGTXTC = BEGTXT()
++
+       FILBUF(1)  = ' '
+       FILBUF(2)  = ' KPL/PCK'
+       FILBUF(3)  = ' '
+-      FILBUF(4)  = ' '//BEGDAT()
++      FILBUF(4)  = ' '//BEGDATC
+       FILBUF(5)  = ' '
+       FILBUF(6)  = ' KV1 = ( '' A '', '' B '', '' C '' )'
+       FILBUF(7)  = ' KV2 = ( 1.0, 2.0, 3.0 )'
+       FILBUF(8)  = ' '
+-      FILBUF(9)  = ' '//BEGTXT()
++      FILBUF(9)  = ' '//BEGTXTC
+       FILBUF(10) = ' '
+       FILBUF(11) = ' Comment line 1'
+       FILBUF(12) = ' Comment line 2'
+       FILBUF(13) = ' Comment line 3'
+       FILBUF(14) = ' '
+-      FILBUF(15) = ' '//BEGDAT()
++      FILBUF(15) = ' '//BEGDATC
+       FILBUF(16) = ' KV3 = ( -1.0, -2.0, '
+       FILBUF(17) = ' '
+       FILBUF(18) = ' -3.0 )'
+       FILBUF(19) = ' '
+-      FILBUF(20) = ' '//BEGTXT()
++      FILBUF(20) = ' '//BEGTXTC
+       FILBUF(21) = ' '
+ 
+       CALL SCARDC ( MAXBUF, FILBUF )
+-- 
+2.25.1
+

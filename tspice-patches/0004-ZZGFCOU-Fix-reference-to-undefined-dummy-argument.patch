@@ -1,0 +1,39 @@
+From 993f3d85172b45b62edc69034d0b28148ff7bc5f Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Wed, 16 Apr 2025 18:25:31 +0100
+Subject: [PATCH 04/40] ZZGFCOU: Fix reference to undefined dummy argument
+
+The ZZGFCOCD/ZZGFCOSD entry points do not declare CRDSYS as an
+argument, so its value will be undefined and it must not be used
+in the error messages.
+
+Use SVCSYS instead, which contains a saved version of CRDSYS.
+---
+ src/spicelib/zzgfcou.f | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/spicelib/zzgfcou.f b/src/spicelib/zzgfcou.f
+index 4c78c4e..61aebcb 100644
+--- a/src/spicelib/zzgfcou.f
++++ b/src/spicelib/zzgfcou.f
+@@ -2431,7 +2431,7 @@ C
+ C        We should never arrive here.
+ C
+          CALL SETMSG ( 'The coordinate system # is not supported.' )
+-         CALL ERRCH  ( '#',  CRDSYS                                )
++         CALL ERRCH  ( '#',  SVCSYS                                )
+          CALL SIGERR ( 'SPICE(BUG)'                                )
+          CALL CHKOUT ( 'ZZGFCOCD'                                  )
+          RETURN
+@@ -2711,7 +2711,7 @@ C
+ C        We should never arrive here.
+ C
+          CALL SETMSG ( 'The coordinate system # is not supported.' )
+-         CALL ERRCH  ( '#',  CRDSYS                                )
++         CALL ERRCH  ( '#',  SVCSYS                                )
+          CALL SIGERR ( 'SPICE(BUG)'                                )
+          CALL CHKOUT ( 'ZZGFCOSD'                                  )
+          RETURN
+-- 
+2.25.1
+

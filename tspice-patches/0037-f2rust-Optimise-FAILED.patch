@@ -1,0 +1,75 @@
+From f200dc04acc1132776fc4be4966952baa2840449 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Mon, 28 Apr 2025 23:26:23 +0100
+Subject: [PATCH 37/40] f2rust: Optimise FAILED
+
+This is called very frequently and has a noticeable impact on tspice
+performance.
+---
+ src/spicelib/seterr.f | 33 +++++++++++----------------------
+ 1 file changed, 11 insertions(+), 22 deletions(-)
+
+diff --git a/src/spicelib/seterr.f b/src/spicelib/seterr.f
+index 8ddb06a..918f976 100644
+--- a/src/spicelib/seterr.f
++++ b/src/spicelib/seterr.f
+@@ -148,38 +148,22 @@ C         non-error-handling code.
+ C
+ C-&
+ 
+-
+-C
+-C     Local Variables:
+-C
+-
+-C
+-C     The SPICELIB status:
+-C
+-
+-      LOGICAL               SVSTAT
+-
+-      SAVE                  SVSTAT
+-
+ C
+ C     Declaration of the entry point, FAILED:
+ C
+ 
+       LOGICAL FAILED
+ 
+-
+-C
+-C     Initial values:
+-C
+-
+-      DATA    SVSTAT      / .FALSE. /
+-
+ C
+ C     Executable Code:
+ C
+ 
++C     [f2rust] HACK: FAILED is called extremely frequently, and our
++C     standard implementation of SAVE variables (using a hashmap) has
++C     a noticeable performance cost, so we have some intrinsics
++C     specifically to optimise this case.
+ 
+-      SVSTAT = STATUS
++      CALL F2RUST_SET_FAILED(STATUS)
+ 
+ C
+ C     Give SETERR a value; the value does not have any
+@@ -443,6 +427,11 @@ C
+ C     Grab saved status value:
+ C
+ 
+-      FAILED = SVSTAT
++C     [f2rust] HACK: FAILED is called extremely frequently, and our
++C     standard implementation of SAVE variables (using a hashmap) has
++C     a noticeable performance cost, so we have some intrinsics
++C     specifically to optimise this case.
++
++      FAILED = F2RUST_GET_FAILED()
+ 
+       END
+-- 
+2.25.1
+

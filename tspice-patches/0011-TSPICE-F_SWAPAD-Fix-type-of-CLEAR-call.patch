@@ -1,0 +1,26 @@
+From 5fd6bd54aeb295a1578019de3630556b57d0248a Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Sat, 3 May 2025 23:47:56 +0100
+Subject: [PATCH 11/40] TSPICE/F_SWAPAD: Fix type of CLEAR call
+
+ARRAY0 is DOUBLE PRECISION, so use CLEARD not CLEARI.
+---
+ src/tspice/f_swapad.f | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/tspice/f_swapad.f b/src/tspice/f_swapad.f
+index d663f84..ef68a45 100644
+--- a/src/tspice/f_swapad.f
++++ b/src/tspice/f_swapad.f
+@@ -159,7 +159,7 @@ C
+ C
+ C     We'll do an exhaustive set of tests on a small array.
+ C     
+-      CALL CLEARI ( LARGE, ARRAY0 )
++      CALL CLEARD ( LARGE, ARRAY0 )
+ 
+       SIZE = SMALL
+ 
+-- 
+2.25.1
+

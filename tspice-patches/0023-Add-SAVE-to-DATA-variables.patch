@@ -1,0 +1,149 @@
+From e933668cf11caab0b8ec055bd03536f1e59214af Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Mon, 28 Apr 2025 17:53:53 +0100
+Subject: [PATCH 23/40] Add SAVE to DATA variables
+
+Fortran 90 explains: "If a named variable that is not in a common
+block is initialized in a DATA statement and does not have the SAVE
+attribute specified, FORTRAN 77 left its SAVE attribute processor
+dependent. This International Standard specifies (5.2.9) that this
+named variable has the SAVE attribute."
+
+If it does not have the SAVE attribute, it becomes undefined after
+RETURN/END, and will remain undefined if the subprogram is called again.
+
+For strict compatibility with FORTRAN 77, add the SAVE explicitly.
+---
+ src/inspekt/chunk.f     | 1 +
+ src/spacit/sumek.f      | 2 ++
+ src/spicelib/zzgfrel.f  | 1 +
+ src/spicelib/zzsrfker.f | 1 +
+ src/tspice/f_dyn02.f    | 3 ++-
+ src/tspice/f_dyn03.f    | 3 ++-
+ src/tspice/f_dyn06.f    | 1 +
+ src/tspice/f_srfxpt.f   | 2 ++
+ src/tspice/f_zzsfxcor.f | 2 ++
+ 9 files changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/src/inspekt/chunk.f b/src/inspekt/chunk.f
+index 6beac10..0df648c 100644
+--- a/src/inspekt/chunk.f
++++ b/src/inspekt/chunk.f
+@@ -85,6 +85,7 @@ C
+       INTEGER               INDEX
+  
+       CHARACTER*32          TERMS (24)
++      SAVE                  TERMS
+       
+       DATA                ( TERMS(I), I = 1, 10 )            /
+      .                                   '|endliteral    ',
+diff --git a/src/spacit/sumek.f b/src/spacit/sumek.f
+index 731c953..d5a2ce9 100644
+--- a/src/spacit/sumek.f
++++ b/src/spacit/sumek.f
+@@ -315,6 +315,8 @@ C
+       INTEGER               NROWS
+       INTEGER               NSEGS
+       INTEGER               SEGDSC(SDSCSZ)
++
++      SAVE                  STRTYP
+ C
+ C     Initial Values
+ C
+diff --git a/src/spicelib/zzgfrel.f b/src/spicelib/zzgfrel.f
+index a664935..b436d27 100644
+--- a/src/spicelib/zzgfrel.f
++++ b/src/spicelib/zzgfrel.f
+@@ -621,6 +621,7 @@ C
+ C     Saved variables
+ C
+       SAVE                  CNAMES
++      SAVE                  CSTEP
+ 
+ C
+ C     Below we initialize the list of comparison operator names.
+diff --git a/src/spicelib/zzsrfker.f b/src/spicelib/zzsrfker.f
+index fd055cc..e3a1066 100644
+--- a/src/spicelib/zzsrfker.f
++++ b/src/spicelib/zzsrfker.f
+@@ -280,6 +280,7 @@ C
+ C     Saved variables
+ C
+       SAVE                  PASS1
++      SAVE                  NAMES
+ 
+ C
+ C     Initial values
+diff --git a/src/tspice/f_dyn02.f b/src/tspice/f_dyn02.f
+index f45740b..6a7659c 100644
+--- a/src/tspice/f_dyn02.f
++++ b/src/tspice/f_dyn02.f
+@@ -327,9 +327,10 @@ C     Saved variables
+ C
+       SAVE                  BASEFR
+       SAVE                  CTRCDE
++      SAVE                  DIMS
+       SAVE                  RSTATE
+       SAVE                  ZR
+- 
++
+ C
+ C     Initial values
+ C
+diff --git a/src/tspice/f_dyn03.f b/src/tspice/f_dyn03.f
+index 1296583..354f3e3 100644
+--- a/src/tspice/f_dyn03.f
++++ b/src/tspice/f_dyn03.f
+@@ -338,9 +338,10 @@ C     Saved variables
+ C
+       SAVE                  BASEFR
+       SAVE                  CTRCDE
++      SAVE                  DIMS
+       SAVE                  RSTATE
+       SAVE                  ZR
+- 
++
+ C
+ C     Initial values
+ C
+diff --git a/src/tspice/f_dyn06.f b/src/tspice/f_dyn06.f
+index f7e3226..0fede1a 100644
+--- a/src/tspice/f_dyn06.f
++++ b/src/tspice/f_dyn06.f
+@@ -332,6 +332,7 @@ C     Saved variables
+ C
+       SAVE                  BASEFR
+       SAVE                  CTRCDE
++      SAVE                  DIMS
+       SAVE                  RSTATE
+       SAVE                  ZR
+  
+diff --git a/src/tspice/f_srfxpt.f b/src/tspice/f_srfxpt.f
+index 5ded2bc..11090fb 100644
+--- a/src/tspice/f_srfxpt.f
++++ b/src/tspice/f_srfxpt.f
+@@ -220,6 +220,8 @@ C     Saved variables
+ C
+       SAVE                  ABCS
+       SAVE                  REFS
++      SAVE                  GEOMS
++      SAVE                  OBSNMS
+ 
+ C
+ C     Initial values
+diff --git a/src/tspice/f_zzsfxcor.f b/src/tspice/f_zzsfxcor.f
+index c51050d..65b6f3b 100644
+--- a/src/tspice/f_zzsfxcor.f
++++ b/src/tspice/f_zzsfxcor.f
+@@ -293,6 +293,8 @@ C     Saved variables
+ C
+       SAVE                  ABCS
+       SAVE                  REFS
++      SAVE                  GEOMS
++      SAVE                  OBSNMS
+ 
+ C
+ C     Initial values
+-- 
+2.25.1
+

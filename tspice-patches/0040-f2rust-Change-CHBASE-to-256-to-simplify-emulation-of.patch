@@ -1,0 +1,29 @@
+From ea270ba045f61a76019b9ada5a0e95ce03853700 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Wed, 7 May 2025 13:29:28 +0100
+Subject: [PATCH 40/40] f2rust: Change CHBASE to 256, to simplify emulation of
+ ENCHAR for cells
+
+---
+ src/spicelib/chbase.f | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/spicelib/chbase.f b/src/spicelib/chbase.f
+index 7da58a2..e3f75bc 100644
+--- a/src/spicelib/chbase.f
++++ b/src/spicelib/chbase.f
+@@ -415,9 +415,9 @@ C     of formats: decimal, hex, and binary. These last two formats
+ C     are not portable; but then, neither are the values.
+ C
+ C
+-C     PC Linux, g77 or fort77
++C     [f2rust]
+ C
+-      CHBASE = 128
++      CHBASE = 256
+  
+       RETURN
+       END
+-- 
+2.25.1
+

@@ -1,0 +1,67 @@
+From 62a97e8c3ea32667f47d2b15bf37fccf58d52a57 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Sat, 19 Apr 2025 15:17:18 +0100
+Subject: [PATCH 34/40] f2rust: F_DSKW02: Disable tests with invalid NV/NP that
+ fail bounds checks.
+
+This gives "range end index 48000009 out of range for slice of length 30000"
+when constructing the DummyArray. We don't want to suppress the bounds checks
+in general, because they're useful for finding real bugs. So disable these
+tests instead.
+---
+ src/tspice/f_dskw02.f | 32 ++++++++++++++++----------------
+ 1 file changed, 16 insertions(+), 16 deletions(-)
+
+diff --git a/src/tspice/f_dskw02.f b/src/tspice/f_dskw02.f
+index 53af3e9..e44d4ac 100644
+--- a/src/tspice/f_dskw02.f
++++ b/src/tspice/f_dskw02.f
+@@ -2495,14 +2495,14 @@ C
+      .                 PLATES,      SPAIXD,      SPAIXI ) 
+          CALL CHCKXC ( .TRUE., 'SPICE(VALUEOUTOFRANGE)', OK )
+ 
+-         CALL DSKW02 ( HAN2,        BODYID,      SURFID, 
+-     .                 DCLASS,      FRAME,       LATSYS,    
+-     .                 CORPAR,      MNCOR1,      MXCOR1,
+-     .                 MNCOR2,      MXCOR2,      MNCOR3,     
+-     .                 MXCOR3,      FIRST,       LAST,        
+-     .                 MAXVRT+1,    VRTCES,      NP,         
+-     .                 PLATES,      SPAIXD,      SPAIXI ) 
+-         CALL CHCKXC ( .TRUE., 'SPICE(VALUEOUTOFRANGE)', OK )
++C        CALL DSKW02 ( HAN2,        BODYID,      SURFID,
++C    .                 DCLASS,      FRAME,       LATSYS,
++C    .                 CORPAR,      MNCOR1,      MXCOR1,
++C    .                 MNCOR2,      MXCOR2,      MNCOR3,
++C    .                 MXCOR3,      FIRST,       LAST,
++C    .                 MAXVRT+1,    VRTCES,      NP,
++C    .                 PLATES,      SPAIXD,      SPAIXI )
++C        CALL CHCKXC ( .TRUE., 'SPICE(VALUEOUTOFRANGE)', OK )
+ 
+ 
+       END IF
+@@ -2553,14 +2553,14 @@ C
+      .                 PLATES,      SPAIXD,      SPAIXI ) 
+          CALL CHCKXC ( .TRUE., 'SPICE(VALUEOUTOFRANGE)', OK )
+ 
+-         CALL DSKW02 ( HAN2,        BODYID,      SURFID, 
+-     .                 DCLASS,      FRAME,       LATSYS,    
+-     .                 CORPAR,      MNCOR1,      MXCOR1,
+-     .                 MNCOR2,      MXCOR2,      MNCOR3,     
+-     .                 MXCOR3,      FIRST,       LAST,        
+-     .                 NV,          VRTCES,      MAXPLT+1,         
+-     .                 PLATES,      SPAIXD,      SPAIXI ) 
+-         CALL CHCKXC ( .TRUE., 'SPICE(VALUEOUTOFRANGE)', OK )
++C        CALL DSKW02 ( HAN2,        BODYID,      SURFID,
++C    .                 DCLASS,      FRAME,       LATSYS,
++C    .                 CORPAR,      MNCOR1,      MXCOR1,
++C    .                 MNCOR2,      MXCOR2,      MNCOR3,
++C    .                 MXCOR3,      FIRST,       LAST,
++C    .                 NV,          VRTCES,      MAXPLT+1,
++C    .                 PLATES,      SPAIXD,      SPAIXI )
++C        CALL CHCKXC ( .TRUE., 'SPICE(VALUEOUTOFRANGE)', OK )
+ 
+ 
+ 
+-- 
+2.25.1
+

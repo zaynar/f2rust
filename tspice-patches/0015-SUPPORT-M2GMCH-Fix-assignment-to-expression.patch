@@ -1,0 +1,68 @@
+From eb3c89375d6d6898b90eecd60831a5e8174d17e4 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Thu, 17 Apr 2025 16:41:57 +0100
+Subject: [PATCH 15/40] SUPPORT/M2GMCH: Fix assignment to expression
+
+REMLAI/REMLAC assign to N. Assigning to an argument associated with
+an expression is not allowed. Fix it with a local variable.
+---
+ src/support/m2gmch.f | 22 +++++++++++++++-------
+ 1 file changed, 15 insertions(+), 7 deletions(-)
+
+diff --git a/src/support/m2gmch.f b/src/support/m2gmch.f
+index f6032ae..0d90ad6 100644
+--- a/src/support/m2gmch.f
++++ b/src/support/m2gmch.f
+@@ -313,6 +313,8 @@ C
+  
+       LOGICAL               REDIAG
+       LOGICAL               VTEMPL
++
++      INTEGER               CARD
+  
+       SAVE
+  
+@@ -521,8 +523,10 @@ C
+                LOC = BSRCHI ( ENDOFG+2, CARDI(INDXES), INDXES(1) )
+  
+                IF ( LOC .NE. 0 ) THEN
+-                  CALL REMLAI ( 1, LOC, INDXES(1), CARDI(INDXES) )
+-                  CALL REMLAC ( 1, LOC, TERMS(1),  CARDC(TERMS)  )
++                  CARD = CARDI(INDXES)
++                  CALL REMLAI ( 1, LOC, INDXES(1), CARD )
++                  CARD = CARDC(TERMS)
++                  CALL REMLAC ( 1, LOC, TERMS(1),  CARD )
+  
+                   CALL SCARDC ( CARDC(TERMS)  - 1, TERMS      )
+                   CALL SCARDI ( CARDI(INDXES) - 1, INDXES     )
+@@ -658,9 +662,11 @@ C                 (remove the initial keyword of the simple template
+ C                 just matched from the collection).
+ C
+                   LOC    = BSRCHI ( BS, CARDI(INDXES), INDXES(1) )
+- 
+-                  CALL REMLAI ( 1, LOC, INDXES(1), CARDI(INDXES) )
+-                  CALL REMLAC ( 1, LOC, TERMS(1),  CARDC(TERMS)  )
++
++                  CARD = CARDI(INDXES)
++                  CALL REMLAI ( 1, LOC, INDXES(1), CARD )
++                  CARD = CARDC(TERMS)
++                  CALL REMLAC ( 1, LOC, TERMS(1),  CARD )
+  
+                   CALL SCARDC ( CARDC(TERMS)  - 1, TERMS      )
+                   CALL SCARDI ( CARDI(INDXES) - 1, INDXES     )
+@@ -675,8 +681,10 @@ C
+                      LOC = BSRCHI ( ENDOFG+2, CARDI(INDXES), INDXES(1) )
+  
+                      IF ( LOC .NE. 0 ) THEN
+-                        CALL REMLAI ( 1, LOC, INDXES(1), CARDI(INDXES) )
+-                        CALL REMLAC ( 1, LOC, TERMS(1),  CARDC(TERMS)  )
++                        CARD = CARDI(INDXES)
++                        CALL REMLAI ( 1, LOC, INDXES(1), CARD )
++                        CARD = CARDC(TERMS)
++                        CALL REMLAC ( 1, LOC, TERMS(1),  CARD )
+  
+                         CALL SCARDC ( CARDC(TERMS)  - 1, TERMS      )
+                         CALL SCARDI ( CARDI(INDXES) - 1, INDXES     )
+-- 
+2.25.1
+

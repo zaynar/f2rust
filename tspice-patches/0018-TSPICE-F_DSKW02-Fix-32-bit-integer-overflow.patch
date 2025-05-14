@@ -1,0 +1,30 @@
+From e701b815d5274bc62f84ca65cff9004601a9a7ab Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Sat, 19 Apr 2025 15:21:59 +0100
+Subject: [PATCH 18/40] TSPICE/F_DSKW02: Fix 32-bit integer overflow
+
+The test case only needs the product to exceed MAXVOX (100_000_000),
+so change the parameters to exceed that without overflowing (which has
+undefined behaviour).
+---
+ src/tspice/f_dskw02.f | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/tspice/f_dskw02.f b/src/tspice/f_dskw02.f
+index 28ed978..53af3e9 100644
+--- a/src/tspice/f_dskw02.f
++++ b/src/tspice/f_dskw02.f
+@@ -2667,8 +2667,8 @@ C
+ 
+          CALL MOVEI ( SPAIXI, 3, IBUFF )
+ 
+-         SPAIXI(1) = 100000
+-         SPAIXI(2) = 1000000
++         SPAIXI(1) = 10000
++         SPAIXI(2) = 100000
+          SPAIXI(3) = 1
+  
+          CALL DSKW02 ( HAN2,        BODYID,      SURFID,
+-- 
+2.25.1
+

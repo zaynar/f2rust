@@ -1,0 +1,40 @@
+From 9a8f9fd665814ee7c87ecc804e2b4e51625360e4 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Tue, 15 Apr 2025 14:36:24 +0100
+Subject: [PATCH 26/40] f2rust: F_MOVED: Use EQUIVALENCE on the whole array,
+ not just one element
+
+This avoids needing a special case in the compiler.
+---
+ src/tspice/f_moved.f | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/src/tspice/f_moved.f b/src/tspice/f_moved.f
+index 555b046..619f7af 100644
+--- a/src/tspice/f_moved.f
++++ b/src/tspice/f_moved.f
+@@ -243,8 +243,8 @@ C
+  
+       INTEGER               H
+       INTEGER               I
+-      INTEGER               IC     ( 2 )
+-      INTEGER               IC2    ( 2 )
++      INTEGER               IC     ( 2 * NITEMS )
++      INTEGER               IC2    ( 2 * NITEMS )
+       INTEGER               J
+       INTEGER               K
+       INTEGER               MAXP
+@@ -253,8 +253,8 @@ C
+ C
+ C     EQUIVALENCE statements
+ C
+-      EQUIVALENCE           ( BUFF (1), IC  )
+-      EQUIVALENCE           ( BUFF2(1), IC2 )
++      EQUIVALENCE           ( BUFF,  IC  )
++      EQUIVALENCE           ( BUFF2, IC2 )
+  
+ C
+ C     Initial values
+-- 
+2.25.1
+

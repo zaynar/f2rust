@@ -1,0 +1,26 @@
+From d7073b429daf7e0e6e3eee5cf0fcee194b66c10c Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Sat, 3 May 2025 23:38:16 +0100
+Subject: [PATCH 06/40] GETFVN: Fix type of INSTID
+
+The ZZBODS2C output (CODE) and GETFOV input (INSTID) are both INTEGER.
+---
+ src/spicelib/getfvn.f | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/spicelib/getfvn.f b/src/spicelib/getfvn.f
+index 03449e4..9a9300c 100644
+--- a/src/spicelib/getfvn.f
++++ b/src/spicelib/getfvn.f
+@@ -695,7 +695,7 @@ C
+ C
+ C     Local variables
+ C
+-      DOUBLE PRECISION      INSTID
++      INTEGER               INSTID
+ 
+       LOGICAL               FOUND
+ 
+-- 
+2.25.1
+

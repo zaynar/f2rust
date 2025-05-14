@@ -1,0 +1,27 @@
+From 9c4ffddeed13fb7200da882d3d8db1571b46fc6b Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Mon, 28 Apr 2025 23:09:46 +0100
+Subject: [PATCH 24/40] SUPPORT/QRTRIM: Remove duplicate Literature_References
+
+---
+ src/support/qrtrim.f | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/src/support/qrtrim.f b/src/support/qrtrim.f
+index bcef4fd..31cb673 100644
+--- a/src/support/qrtrim.f
++++ b/src/support/qrtrim.f
+@@ -130,10 +130,6 @@ C$ Author_and_Institution
+ C
+ C      W.L. Taber      (JPL)
+ C
+-C$ Literature_References
+-C
+-C      None.
+-C
+ C$ Version
+ C
+ C-     META/2 Configured Version 2.0.0, 9-MAY-1994 (WLT)
+-- 
+2.25.1
+

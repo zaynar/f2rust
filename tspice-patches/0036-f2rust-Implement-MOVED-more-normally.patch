@@ -1,0 +1,42 @@
+From ac385c5ec0d52b9ec79e9056804a466b2611e587 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Mon, 28 Apr 2025 23:25:06 +0100
+Subject: [PATCH 36/40] f2rust: Implement MOVED more normally
+
+Previously it passed the DOUBLE PRECISION array to MOVEI, which is
+not permitted by the standard, and Rust doesn't like it.
+---
+ src/spicelib/moved.f | 17 ++++++++++++-----
+ 1 file changed, 12 insertions(+), 5 deletions(-)
+
+diff --git a/src/spicelib/moved.f b/src/spicelib/moved.f
+index bb189ac..8bca994 100644
+--- a/src/spicelib/moved.f
++++ b/src/spicelib/moved.f
+@@ -261,11 +261,18 @@ C
+ C     move a d.p. array to another d.p. array
+ C
+ C-&
+- 
+- 
+- 
+-      CALL MOVEI ( ARRFRM, 2*NDIM, ARRTO )
+- 
++
++
++C
++C     Local variables
++C
++      INTEGER I
++
++
++      DO I = 1, NDIM
++        ARRTO(I) = ARRFRM(I)
++      END DO
++
+  
+       RETURN
+       END
+-- 
+2.25.1
+

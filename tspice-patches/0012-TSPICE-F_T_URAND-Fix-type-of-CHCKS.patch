@@ -1,0 +1,26 @@
+From 40ed69aa6af0382337e68812b5493b1b28b2a3f0 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Sat, 3 May 2025 23:49:13 +0100
+Subject: [PATCH 12/40] TSPICE/F_T_URAND: Fix type of CHCKS
+
+U/U2 are DOUBLE PRECISION, so use CHCKSD not CHCKSI.
+---
+ src/tspice/f_t_urand.f | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/tspice/f_t_urand.f b/src/tspice/f_t_urand.f
+index df376c0..9e6feb8 100644
+--- a/src/tspice/f_t_urand.f
++++ b/src/tspice/f_t_urand.f
+@@ -180,7 +180,7 @@ C
+          NAME = 'Case 1 iteration #.'
+          CALL REPMI ( NAME, '#', I, NAME )
+ 
+-         CALL CHCKSI ( NAME, U, '=', U2, 0, OK )
++         CALL CHCKSD ( NAME, U, '=', U2, 0, OK )
+ 
+ C         IF ( U .LT. 1.D-3 ) THEN
+ C            WRITE (*,*) 'U  = ', U
+-- 
+2.25.1
+

@@ -1,0 +1,38 @@
+From 1ad19ee617e7edf9737fb427c56a64293c7976e8 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Tue, 29 Apr 2025 15:53:15 +0100
+Subject: [PATCH 25/40] PCKBSR, SPKBSR: Fix missing argument documentation
+
+FOUND was not listed in the SUBROUTINE's Brief_I/O.
+---
+ src/spicelib/pckbsr.f | 1 +
+ src/spicelib/spkbsr.f | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/src/spicelib/pckbsr.f b/src/spicelib/pckbsr.f
+index 0b95d50..801ec20 100644
+--- a/src/spicelib/pckbsr.f
++++ b/src/spicelib/pckbsr.f
+@@ -82,6 +82,7 @@ C     BODY       I   PCKSFS
+ C     ET         I   PCKSFS
+ C     DESCR      O   PCKSFS
+ C     IDENT      O   PCKSFS
++C     FOUND      O   PCKSFS
+ C
+ C$ Detailed_Input
+ C
+diff --git a/src/spicelib/spkbsr.f b/src/spicelib/spkbsr.f
+index 0f9cad3..466f792 100644
+--- a/src/spicelib/spkbsr.f
++++ b/src/spicelib/spkbsr.f
+@@ -81,6 +81,7 @@ C     BODY       I   SPKSFS
+ C     ET         I   SPKSFS
+ C     DESCR      O   SPKSFS
+ C     IDENT      O   SPKSFS
++C     FOUND      O   SPKSFS
+ C
+ C$ Detailed_Input
+ C
+-- 
+2.25.1
+

@@ -1,0 +1,31 @@
+From 09833c8f657a88b5a8af248682b272814c07f064 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Sat, 19 Apr 2025 15:27:57 +0100
+Subject: [PATCH 19/40] TSPICE/F_DSKX02: Pass the correct array size to DSKMI2
+
+DSKMI2 uses SPXISZ as the size of the array SPAIXI. F_DSKX02 passes SPAISZ,
+which is extremely large (about 148M). Dummy argument arrays must not be
+larger than the actual argument array.
+
+It's impractical to allocate an array of size SPAISZ, so keep the
+allocation the same and pass the correct size to DSKMI2.
+---
+ src/tspice/f_dskx02.f | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/tspice/f_dskx02.f b/src/tspice/f_dskx02.f
+index e134856..ec68702 100644
+--- a/src/tspice/f_dskx02.f
++++ b/src/tspice/f_dskx02.f
+@@ -1305,7 +1305,7 @@ C
+ 
+             CALL DSKMI2 ( NV,     VERTS,  NP,     PLATES, FINSCL,
+      .                    CORSCL, WORKSZ, VOXPSZ, VOXLSZ, .TRUE.,
+-     .                    SPAISZ, WORK,   SPAIXD, SPAIXI          )
++     .                    MAXIXI, WORK,   SPAIXD, SPAIXI          )
+             CALL CHCKXC ( .FALSE., ' ', OK  )
+ 
+ C
+-- 
+2.25.1
+

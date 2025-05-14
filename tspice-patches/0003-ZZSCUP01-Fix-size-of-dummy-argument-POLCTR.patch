@@ -1,0 +1,31 @@
+From 517f9c630c9d81430601e6a9b7c1264a79256a44 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Mon, 14 Apr 2025 17:31:15 +0100
+Subject: [PATCH 03/40] ZZSCUP01: Fix size of dummy argument POLCTR
+
+ZZPCTRCK expects an array of size CTRSIZ, so it should be declared
+with that size.
+---
+ src/spicelib/zzscup01.f | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/spicelib/zzscup01.f b/src/spicelib/zzscup01.f
+index 75d7f15..fa11c7e 100644
+--- a/src/spicelib/zzscup01.f
++++ b/src/spicelib/zzscup01.f
+@@ -53,10 +53,11 @@ C$ Declarations
+ 
+       IMPLICIT NONE
+ 
++      INCLUDE 'zzctr.inc'
+       INCLUDE 'zzsc01.inc'
+ 
+       INTEGER               SC
+-      INTEGER               POLCTR
++      INTEGER               POLCTR ( CTRSIZ )
+       INTEGER               HDSCLK ( * )
+       INTEGER               SCPOOL ( LBSNGL : * )
+       INTEGER               CLKLST ( * )
+-- 
+2.25.1
+

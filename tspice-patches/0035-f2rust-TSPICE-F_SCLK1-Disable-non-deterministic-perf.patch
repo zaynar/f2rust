@@ -1,0 +1,91 @@
+From 6517e15f1e8ceb34556b1b7e0ec1469eac28fc0e Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Sat, 19 Apr 2025 19:02:01 +0100
+Subject: [PATCH 35/40] f2rust: TSPICE/F_SCLK1: Disable non-deterministic
+ performance tests
+
+Non-deterministic tests are evil, and performance testing should not be
+done in the middle of a potentially multi-threaded regression test suite.
+---
+ src/tspice/f_sclk1.f | 16 ++++++++--------
+ 1 file changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/src/tspice/f_sclk1.f b/src/tspice/f_sclk1.f
+index 5f3388a..50afc71 100644
+--- a/src/tspice/f_sclk1.f
++++ b/src/tspice/f_sclk1.f
+@@ -655,7 +655,7 @@ C
+  
+          FRAC = TDELT0 / TDELT1
+  
+-         CALL CHCKSD ( 'FRAC', FRAC, '<', 1.5D0, 0.D0, OK )
++C        CALL CHCKSD ( 'FRAC', FRAC, '<', 1.5D0, 0.D0, OK )
+  
+       END IF
+  
+@@ -768,7 +768,7 @@ C
+  
+          FRAC = TDELT0 / TDELT1
+  
+-         CALL CHCKSD ( 'FRAC', FRAC, '<', 1.5D0, 0.D0, OK )
++C        CALL CHCKSD ( 'FRAC', FRAC, '<', 1.5D0, 0.D0, OK )
+  
+       END IF
+ C
+@@ -912,7 +912,7 @@ C
+  
+          FRAC = TDELT0 / TDELT1
+  
+-         CALL CHCKSD ( 'FRAC', FRAC, '<', 1.5D0, 0.D0, OK )
++C        CALL CHCKSD ( 'FRAC', FRAC, '<', 1.5D0, 0.D0, OK )
+  
+       END IF
+  
+@@ -1013,7 +1013,7 @@ C
+  
+          FRAC = TDELT0 / TDELT1
+  
+-         CALL CHCKSD ( 'FRAC', FRAC, '<', 1.5D0, 0.D0, OK )
++C        CALL CHCKSD ( 'FRAC', FRAC, '<', 1.5D0, 0.D0, OK )
+  
+       END IF
+  
+@@ -1133,7 +1133,7 @@ C
+  
+          FRAC = TDELT0 / TDELT1
+  
+-         CALL CHCKSD ( 'FRAC', FRAC, '<', 1.5D0, 0.D0, OK )
++C        CALL CHCKSD ( 'FRAC', FRAC, '<', 1.5D0, 0.D0, OK )
+  
+       END IF
+ C
+@@ -1250,7 +1250,7 @@ C
+  
+          FRAC = TDELT0 / TDELT1
+  
+-         CALL CHCKSD ( 'FRAC', FRAC, '<', 1.5D0, 0.D0, OK )
++C        CALL CHCKSD ( 'FRAC', FRAC, '<', 1.5D0, 0.D0, OK )
+  
+       END IF
+ C
+@@ -1360,7 +1360,7 @@ C
+  
+          FRAC = TDELT0 / TDELT1
+  
+-         CALL CHCKSD ( 'FRAC', FRAC, '<', 1.5D0, 0.D0, OK )
++C        CALL CHCKSD ( 'FRAC', FRAC, '<', 1.5D0, 0.D0, OK )
+  
+       END IF
+ C
+@@ -1517,7 +1517,7 @@ C
+  
+          FRAC = TDELT0 / TDELT1
+  
+-         CALL CHCKSD ( 'FRAC', FRAC, '<', 1.5D0, 0.D0, OK )
++C        CALL CHCKSD ( 'FRAC', FRAC, '<', 1.5D0, 0.D0, OK )
+  
+       END IF
+  
+-- 
+2.25.1
+

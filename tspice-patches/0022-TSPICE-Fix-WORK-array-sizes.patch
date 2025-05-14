@@ -1,0 +1,69 @@
+From b59d68b241874cff074058f8970b16474a1741e0 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Sat, 19 Apr 2025 16:49:07 +0100
+Subject: [PATCH 22/40] TSPICE: Fix WORK array sizes
+
+ZZGFCSLV/ZZGFLONG expect an argument WORK ( LBCELL : MW, NW ), while some
+test cases declare it as WORK ( MW, NW ). LBCELL=-5 so this is too small.
+---
+ src/tspice/f_zzgfcslv.f | 2 +-
+ src/tspice/f_zzgflng1.f | 2 +-
+ src/tspice/f_zzgflng2.f | 2 +-
+ src/tspice/f_zzgflng3.f | 2 +-
+ 4 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/src/tspice/f_zzgfcslv.f b/src/tspice/f_zzgfcslv.f
+index be8671e..bea0c8b 100644
+--- a/src/tspice/f_zzgfcslv.f
++++ b/src/tspice/f_zzgfcslv.f
+@@ -278,7 +278,7 @@ C      CHARACTER*(LNSIZE)    TITLE
+       DOUBLE PRECISION      TOL
+       DOUBLE PRECISION      TRGEPC
+       DOUBLE PRECISION      LAT
+-      DOUBLE PRECISION      WORK   ( MW, NW )
++      DOUBLE PRECISION      WORK   ( LBCELL : MW, NW )
+       DOUBLE PRECISION      R
+       DOUBLE PRECISION      XTIME
+ 
+diff --git a/src/tspice/f_zzgflng1.f b/src/tspice/f_zzgflng1.f
+index 2b986c2..687f0e0 100644
+--- a/src/tspice/f_zzgflng1.f
++++ b/src/tspice/f_zzgflng1.f
+@@ -229,7 +229,7 @@ C
+       DOUBLE PRECISION      REFVAL
+       DOUBLE PRECISION      RESULT ( LBCELL : MW )
+       DOUBLE PRECISION      TOL
+-      DOUBLE PRECISION      WORK   ( MW, NW )
++      DOUBLE PRECISION      WORK   ( LBCELL : MW, NW )
+ 
+       INTEGER               HAN2
+       INTEGER               HANDLE      
+diff --git a/src/tspice/f_zzgflng2.f b/src/tspice/f_zzgflng2.f
+index 8fd3ed6..1e5ebae 100644
+--- a/src/tspice/f_zzgflng2.f
++++ b/src/tspice/f_zzgflng2.f
+@@ -264,7 +264,7 @@ C
+       DOUBLE PRECISION      TMPRAD ( 3 )
+       DOUBLE PRECISION      TOL
+       DOUBLE PRECISION      LAT
+-      DOUBLE PRECISION      WORK   ( MW, NW )
++      DOUBLE PRECISION      WORK   ( LBCELL : MW, NW )
+       DOUBLE PRECISION      R
+       DOUBLE PRECISION      XET
+       DOUBLE PRECISION      XLON
+diff --git a/src/tspice/f_zzgflng3.f b/src/tspice/f_zzgflng3.f
+index 073491c..3952142 100644
+--- a/src/tspice/f_zzgflng3.f
++++ b/src/tspice/f_zzgflng3.f
+@@ -265,7 +265,7 @@ C
+       DOUBLE PRECISION      TMPRAD ( 3 )
+       DOUBLE PRECISION      TDELTA
+       DOUBLE PRECISION      TOL
+-      DOUBLE PRECISION      WORK   ( MW, NW )
++      DOUBLE PRECISION      WORK   ( LBCELL : MW, NW )
+       DOUBLE PRECISION      XTIME
+       DOUBLE PRECISION      XTIME2
+ 
+-- 
+2.25.1
+

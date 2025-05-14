@@ -1,0 +1,33 @@
+From 4af30cf0d14e75213bda1806f8c4c7e0d489305b Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Sat, 3 May 2025 23:45:32 +0100
+Subject: [PATCH 09/40] TSPICE/F_SBF: Fix type of HANDLE
+
+ZZDSKSBF outputs to HANDLE as an INTEGER.
+---
+ src/tspice/f_sbf.f | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/tspice/f_sbf.f b/src/tspice/f_sbf.f
+index 90b666b..9bf76a5 100644
+--- a/src/tspice/f_sbf.f
++++ b/src/tspice/f_sbf.f
+@@ -249,7 +249,6 @@ C      CHARACTER*(TITLEN)    TITLE
+       DOUBLE PRECISION      DSKDSC ( DSKDSZ )
+       DOUBLE PRECISION      ET
+       DOUBLE PRECISION      FIRST
+-      DOUBLE PRECISION      HANDLE
+       DOUBLE PRECISION      LAT
+       DOUBLE PRECISION      LAST
+       DOUBLE PRECISION      LON
+@@ -277,6 +276,7 @@ C      CHARACTER*(TITLEN)    TITLE
+       INTEGER               DLADSC ( DLADSZ )
+       INTEGER               FIXFID
+       INTEGER               FRMCTR
++      INTEGER               HANDLE
+       INTEGER               HANDLS ( MAXN )
+       INTEGER               I
+       INTEGER               IC     ( MAXIC )
+-- 
+2.25.1
+

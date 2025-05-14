@@ -1,0 +1,26 @@
+From 73fc0b67899bae0ea7f1315dc98aac9bcc953c81 Mon Sep 17 00:00:00 2001
+From: Philip Taylor <philip@zaynar.co.uk>
+Date: Sat, 3 May 2025 23:38:35 +0100
+Subject: [PATCH 07/40] SUPPORT/UTRANS_2: Fix type of PLACES
+
+It is passed to DPSTRF which expects INTEGER.
+---
+ src/support/utrans_2.f | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/support/utrans_2.f b/src/support/utrans_2.f
+index dd3f976..543feee 100644
+--- a/src/support/utrans_2.f
++++ b/src/support/utrans_2.f
+@@ -40,7 +40,7 @@ C
+ C$ Declarations
+  
+       CHARACTER*(*)    STRING
+-      DOUBLE PRECISION PLACES
++      INTEGER          PLACES
+  
+ C$ Brief_I/O
+ C
+-- 
+2.25.1
+
