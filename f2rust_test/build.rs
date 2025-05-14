@@ -48,7 +48,10 @@ fn main() -> Result<()> {
         for (dst, _filename) in &generated {
             writeln!(file, "include!(r\"{}\");", dst.display())?;
         }
-        writeln!(file, "fn get_generated_files() -> Vec<(&'static str, fn(&mut Context) -> f2rust_std::Result<()>)> {{")?;
+        writeln!(
+            file,
+            "fn get_generated_files() -> Vec<(&'static str, fn(&mut Context) -> f2rust_std::Result<()>)> {{"
+        )?;
         writeln!(file, "  vec![")?;
         for (_dst, filename) in &generated {
             writeln!(file, "    (\"{filename}\", {filename}::TEST),")?;

@@ -84,7 +84,10 @@ fn format_edf_nonfinite(n: f64, w: usize) -> Option<Vec<u8>> {
 
 fn d2d(n: f64) -> ryu_floating_decimal::FloatingDecimal64 {
     if n == 0.0 {
-        ryu_floating_decimal::FloatingDecimal64 { mantissa: 0, exponent: 0 }
+        ryu_floating_decimal::FloatingDecimal64 {
+            mantissa: 0,
+            exponent: 0,
+        }
     } else {
         ryu_floating_decimal::d2d(n)
     }
