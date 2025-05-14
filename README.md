@@ -2,7 +2,10 @@
 
 A partial FORTRAN 77 to Rust compiler.
 
-Current status: Basic proof-of-concept, very incomplete.
+This is used to translate the [SPICE Toolkit](https://naif.jpl.nasa.gov/naif/toolkit.html)
+into Rust for [rsspice](https://github.com/zaynar/rsspice).
+It could probably be extended to support other FORTRAN programs,
+but currently it is quite SPICE-specific.
 
 As a simple example, it translates this FORTRAN code:
 
@@ -61,10 +64,11 @@ into pure Rust.
 
 * Reasonably idiomatic Rust APIs:
 appropriate use of pass-by-value and pass-by-`&mut`-reference,
-arrays are passed as `&[T]` slices, strings are `&[u8]`, etc.
+arrays are passed as `&[T]` slices, strings are `&str`, etc.
 This reduces the need for a custom wrapper around the translated code.
 
-* No `unsafe`. (Not counting the use of `bytemuck` for `EQUIVALENCE`.)
+* Almost no `unsafe`. (There is only a single `unsafe` call for efficiently translating 
+between Rust's UTF-8 strings and FORTRAN's `&[u8]` strings.)
 
 * Thread-safety. `SAVE` variables are implemented with a `Context` argument
 that is passed between functions, instead of using `static` or any other global state.
@@ -88,14 +92,17 @@ was demand for them; others would likely be quite tricky.
 * Any support for Fortran 90 or newer. A few features are included when needed
 for compatibility, but the implementation is designed around F77.
 
-* Error handling. Some invalid FORTRAN code may be detected and rejected,
+* Error handling in the compiler. Some invalid FORTRAN code may be detected and rejected,
 but not necessarily with helpful error messages.
 Some invalid FORTRAN may be accepted and result in invalid or buggy Rust.
 The assumption is that the input has already been validated by a real compiler,
 and that it doesn't rely on undefined or non-standard behaviour.
 
-* Guaranteed correctness. This is all pretty ad hoc;
-don't rely on it for anything mission-critical.
+* Guaranteed correctness. This is all pretty ad hoc, and sometimes deliberately deviates
+from what a typical FORTRAN compiler would do (e.g. SPICE often has aliased arguments, 
+which are technically forbidden in FORTRAN but probably work anyway; but that's not good
+enough for Rust so we do some cloning and some `get_disjoint_mut`, which could affect
+behaviour). So don't rely on it for anything mission-critical.
 If you want to be sure the Rust code's behaviour matches the FORTRAN's,
 you'll have to run your own tests on it.
 
@@ -112,9 +119,8 @@ These mainly consist of FORTRAN code that prints some output;
 we run these with `gfortran` to generate the expected output,
 and compare the output from the translated Rust version.
 
-* `rsspice_build`: Drives the compiler to generate the SPICE code.
+* `rsspice_build`: Drives the compiler to generate the SPICE code,
+outputting to `rsspice/src/generated/`.
 
-* `rsspice_gen`: The generated SPICE code.
-
-* `rsspice`: The public API for the generated code.
-(Currently no actual API, just some unit tests.)
+* `rsspice`: The public API for the translated SPICE Toolkit.
+Also includes the `TSPICE` regression tests when built with the `tspice` feature.
