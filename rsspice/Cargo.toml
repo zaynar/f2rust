@@ -3,6 +3,11 @@ name = "rsspice"
 version = "0.1.0"
 edition = "2024"
 license-file = "LICENSE.md"
+readme = "README.md"
+repository = "https://github.com/zaynar/rsspice"
+description = "Pure Rust port of the SPICE Toolkit for space geometry"
+categories = ["aerospace", "science", "api-bindings"]
+keywords = ["spice", "spicelib"]
 
 [dependencies]
 f2rust_std = { version = "0.1.0", path = "../f2rust_std" }
