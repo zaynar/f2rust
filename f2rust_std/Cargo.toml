@@ -11,5 +11,5 @@ repository = "https://github.com/zaynar/f2rust"
 bytemuck = { version = "1.22.0", features = ["must_cast"] }
 chrono = { version = "0.4.40", features = ["alloc", "now"] }
 ryu_floating_decimal = "=0.1.0"
-tempfile = "3.19.1"
+tempfile = "3.20.0"
 thiserror = "2.0.12"

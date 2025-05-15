@@ -40,7 +40,7 @@ mod tests {
                 println!("Temp path: {}", tmp.path().display());
 
                 // Prevent TempDir deleting the path
-                let _ = tmp.into_path();
+                let _ = tmp.keep();
             }
 
             Context::with_file_manager(f2rust_std::io::FsFileManager::new(&cwd))

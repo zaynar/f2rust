@@ -18,7 +18,7 @@ clap = { version = "4.5.37", features = ["derive"] }
 itertools = "0.14.0"
 nalgebra = "0.33.2"
 rayon = "1.10.0"
-tempfile = "3.19.1"
+tempfile = "3.20.0"
 
 [features]
 tspice = []
