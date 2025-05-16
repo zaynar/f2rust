@@ -9,20 +9,18 @@ Pure Rust port of the SPICE Toolkit for space geometry.
 This implementation is fully memory-safe and thread-safe,
 and does not depend on any external C/FORTRAN libraries.
 It provides nearly the entire SPICELIB API.
-The code has been mechanically translated from the FORTRAN version
-of the SPICE Toolkit into Rust.
+The code has been mechanically [translated](https://github.com/zaynar/f2rust)
+from the FORTRAN version of the SPICE Toolkit into Rust.
 
 It is completely unofficial, unsupported, and not heavily tested
 (though it does pass the Toolkit's regression tests so it's probably
 not too bad). Use at your own risk.
 
-In particular, NAIF cannot provide support for this library or for
-any users of it. Use the [GitHub project](https://github.com/zaynar/rsspice)
+Users of this library should not expect any support from NAIF.
+Use the [GitHub project](https://github.com/zaynar/rsspice)
 for any issues or queries.
 
 # Usage example
-
-This example demonstrates the general design:
 
 ```rust
 use rsspice::*;
@@ -65,7 +63,7 @@ fn main() -> Result<()> {
 }
 ```
 
-See more [examples](https://github.com/zaynar/f2rust/tree/main/rsspice/examples)
-and [lessons](https://github.com/zaynar/f2rust/tree/main/rsspice/lessons).
+See more [examples](https://github.com/zaynar/rsspice/tree/main/examples)
+and [lessons](https://github.com/zaynar/rsspice/tree/main/lessons).
 
 For more details, see the [documentation](https://docs.rs/rsspice/).

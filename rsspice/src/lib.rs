@@ -3,15 +3,15 @@
 //! This implementation is fully memory-safe and thread-safe,
 //! and does not depend on any external C/FORTRAN libraries.
 //! It provides nearly the entire SPICELIB API.
-//! The code has been mechanically translated from the FORTRAN version
-//! of the SPICE Toolkit into Rust.
+//! The code has been mechanically [translated](https://github.com/zaynar/f2rust)
+//! from the FORTRAN version of the SPICE Toolkit into Rust.
 //!
 //! It is completely unofficial, unsupported, and not heavily tested
 //! (though it does pass the Toolkit's regression tests so it's probably
 //! not too bad). Use at your own risk.
 //!
-//! In particular, NAIF cannot provide support for this library or for
-//! any users of it. Use the [GitHub project](https://github.com/zaynar/rsspice)
+//! Users of this library should not expect any support from NAIF.
+//! Use the [GitHub project](https://github.com/zaynar/rsspice)
 //! for any issues or queries.
 //!
 //! # Usage example
@@ -59,8 +59,8 @@
 //! }
 //! ```
 //!
-//! (See more [examples](https://github.com/zaynar/f2rust/tree/main/rsspice/examples)
-//! and [lessons](https://github.com/zaynar/f2rust/tree/main/rsspice/lessons).)
+//! (See more [examples](https://github.com/zaynar/rsspice/tree/main/examples)
+//! and [lessons](https://github.com/zaynar/rsspice/tree/main/lessons).)
 //!
 //! The [`SpiceContext`] object encapsulates all the SPICE state, such as loaded
 //! kernels. There is no process-wide global state, so you can run multiple
@@ -152,7 +152,7 @@
 //! allocated at the maximum possible size, and FORTRAN will pad the output
 //! with trailing space characters.
 //! We trim the trailing spaces before returning a `String`.
-//! When using `&mut str`, you are responsible for allocating and trimming.
+//! When using `&mut str`, you are responsible for allocating and trimming:
 //!
 //! ```
 //! # use rsspice::*;
@@ -258,14 +258,17 @@
 //! # License
 //!
 //! Much of this crate is derived from the SPICE Toolkit, which is made freely available
-//! by NAIF but does not have a clear licensing situation. See [LICENSE.md] for details.
+//! by NAIF but does not have a clear licensing situation.
+//! See [LICENSE.md](https://github.com/zaynar/rsspice/blob/main/LICENSE.md) for details.
 //!
 //! The non-Toolkit-derived code in this crate is licensed under either of
 //!
 //!  * Apache License, Version 2.0
-//!    ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+//!    ([LICENSE-APACHE](https://github.com/zaynar/rsspice/blob/main/LICENSE-APACHE)
+//!    or <http://www.apache.org/licenses/LICENSE-2.0>)
 //!  * MIT license
-//!    ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+//!    ([LICENSE-MIT](https://github.com/zaynar/rsspice/blob/main/LICENSE-MIT)
+//!    or <http://opensource.org/licenses/MIT>)
 //!
 //! at your option.
 

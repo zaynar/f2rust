@@ -149,4 +149,12 @@ and compare the output from the translated Rust version.
 outputting to `rsspice/src/generated/`.
 
 * `rsspice`: The public API for the translated SPICE Toolkit.
-Also includes the `TSPICE` regression tests when built with the `tspice` feature.
+Also includes the TSPICE regression tests when built with the `tspice` feature.
+
+* `tspice-patches`: We can't distribute the original Toolkit code, so these patches
+must be manually applied after downloading it.
+
+`rsspice` is also published at <https://github.com/zaynar/rsspice>, including the generated
+code. That is so the [published crate](https://crates.io/crates/rsspice) has
+corresponding source available, without cluttering the main development repository
+with ~1.4 million lines of generated code.

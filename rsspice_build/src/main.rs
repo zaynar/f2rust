@@ -1,8 +1,4 @@
 //! Compile the SPICE Toolkit's FORTRAN implementation into Rust.
-//!
-//! You must download tspice.tar from https://naif.jpl.nasa.gov/pub/naif/misc/tspice/N0067/PC_Linux_64bit/
-//! and extract into the workspace directory. (Be aware of its restrictions on distribution:
-//! https://naif.jpl.nasa.gov/naif/rules.html)
 
 use anyhow::{Context, Result, bail};
 use html5ever::ParseOpts;
@@ -33,6 +29,7 @@ use f2rust_compiler::{
 };
 
 // This reduces build times by ~50% (and even better if there are lots of build errors)
+// TODO: this option no longer works, we should probably just delete it
 const SPLIT_SPLICELIB_CRATES: bool = false;
 
 const BUILD_PROGRAMS: bool = false;
