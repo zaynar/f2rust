@@ -333,22 +333,22 @@ peg::parser! {
             "FUNCTION" fun:symbol() d:(
                 "("
                     d:(symbol() / asterisk()) ** ","
-                ")" ![_] { d }
-            )? { Statement::Function(typ, fun, d.unwrap_or_default()) }
+                ")" { d }
+            )? ![_] { Statement::Function(typ, fun, d.unwrap_or_default()) }
 
         rule subroutine_statement() -> Statement
             = "SUBROUTINE" sub:symbol() d:(
                 "("
                     d:(symbol() / asterisk()) ** ","
-                ")" ![_] { d }
-            )? { Statement::Subroutine(sub, d.unwrap_or_default()) }
+                ")" { d }
+            )? ![_] { Statement::Subroutine(sub, d.unwrap_or_default()) }
 
         rule entry_statement() -> Statement
             = "ENTRY" n:symbol() d:(
                 "("
                     d:(symbol() / asterisk()) ** ","
-                ")" ![_] { d }
-            )? { Statement::Entry(n, d.unwrap_or_default()) }
+                ")" { d }
+            )? ![_] { Statement::Entry(n, d.unwrap_or_default()) }
 
         rule other_specification_statement() -> Statement
             // / dimension_statement() // not supported
