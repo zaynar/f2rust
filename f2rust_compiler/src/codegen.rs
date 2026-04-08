@@ -171,7 +171,7 @@ impl SymbolTable {
         }
     }
 
-    fn get(&self, name: &str) -> Result<Cow<Symbol>> {
+    fn get(&self, name: &str) -> Result<Cow<'_, Symbol>> {
         if let Some(sym) = self
             .temp
             .borrow()

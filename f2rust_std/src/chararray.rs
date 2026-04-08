@@ -97,14 +97,14 @@ pub struct OwnedCharArray {
 }
 
 impl OwnedCharArray {
-    pub fn as_arg(&self) -> CharArray {
+    pub fn as_arg(&self) -> CharArray<'_> {
         CharArray {
             data: &self.data,
             element_length: self.element_length,
         }
     }
 
-    pub fn as_arg_mut(&mut self) -> CharArrayMut {
+    pub fn as_arg_mut(&mut self) -> CharArrayMut<'_> {
         CharArrayMut {
             data: &mut self.data,
             element_length: self.element_length,
@@ -350,7 +350,7 @@ pub trait CharArrayOps<I> {
         &self.data()[0..element_length]
     }
 
-    fn as_arg(&self) -> CharArray {
+    fn as_arg(&self) -> CharArray<'_> {
         let element_length = self.element_length();
         CharArray {
             data: self.data(),
@@ -367,7 +367,7 @@ pub trait CharArrayOps<I> {
         &self.data()[offset..offset + element_length]
     }
 
-    fn subarray(&self, index: I) -> CharArray {
+    fn subarray(&self, index: I) -> CharArray<'_> {
         let offset = self.offset(index);
         let element_length = self.element_length();
         CharArray {
@@ -389,7 +389,7 @@ pub trait CharArrayOpsMut<I>: CharArrayOps<I> {
         &mut self.data_mut()[0..element_length]
     }
 
-    fn as_arg_mut(&mut self) -> CharArrayMut {
+    fn as_arg_mut(&mut self) -> CharArrayMut<'_> {
         let element_length = self.element_length();
         CharArrayMut {
             data: self.data_mut(),
@@ -408,7 +408,7 @@ pub trait CharArrayOpsMut<I>: CharArrayOps<I> {
         self.data_mut().chunks_mut(element_length)
     }
 
-    fn subarray_mut(&mut self, index: I) -> CharArrayMut {
+    fn subarray_mut(&mut self, index: I) -> CharArrayMut<'_> {
         let offset = self.offset(index);
         let element_length = self.element_length();
         CharArrayMut {

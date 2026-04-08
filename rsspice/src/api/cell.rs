@@ -329,13 +329,13 @@ impl CharCell {
     }
 
     /// Converts to `CharArray` for use in the `raw` API.
-    pub fn as_arg(&self) -> CharArray {
+    pub fn as_arg(&self) -> CharArray<'_> {
         self.validate();
         CharArray::new(&self.data, self.element_length)
     }
 
     /// Converts to `CharArrayMut` for use in the `raw` API.
-    pub fn as_arg_mut(&mut self) -> CharArrayMut {
+    pub fn as_arg_mut(&mut self) -> CharArrayMut<'_> {
         self.validate();
         CharArrayMut::new(&mut self.data, self.element_length)
     }
