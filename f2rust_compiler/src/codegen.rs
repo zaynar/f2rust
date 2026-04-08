@@ -3,6 +3,7 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
 
 use crate::ast::{DataType, Expression, LenSpecification, Specifier, Statement};
 use crate::file::SourceLoc;
@@ -1354,7 +1355,7 @@ impl CodeGenUnit<'_> {
                             // Create a temporary symbol to store the character data,
                             // with just enough details to keep emit_args happy
                             let arg_name = format!("arg{i}");
-                            prep_code += &format!("let mut {arg_name} = vec![b' '; {len}];\n");
+                            writeln!(prep_code, "let mut {arg_name} = vec![b' '; {len}];")?;
                             let arg_sym = Symbol {
                                 actual_procs: Vec::new(),
                                 mutated: true,
@@ -1375,7 +1376,7 @@ impl CodeGenUnit<'_> {
                                 let result = self.emit_symbol(loc, &arg_name, Ctx::ArgScalar)?;
                                 Ok((call, result))
                             })?;
-                            prep_code += &format!("{};\n", call);
+                            writeln!(prep_code, "{call};")?;
 
                             result
                         } else {
@@ -1442,7 +1443,7 @@ impl CodeGenUnit<'_> {
                 for i in &counts.used {
                     if i > first_mut && !counts.mutated.contains(i) {
                         let arg_name = format!("arg{i}");
-                        prep_code += &format!("let {arg_name} = {};\n", &exprs[*i]);
+                        writeln!(prep_code, "let {arg_name} = {};", &exprs[*i])?;
                         exprs[*i] = arg_name;
                     }
                 }
@@ -1453,22 +1454,24 @@ impl CodeGenUnit<'_> {
             let obj = self.emit_symbol(loc, name, Ctx::ValueMut)?;
             let names: Vec<_> = args.iter().map(|(i, _e)| format!("arg{i}")).collect();
             let idxs: Vec<_> = args.iter().map(|(_i, e)| e.clone()).collect();
-            prep_code += &format!(
-                "let [{}] = {obj}.get_disjoint_mut([{}]).expect(\"mutable array elements passed to function must have disjoint indexes\");\n",
+            writeln!(
+                prep_code,
+                "let [{}] = {obj}.get_disjoint_mut([{}]).expect(\"mutable array elements passed to function must have disjoint indexes\");",
                 names.join(", "),
                 idxs.join(", ")
-            );
+            )?;
         }
 
         for (name, args) in &aliased_slices {
             let obj = self.emit_symbol(loc, name, Ctx::ValueMut)?;
             let names: Vec<_> = args.iter().map(|(i, _e)| format!("arg{i}")).collect();
             let idxs: Vec<_> = args.iter().map(|(_i, e)| e.clone()).collect();
-            prep_code += &format!(
-                "let [{}] = {obj}.get_disjoint_slices_mut([{}]).unwrap();\n",
+            writeln!(
+                prep_code,
+                "let [{}] = {obj}.get_disjoint_slices_mut([{}]).unwrap();",
                 names.join(", "),
                 idxs.join(", ")
-            );
+            )?;
         }
 
         Ok((exprs.join(", "), prep_code))
@@ -1623,8 +1626,8 @@ impl CodeGenUnit<'_> {
         }
 
         // Have to do this in two steps, to keep the Rc<RefCell> alive throughout the function
-        code += "let save = ctx.get_vars::<SaveVars>();\n";
-        code += "let save = &mut *save.borrow_mut();\n\n";
+        writeln!(code, "let save = ctx.get_vars::<SaveVars>();")?;
+        writeln!(code, "let save = &mut *save.borrow_mut();\n")?;
 
         Ok(code)
     }
@@ -1649,7 +1652,7 @@ impl CodeGenUnit<'_> {
             }
         }
 
-        code += "\n";
+        writeln!(code)?;
 
         Ok(code)
     }
@@ -1726,8 +1729,10 @@ impl CodeGenUnit<'_> {
                     _ => "".to_owned(),
                 };
 
-                code +=
-                    &format!("let {mut_label}{name} = {array}::new({name}, {len_label}{dims});\n");
+                writeln!(
+                    code,
+                    "let {mut_label}{name} = {array}::new({name}, {len_label}{dims});"
+                )?;
             } else {
                 // Allocate the array
 
@@ -1757,7 +1762,10 @@ impl CodeGenUnit<'_> {
                 } else {
                     format!("::<{}{size_label}>", emit_datatype(&sym.ast.base_type))
                 };
-                code += &format!("let {mut_label}{name} = {array}{ty}::new({len_label}{dims});\n");
+                writeln!(
+                    code,
+                    "let {mut_label}{name} = {array}{ty}::new({len_label}{dims});"
+                )?;
             }
         } else if sym.ast.base_type == DataType::Character {
             let len = sym
@@ -1776,12 +1784,12 @@ impl CodeGenUnit<'_> {
 
                     LenSpecification::Integer(n) => {
                         let mut_label = if is_mut { "mut " } else { "" };
-                        code += &format!("let {name} = &{mut_label}{name}[..{n}];\n");
+                        writeln!(code, "let {name} = &{mut_label}{name}[..{n}];")?;
                     }
                     LenSpecification::IntConstantExpr(e) => {
                         let e = self.emit_expression(loc, e)?;
                         let mut_label = if is_mut { "mut " } else { "" };
-                        code += &format!("let {name} = &{mut_label}{name}[..{e} as usize];\n");
+                        writeln!(code, "let {name} = &{mut_label}{name}[..{e} as usize];")?;
                     }
                 }
             } else {
@@ -1801,7 +1809,7 @@ impl CodeGenUnit<'_> {
                             "vec!"
                         };
 
-                        code += &format!("let {mut_label}{name} = {vec_label}[b' '; {n}];\n");
+                        writeln!(code, "let {mut_label}{name} = {vec_label}[b' '; {n}];")?;
                     }
                     LenSpecification::IntConstantExpr(e) => {
                         if let Some(n) = e.eval_constant(syms)? {
@@ -1813,9 +1821,10 @@ impl CodeGenUnit<'_> {
                                 "vec!"
                             };
 
-                            code += &format!(
-                                "let {mut_label}{name} = {vec_label}[b' '; {expr} as usize];\n"
-                            );
+                            writeln!(
+                                code,
+                                "let {mut_label}{name} = {vec_label}[b' '; {expr} as usize];"
+                            )?;
                         } else {
                             bail!(
                                 "{loc} cannot evaluate CHARACTER length as integer constant expression"
@@ -1835,11 +1844,11 @@ impl CodeGenUnit<'_> {
                 // Zero-initialise because rustc can't always tell it's initialised on every code path
                 // (TODO: if we can detect it's safe, we could remove this. If it's assigned exactly
                 // once, get rid of the 'mut' too.)
-                code += &format!("let mut {name}: {ty} = {zero};\n");
+                writeln!(code, "let mut {name}: {ty} = {zero};")?;
             } else {
                 // Zero-initialise because e.g. ZZPLTCHK doesn't write to its 'output' variable,
                 // so ZZDDHOPN passes an uninitialised value
-                code += &format!("let {name}: {ty} = {zero};\n");
+                writeln!(code, "let {name}: {ty} = {zero};")?;
             }
         }
 
@@ -1889,9 +1898,9 @@ impl CodeGenUnit<'_> {
         //
         // We could optimise some other special cases, but this generic approach will do for now.
 
-        code += "{\n";
-        code += "  use f2rust_std::data::Val;\n\n";
-        code += "  let mut clist = [\n";
+        writeln!(code, "{{")?;
+        writeln!(code, "  use f2rust_std::data::Val;\n")?;
+        writeln!(code, "  let mut clist = [")?;
         let mut needs_into_iter = true;
 
         for (reps, value) in &data.clist {
@@ -1915,22 +1924,27 @@ impl CodeGenUnit<'_> {
                 } else {
                     code += "    ])";
                 }
-                code +=
-                    &format!(".chain(std::iter::repeat_n({val}, {reps_ex} as usize)).chain([\n");
+                writeln!(
+                    code,
+                    ".chain(std::iter::repeat_n({val}, {reps_ex} as usize)).chain(["
+                )?;
             } else {
-                code += &format!("    {val},\n");
+                writeln!(code, "    {val},")?;
             }
         }
 
         if needs_into_iter {
-            code += "  ].into_iter();\n";
+            writeln!(code, "  ].into_iter();")?;
         } else {
-            code += "  ]);\n\n";
+            writeln!(code, "  ]);\n")?;
         }
         code += &self.emit_data_nlist::<NlistCallbackData>(loc, &data.nlist, Ctx::SaveInit)?;
-        code += "\n";
-        code += "  debug_assert!(clist.next().is_none(), \"DATA not fully initialised\");\n";
-        code += "}\n";
+        writeln!(code)?;
+        writeln!(
+            code,
+            "  debug_assert!(clist.next().is_none(), \"DATA not fully initialised\");"
+        )?;
+        writeln!(code, "}}")?;
 
         Ok(code)
     }
@@ -1987,9 +2001,12 @@ impl CodeGenUnit<'_> {
                         .clone()
                         .map_or_else(|| Ok("1".to_owned()), |e| self.emit_expression(loc, &e))?;
 
-                    code += &format!("for {do_var} in intrinsics::range({m1}, {m2}, {m3}) {{\n");
+                    writeln!(
+                        code,
+                        "for {do_var} in intrinsics::range({m1}, {m2}, {m3}) {{"
+                    )?;
                     code += &self.emit_data_nlist::<C>(loc, data, ctx)?;
-                    code += "}\n";
+                    writeln!(code, "}}")?;
                 }
 
                 Expression::Unary(..)
@@ -2058,10 +2075,10 @@ impl CodeGenUnit<'_> {
                 if matches!(tt, DataType::Character) {
                     let aliased = value.uses_symbol(name);
                     if aliased {
-                        code += &format!("let val = {e}.to_vec();\n");
-                        code += &format!("fstr::assign({s}, &val);\n");
+                        writeln!(code, "let val = {e}.to_vec();")?;
+                        writeln!(code, "fstr::assign({s}, &val);")?;
                     } else {
-                        code += &format!("fstr::assign({s}, {e});\n");
+                        writeln!(code, "fstr::assign({s}, {e});")?;
                     }
                 } else {
                     let e = self.emit_arith_conversion(
@@ -2070,7 +2087,7 @@ impl CodeGenUnit<'_> {
                         value.resolve_type(loc, &self.syms)?,
                         e,
                     )?;
-                    code += &format!("{s} = {e};\n");
+                    writeln!(code, "{s} = {e};")?;
                 }
             }
             Expression::ArrayElement(name, idx) => {
@@ -2079,10 +2096,10 @@ impl CodeGenUnit<'_> {
                 if matches!(tt, DataType::Character) {
                     let aliased = value.uses_symbol(name);
                     if aliased {
-                        code += &format!("let val = {e}.to_vec();\n");
-                        code += &format!("fstr::assign({s}.get_mut({idx_ex}), &val);\n");
+                        writeln!(code, "let val = {e}.to_vec();")?;
+                        writeln!(code, "fstr::assign({s}.get_mut({idx_ex}), &val);")?;
                     } else {
-                        code += &format!("fstr::assign({s}.get_mut({idx_ex}), {e});\n");
+                        writeln!(code, "fstr::assign({s}.get_mut({idx_ex}), {e});")?;
                     }
                 } else {
                     let e = self.emit_arith_conversion(
@@ -2091,7 +2108,7 @@ impl CodeGenUnit<'_> {
                         value.resolve_type(loc, &self.syms)?,
                         e,
                     )?;
-                    code += &format!("{s}[{idx_ex}] = {e};\n");
+                    writeln!(code, "{s}[{idx_ex}] = {e};")?;
                 }
             }
             Expression::Substring(name, e1, e2) => {
@@ -2100,10 +2117,10 @@ impl CodeGenUnit<'_> {
 
                 let aliased = value.uses_symbol(name);
                 if aliased {
-                    code += &format!("let val = {e}.to_vec();\n");
-                    code += &format!("fstr::assign(fstr::substr_mut({s}, {range}), &val);\n");
+                    writeln!(code, "let val = {e}.to_vec();")?;
+                    writeln!(code, "fstr::assign(fstr::substr_mut({s}, {range}), &val);")?;
                 } else {
-                    code += &format!("fstr::assign(fstr::substr_mut({s}, {range}), {e});\n");
+                    writeln!(code, "fstr::assign(fstr::substr_mut({s}, {range}), {e});")?;
                 }
             }
             Expression::SubstringArrayElement(name, idx, e1, e2) => {
@@ -2114,14 +2131,16 @@ impl CodeGenUnit<'_> {
                 let aliased = value.uses_symbol(name);
 
                 if aliased {
-                    code += &format!("let val = {e}.to_vec();\n");
-                    code += &format!(
-                        "fstr::assign(fstr::substr_mut({s}.get_mut({idx_ex}), {range}), &val);\n"
-                    );
+                    writeln!(code, "let val = {e}.to_vec();")?;
+                    writeln!(
+                        code,
+                        "fstr::assign(fstr::substr_mut({s}.get_mut({idx_ex}), {range}), &val);"
+                    )?;
                 } else {
-                    code += &format!(
-                        "fstr::assign(fstr::substr_mut({s}.get_mut({idx_ex}), {range}), {e});\n"
-                    );
+                    writeln!(
+                        code,
+                        "fstr::assign(fstr::substr_mut({s}.get_mut({idx_ex}), {range}), {e});"
+                    )?;
                 }
             }
             _ => bail!("{loc} invalid assignment LHS"),
@@ -2144,7 +2163,7 @@ impl CodeGenUnit<'_> {
                 }
             }
             Statement::Blank => {
-                code += "\n";
+                writeln!(code)?;
             }
 
             Statement::Assignment(v, e) => {
@@ -2160,14 +2179,14 @@ impl CodeGenUnit<'_> {
 
                     if let Some(e) = e {
                         let e = self.emit_expression(loc, e)?;
-                        code += &format!("if {e} ");
+                        write!(code, "if {e} ")?;
                     }
 
-                    code += " {\n";
+                    writeln!(code, " {{")?;
                     code += &body;
                     code += "}";
                 }
-                code += "\n";
+                writeln!(code)?;
             }
             Statement::Do {
                 var,
@@ -2196,33 +2215,36 @@ impl CodeGenUnit<'_> {
                 if var_sym.ast.outside_do {
                     // If the DO-var is accessed outside, we'll fall back to implementing the
                     // loop as the standard describes it. (TODO: could make this much less ugly)
-                    code += "{\n";
-                    code += &format!("  let m1__: i32 = {m1};\n");
-                    code += &format!("  let m2__: i32 = {m2};\n");
-                    code += &format!("  let m3__: i32 = {m3};\n");
+                    writeln!(code, "{{")?;
+                    writeln!(code, "  let m1__: i32 = {m1};")?;
+                    writeln!(code, "  let m2__: i32 = {m2};")?;
+                    writeln!(code, "  let m3__: i32 = {m3};")?;
                     code += &(self.emit_symbol(loc, var, Ctx::Assignment)? + " = m1__;\n");
-                    code += "  for _ in 0..((m2__ - m1__ + m3__) / m3__) as i32 {\n";
+                    writeln!(
+                        code,
+                        "  for _ in 0..((m2__ - m1__ + m3__) / m3__) as i32 {{"
+                    )?;
                     code += &body;
                     code += &(self.emit_symbol(loc, var, Ctx::Assignment)? + " += m3__;\n");
-                    code += "  }\n";
-                    code += "}\n";
+                    writeln!(code, "  }}")?;
+                    writeln!(code, "}}")?;
                 } else if e3.is_some() {
-                    code += &format!("for {var} in intrinsics::range({m1}, {m2}, {m3}) {{\n");
+                    writeln!(code, "for {var} in intrinsics::range({m1}, {m2}, {m3}) {{")?;
                     code += &body;
-                    code += "}\n";
+                    writeln!(code, "}}")?;
                 } else {
-                    code += &format!("for {var} in {m1} ..= {m2} {{\n");
+                    writeln!(code, "for {var} in {m1} ..= {m2} {{")?;
                     code += &body;
-                    code += "}\n";
+                    writeln!(code, "}}")?;
                 }
             }
             Statement::DoWhile { e, body } => {
                 let e = self.emit_expression(loc, e)?;
                 let body = self.emit_statements(entry, body)?;
-                code += &format!("while {e} {{\n{body}}}\n");
+                writeln!(code, "while {e} {{\n{body}}}")?;
             }
             Statement::Stop => {
-                code += "ctx.stop()?;\n";
+                writeln!(code, "ctx.stop()?;")?;
             }
             Statement::Read {
                 unit,
@@ -2232,8 +2254,11 @@ impl CodeGenUnit<'_> {
             } => {
                 // TODO: refactor the shared code with ::Write
 
-                code += "{\n";
-                code += "  use f2rust_std::{data::Val, io::{self, Reader}};\n\n";
+                writeln!(code, "{{")?;
+                writeln!(
+                    code,
+                    "  use f2rust_std::{{data::Val, io::{{self, Reader}}}};\n"
+                )?;
 
                 let unit = match unit {
                     Specifier::Asterisk => "ctx.default_read_unit()?".to_owned(),
@@ -2259,13 +2284,13 @@ impl CodeGenUnit<'_> {
                 match fmt {
                     Some(ast::Specifier::Expression(e)) => {
                         let fmt = self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?;
-                        code += &format!("io::FormattedReader::new({unit}, {rec}, {fmt})?;\n");
+                        writeln!(code, "io::FormattedReader::new({unit}, {rec}, {fmt})?;")?;
                     }
                     Some(ast::Specifier::Asterisk) => {
-                        code += &format!("io::ListDirectedReader::new({unit}, {rec})?;\n");
+                        writeln!(code, "io::ListDirectedReader::new({unit}, {rec})?;")?;
                     }
                     None => {
-                        code += &format!("io::UnformattedReader::new({unit}, {rec})?;\n");
+                        writeln!(code, "io::UnformattedReader::new({unit}, {rec})?;")?;
                     }
                 }
 
@@ -2277,16 +2302,16 @@ impl CodeGenUnit<'_> {
 
                 if let Some(iostat) = other.get("IOSTAT") {
                     let e = self.emit_expression_ctx(loc, iostat, Ctx::Assignment)?;
-                    code += &format!("  {e} = io::capture_iostat(|| {{\n");
+                    writeln!(code, "  {e} = io::capture_iostat(|| {{")?;
                 }
-                code += "    reader.start()?;\n";
+                writeln!(code, "    reader.start()?;")?;
                 code += &self.emit_data_nlist::<NlistCallbackRead>(loc, iolist, Ctx::Assignment)?;
-                code += "    reader.finish()?;\n";
+                writeln!(code, "    reader.finish()?;")?;
                 if other.contains_key("IOSTAT") {
-                    code += "    Ok(())\n";
-                    code += "  })?;\n";
+                    writeln!(code, "    Ok(())")?;
+                    writeln!(code, "  }})?;")?;
                 }
-                code += "}\n";
+                writeln!(code, "}}")?;
             }
             Statement::Write {
                 unit,
@@ -2294,8 +2319,11 @@ impl CodeGenUnit<'_> {
                 other,
                 iolist,
             } => {
-                code += "{\n";
-                code += "  use f2rust_std::{data::Val, io::{self, Writer}};\n\n";
+                writeln!(code, "{{")?;
+                writeln!(
+                    code,
+                    "  use f2rust_std::{{data::Val, io::{{self, Writer}}}};\n"
+                )?;
 
                 let unit = match unit {
                     Specifier::Asterisk => "ctx.default_write_unit()?".to_owned(),
@@ -2306,10 +2334,11 @@ impl CodeGenUnit<'_> {
                                 self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?
                             )
                         } else {
-                            code += &format!(
-                                "  let internal_file = io::InternalFile::open({});\n",
+                            writeln!(
+                                code,
+                                "  let internal_file = io::InternalFile::open({});",
                                 self.emit_expression_ctx(loc, e, Ctx::ArgScalarMut)?
-                            );
+                            )?;
                             "internal_file".to_owned()
                         }
                     }
@@ -2326,13 +2355,13 @@ impl CodeGenUnit<'_> {
                 match fmt {
                     Some(ast::Specifier::Expression(e)) => {
                         let fmt = self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?;
-                        code += &format!("io::FormattedWriter::new({unit}, {rec}, {fmt})?;\n");
+                        writeln!(code, "io::FormattedWriter::new({unit}, {rec}, {fmt})?;")?;
                     }
                     Some(ast::Specifier::Asterisk) => {
-                        code += &format!("io::ListDirectedWriter::new({unit}, {rec})?;\n");
+                        writeln!(code, "io::ListDirectedWriter::new({unit}, {rec})?;")?;
                     }
                     None => {
-                        code += &format!("io::UnformattedWriter::new({unit}, {rec})?;\n");
+                        writeln!(code, "io::UnformattedWriter::new({unit}, {rec})?;")?;
                     }
                 }
 
@@ -2344,42 +2373,49 @@ impl CodeGenUnit<'_> {
 
                 if let Some(iostat) = other.get("IOSTAT") {
                     let e = self.emit_expression_ctx(loc, iostat, Ctx::Assignment)?;
-                    code += &format!("  {e} = io::capture_iostat(|| {{\n");
+                    writeln!(code, "  {e} = io::capture_iostat(|| {{")?;
                 }
-                code += "    writer.start()?;\n";
+                writeln!(code, "    writer.start()?;")?;
                 code += &self.emit_data_nlist::<NlistCallbackWrite>(loc, iolist, Ctx::Value)?;
-                code += "    writer.finish()?;\n";
+                writeln!(code, "    writer.finish()?;")?;
                 if other.contains_key("IOSTAT") {
-                    code += "    Ok(())\n";
-                    code += "  })?;\n";
+                    writeln!(code, "    Ok(())")?;
+                    writeln!(code, "  }})?;")?;
                 }
-                code += "}\n";
+                writeln!(code, "}}")?;
             }
             Statement::Print { fmt, iolist } => {
-                code += "{\n";
-                code += "  use f2rust_std::{data::Val, io::{self, Writer}};\n\n";
+                writeln!(code, "{{")?;
+                writeln!(
+                    code,
+                    "  use f2rust_std::{{data::Val, io::{{self, Writer}}}};\n"
+                )?;
 
                 code += "  let mut writer = ";
                 match fmt {
                     ast::Specifier::Expression(e) => {
                         let fmt = self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?;
-                        code += &format!(
-                            "io::FormattedWriter::new(ctx.default_write_unit()?, None, {fmt})?;\n"
-                        );
+                        writeln!(
+                            code,
+                            "io::FormattedWriter::new(ctx.default_write_unit()?, None, {fmt})?;"
+                        )?;
                     }
                     ast::Specifier::Asterisk => {
-                        code += "io::ListDirectedWriter::new(ctx.default_write_unit()?, None)?;\n";
+                        writeln!(
+                            code,
+                            "io::ListDirectedWriter::new(ctx.default_write_unit()?, None)?;"
+                        )?;
                     }
                 }
-                code += "  writer.start()?;\n";
+                writeln!(code, "  writer.start()?;")?;
                 code += &self.emit_data_nlist::<NlistCallbackWrite>(loc, iolist, Ctx::Value)?;
-                code += "  writer.finish()?;\n";
-                code += "}\n";
+                writeln!(code, "  writer.finish()?;")?;
+                writeln!(code, "}}")?;
             }
             Statement::Open(specs) => {
-                code += "{\n";
-                code += "  use f2rust_std::io;\n\n";
-                code += "  let specs = io::OpenSpecs {\n";
+                writeln!(code, "{{")?;
+                writeln!(code, "  use f2rust_std::io;\n")?;
+                writeln!(code, "  let specs = io::OpenSpecs {{")?;
 
                 match specs.get("UNIT") {
                     None => bail!("{loc} OPEN must have UNIT"),
@@ -2395,7 +2431,7 @@ impl CodeGenUnit<'_> {
                         "IOSTAT" => (),
                         "UNIT" | "FILE" | "STATUS" | "ACCESS" | "FORM" | "RECL" => {
                             let e = self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?;
-                            code += &format!("    {}: Some({e}),\n", name.to_ascii_lowercase());
+                            writeln!(code, "    {}: Some({e}),", name.to_ascii_lowercase())?;
                         }
                         "BLANK" => {
                             bail!("{loc} TODO: OPEN has unsupported specifier {name}")
@@ -2404,21 +2440,21 @@ impl CodeGenUnit<'_> {
                     }
                 }
 
-                code += "    ..Default::default()\n";
-                code += "  };\n";
+                writeln!(code, "    ..Default::default()")?;
+                writeln!(code, "  }};")?;
 
                 if let Some(iostat) = specs.get("IOSTAT") {
                     let e = self.emit_expression_ctx(loc, iostat, Ctx::Assignment)?;
-                    code += &format!("  {e} = io::capture_iostat(|| ctx.open(specs))?;\n");
+                    writeln!(code, "  {e} = io::capture_iostat(|| ctx.open(specs))?;")?;
                 } else {
-                    code += "  ctx.open(specs)?;\n";
+                    writeln!(code, "  ctx.open(specs)?;")?;
                 }
-                code += "}\n";
+                writeln!(code, "}}")?;
             }
             Statement::Close(specs) => {
-                code += "{\n";
-                code += "  use f2rust_std::io;\n\n";
-                code += "  let specs = io::CloseSpecs {\n";
+                writeln!(code, "{{")?;
+                writeln!(code, "  use f2rust_std::io;\n")?;
+                writeln!(code, "  let specs = io::CloseSpecs {{")?;
 
                 match specs.get("UNIT") {
                     None => bail!("{loc} CLOSE must have UNIT"),
@@ -2434,27 +2470,27 @@ impl CodeGenUnit<'_> {
                         "IOSTAT" => (),
                         "UNIT" | "STATUS" => {
                             let e = self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?;
-                            code += &format!("    {}: Some({e}),\n", name.to_ascii_lowercase());
+                            writeln!(code, "    {}: Some({e}),", name.to_ascii_lowercase())?;
                         }
                         _ => bail!("{loc} CLOSE has invalid specifier {name}"),
                     }
                 }
 
-                code += "    ..Default::default()\n";
-                code += "  };\n";
+                writeln!(code, "    ..Default::default()")?;
+                writeln!(code, "  }};")?;
 
                 if let Some(iostat) = specs.get("IOSTAT") {
                     let e = self.emit_expression_ctx(loc, iostat, Ctx::Assignment)?;
-                    code += &format!("  {e} = io::capture_iostat(|| ctx.close(specs))?;\n");
+                    writeln!(code, "  {e} = io::capture_iostat(|| ctx.close(specs))?;")?;
                 } else {
-                    code += "  ctx.close(specs)?;\n";
+                    writeln!(code, "  ctx.close(specs)?;")?;
                 }
-                code += "}\n";
+                writeln!(code, "}}")?;
             }
             Statement::Inquire(specs) => {
-                code += "{\n";
-                code += "  use f2rust_std::io;\n\n";
-                code += "  let specs = io::InquireSpecs {\n";
+                writeln!(code, "{{")?;
+                writeln!(code, "  use f2rust_std::io;\n")?;
+                writeln!(code, "  let specs = io::InquireSpecs {{")?;
 
                 match specs.get("UNIT") {
                     None => {
@@ -2477,11 +2513,11 @@ impl CodeGenUnit<'_> {
                         "IOSTAT" => (),
                         "UNIT" | "FILE" => {
                             let e = self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?;
-                            code += &format!("    {}: Some({e}),\n", name.to_ascii_lowercase());
+                            writeln!(code, "    {}: Some({e}),", name.to_ascii_lowercase())?;
                         }
                         "EXIST" | "OPENED" | "NUMBER" | "NAMED" | "NAME" => {
                             let e = self.emit_expression_ctx(loc, e, Ctx::ArgScalarMut)?;
-                            code += &format!("    {}: Some({e}),\n", name.to_ascii_lowercase());
+                            writeln!(code, "    {}: Some({e}),", name.to_ascii_lowercase())?;
                         }
                         "ACCESS" | "SEQUENTIAL" | "DIRECT" | "FORM" | "FORMATTED"
                         | "UNFORMATTED" | "RECL" | "NEXTREC" | "BLANK" => {
@@ -2491,16 +2527,16 @@ impl CodeGenUnit<'_> {
                     }
                 }
 
-                code += "    ..Default::default()\n";
-                code += "  };\n";
+                writeln!(code, "    ..Default::default()")?;
+                writeln!(code, "  }};")?;
 
                 if let Some(iostat) = specs.get("IOSTAT") {
                     let e = self.emit_expression_ctx(loc, iostat, Ctx::Assignment)?;
-                    code += &format!("  {e} = io::capture_iostat(|| ctx.inquire(specs))?;\n");
+                    writeln!(code, "  {e} = io::capture_iostat(|| ctx.inquire(specs))?;")?;
                 } else {
-                    code += "  ctx.inquire(specs)?;\n";
+                    writeln!(code, "  ctx.inquire(specs)?;")?;
                 }
-                code += "}\n";
+                writeln!(code, "}}")?;
             }
             Statement::Backspace(specs) => {
                 code +=
@@ -2516,7 +2552,7 @@ impl CodeGenUnit<'_> {
                 code += &self
                     .emit_call(loc, name, args, false)
                     .with_context(|| format!("failed statement {:?}", statement))?;
-                code += ";\n";
+                writeln!(code, ";")?;
             }
             Statement::Return => {
                 let returns_result = self
@@ -2528,15 +2564,15 @@ impl CodeGenUnit<'_> {
                 {
                     let name = self.emit_symbol(loc, &entry.name, Ctx::Value)?;
                     if returns_result {
-                        code += &format!("return Ok({name});\n");
+                        writeln!(code, "return Ok({name});")?;
                     } else {
-                        code += &format!("return {name};\n");
+                        writeln!(code, "return {name};")?;
                     }
                 } else {
                     if returns_result {
-                        code += "return Ok(());\n";
+                        writeln!(code, "return Ok(());")?;
                     } else {
-                        code += "return;\n";
+                        writeln!(code, "return;")?;
                     }
                 };
             }
@@ -2556,9 +2592,9 @@ impl CodeGenUnit<'_> {
     ) -> Result<String> {
         let mut code = String::new();
 
-        code += "{\n";
-        code += "  use f2rust_std::io;\n\n";
-        code += &format!("  let specs = io::{specs_name} {{\n");
+        writeln!(code, "{{")?;
+        writeln!(code, "  use f2rust_std::io;\n")?;
+        writeln!(code, "  let specs = io::{specs_name} {{")?;
 
         match specs.get("UNIT") {
             None => bail!("{loc} {statement} must have UNIT"),
@@ -2574,22 +2610,22 @@ impl CodeGenUnit<'_> {
                 "IOSTAT" => (),
                 "UNIT" => {
                     let e = self.emit_expression_ctx(loc, e, Ctx::ArgScalar)?;
-                    code += &format!("    {}: Some({e}),\n", name.to_ascii_lowercase());
+                    writeln!(code, "    {}: Some({e}),\n", name.to_ascii_lowercase())?;
                 }
                 _ => bail!("{loc} {statement} has invalid specifier {name}"),
             }
         }
 
-        code += "    ..Default::default()\n";
-        code += "  };\n";
+        writeln!(code, "    ..Default::default()")?;
+        writeln!(code, "  }};")?;
 
         if let Some(iostat) = specs.get("IOSTAT") {
             let e = self.emit_expression_ctx(loc, iostat, Ctx::Assignment)?;
-            code += &format!("  {e} = io::capture_iostat(|| ctx.{method}(specs))?;\n");
+            writeln!(code, "  {e} = io::capture_iostat(|| ctx.{method}(specs))?;")?;
         } else {
-            code += &format!("  ctx.{method}(specs)?;\n");
+            writeln!(code, "  ctx.{method}(specs)?;")?;
         }
-        code += "}\n";
+        writeln!(code, "}}")?;
 
         Ok(code)
     }
@@ -2624,15 +2660,16 @@ impl CodeGenUnit<'_> {
                             if api {
                                 // Hack: Convert b"" to ""
                                 let s = param_exp.strip_prefix("b").unwrap().to_owned();
-                                code += &format!("{vis}const {name}: &str = {s};\n")
+                                writeln!(code, "{vis}const {name}: &str = {s};")?;
                             } else {
-                                code += &format!("{vis}const {name}: &[u8] = {param_exp};\n")
+                                writeln!(code, "{vis}const {name}: &[u8] = {param_exp};")?;
                             }
                         }
                         LenSpecification::Integer(n) => {
-                            code += &format!(
-                                "{vis}const {name}: &[u8; {n}] = &fstr::extend_const::<{n}>({param_exp});\n"
-                            );
+                            writeln!(
+                                code,
+                                "{vis}const {name}: &[u8; {n}] = &fstr::extend_const::<{n}>({param_exp});"
+                            )?;
                         }
                         LenSpecification::IntConstantExpr(e) => match param {
                             Expression::Constant(Constant::Character(s))
@@ -2640,16 +2677,18 @@ impl CodeGenUnit<'_> {
                             {
                                 // Simplify the code for API constants, when the declared size
                                 // matches the actual string
-                                code += &format!(
-                                    "{vis}const {name}: &str = \"{}\";\n",
+                                writeln!(
+                                    code,
+                                    "{vis}const {name}: &str = \"{}\";",
                                     s.escape_default()
-                                );
+                                )?;
                             }
                             _ => {
                                 let e = self.emit_expression(loc, e)?;
-                                code += &format!(
-                                    "{vis}const {name}: &[u8; {e} as usize] = &fstr::extend_const::<{{{e} as usize}}>({param_exp});\n"
-                                );
+                                writeln!(
+                                    code,
+                                    "{vis}const {name}: &[u8; {e} as usize] = &fstr::extend_const::<{{{e} as usize}}>({param_exp});"
+                                )?;
                             }
                         },
                     }
@@ -2665,12 +2704,12 @@ impl CodeGenUnit<'_> {
                         param_ex,
                     )?;
 
-                    code += &format!("{vis}const {name}: {ty} = {param_ex};\n");
+                    writeln!(code, "{vis}const {name}: {ty} = {param_ex};")?;
                 }
             }
         }
 
-        code += "\n";
+        writeln!(code)?;
 
         Ok(code)
     }
@@ -2689,35 +2728,35 @@ impl CodeGenUnit<'_> {
         }
 
         // Declare struct's members
-        code += "struct SaveVars {\n";
+        writeln!(code, "struct SaveVars {{")?;
         for (name, sym) in &saved {
             let decl = self.emit_symbol(&sym.ast.loc, name, Ctx::SaveStruct)?;
-            code += &format!("  {decl},\n");
+            writeln!(code, "  {decl},")?;
         }
-        code += "}\n\n";
+        writeln!(code, "}}\n")?;
 
         // Default-initialise members
-        code += "impl SaveInit for SaveVars {\n";
-        code += "  fn new() -> Self {\n";
+        writeln!(code, "impl SaveInit for SaveVars {{")?;
+        writeln!(code, "  fn new() -> Self {{")?;
         for (name, sym) in &saved {
             code += &self.emit_initialiser(&sym.ast.loc, name, sym, &self.syms, true)?;
         }
-        code += "\n";
+        writeln!(code)?;
 
         // DATA initialisation
         for data in &self.program.ast.datas {
             code += &self.emit_data_init(data)?;
         }
-        code += "\n";
+        writeln!(code)?;
 
         // Return the object
-        code += "    Self {\n";
+        writeln!(code, "    Self {{")?;
         for (name, _sym) in &saved {
-            code += &format!("  {name},\n");
+            writeln!(code, "  {name},")?;
         }
-        code += "    }\n";
-        code += "  }\n";
-        code += "}\n\n";
+        writeln!(code, "    }}")?;
+        writeln!(code, "  }}")?;
+        writeln!(code, "}}\n")?;
 
         Ok(code)
     }
@@ -2841,7 +2880,7 @@ impl<'a> CodeGen<'a> {
 
             let dargs = dargs.collect::<Result<Vec<_>>>()?;
             let dargs = dargs.join(", ");
-            code += &format!("fn {func_name}({dargs}) {ret} {{\n");
+            writeln!(code, "fn {func_name}({dargs}) {ret} {{")?;
 
             for name in &darg_names {
                 let sym = codegen.syms.get(name)?;
@@ -2857,7 +2896,7 @@ impl<'a> CodeGen<'a> {
             code += &statement_function
                 .codegen
                 .emit_expression(loc, &statement_function.ast.body)?;
-            code += "\n}\n\n";
+            writeln!(code, "\n}}\n")?;
         }
 
         for entry in &self.entries {
@@ -2926,27 +2965,27 @@ impl<'a> CodeGen<'a> {
             }
             let dargs = dargs.join(", ");
             code += &pre_comments;
-            code += &format!("pub fn {entry_name}({dargs}) {ret} {{\n");
+            writeln!(code, "pub fn {entry_name}({dargs}) {ret} {{")?;
             code += &entry.codegen.emit_save_borrow(entry_name)?;
             code += &entry.codegen.emit_locals(entry_name)?;
             code += &entry.codegen.emit_statements(entry.ast, &entry.ast.body)?;
             if matches!(ret_type, DataType::Void | DataType::Character) {
                 if returns_result {
-                    code += "Ok(())\n";
+                    writeln!(code, "Ok(())")?;
                 }
             } else {
                 let name = entry
                     .codegen
                     .emit_symbol(&entry.ast.loc, entry_name, Ctx::Value)?;
                 if returns_result {
-                    code += &format!("Ok({name})\n");
+                    writeln!(code, "Ok({name})")?;
                 } else {
-                    code += &format!("{name}\n");
+                    writeln!(code, "{name}")?;
                 }
             };
-            code += "}\n";
+            writeln!(code, "}}")?;
             code += &post_comments;
-            code += "\n";
+            writeln!(code)?;
         }
 
         Ok((code, code_api))
