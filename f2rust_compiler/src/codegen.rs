@@ -2139,7 +2139,7 @@ impl CodeGenUnit<'_> {
         let mut code = String::new();
         match statement {
             Statement::Comment(c) => {
-                if let Some(c) = format_comment_block(&strip_comment_sections(&c), "//", false) {
+                if let Some(c) = format_comment_block(&strip_comment_sections(c), "//", false) {
                     code += &c;
                 }
             }
