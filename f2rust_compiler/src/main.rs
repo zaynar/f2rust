@@ -5,7 +5,7 @@ use anyhow::Result;
 use clap::Parser;
 use f2rust_compiler::{
     ast,
-    file::{parse_fixed, parse_free},
+    file::{parse_fixed, parse_free, split_program_units},
     globan,
 };
 use relative_path::RelativePathBuf;
@@ -46,22 +46,38 @@ fn main() -> Result<()> {
     } else {
         parse_fixed(&cli.input, Path::new("."), false)?
     };
-    let ast = ast::Parser::new().parse(parsed)?;
 
     let namespace = "test".to_owned();
     let filename = cli.input.file_name().unwrap();
 
-    let program_unit = globan::ProgramUnit::new(&namespace, filename, ast);
+    let program_units = split_program_units(parsed)
+        .into_iter()
+        .enumerate()
+        .map(|(i, parsed)| {
+            let ast = ast::Parser::new().parse(parsed)?;
 
-    let mut glob = globan::GlobalAnalysis::new(&[], vec![program_unit]);
+            let filename = format!("{filename}__{i}");
+
+            Ok((
+                globan::ProgramUnit::new(&namespace, &filename, ast),
+                filename,
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    let (program_units, filenames): (Vec<_>, Vec<_>) = program_units.into_iter().unzip();
+
+    let mut glob = globan::GlobalAnalysis::new(&[], program_units);
     glob.analyse()?;
 
-    let (code, _api) = glob.codegen(&namespace, filename, cli.pretty)?;
+    for filename in filenames {
+        let (code, _api) = glob.codegen(&namespace, &filename, cli.pretty)?;
 
-    if let Some(output) = cli.output {
-        std::fs::write(output, code.as_bytes())?;
-    } else {
-        std::io::stdout().write_all(code.as_bytes())?;
+        if let Some(output) = &cli.output {
+            std::fs::write(output, code.as_bytes())?;
+        } else {
+            std::io::stdout().write_all(code.as_bytes())?;
+        }
     }
 
     Ok(())
