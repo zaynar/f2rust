@@ -1087,7 +1087,7 @@ impl CodeGenUnit<'_> {
         })
     }
 
-    /// Emit comma-separate arguments for a function call,
+    /// Emit comma-separated arguments for a function call,
     /// plus some optional code to prepare those arguments before the call
     fn emit_args(
         &self,
