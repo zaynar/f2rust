@@ -7,3 +7,6 @@ members = [
     "rsspice",
     "rsspice_build",
 ]
+
+[profile.bench]
+debug = true
