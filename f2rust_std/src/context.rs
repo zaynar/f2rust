@@ -16,11 +16,11 @@
 
 use crate::{Error, Result, fstr, io};
 use chrono::{Datelike, Timelike};
+use rustc_hash::FxHashMap;
 use std::path::PathBuf;
 use std::{
     any::{Any, TypeId},
     cell::RefCell,
-    collections::HashMap,
     rc::Rc,
 };
 
@@ -29,7 +29,7 @@ pub trait SaveInit {
 }
 
 pub struct Context<'a> {
-    data: HashMap<TypeId, Rc<dyn Any>>,
+    data: FxHashMap<TypeId, Rc<dyn Any>>,
 
     file_manager: Box<dyn io::FileManager<'a> + 'a>,
     args: Vec<String>,
@@ -42,7 +42,7 @@ pub struct Context<'a> {
 impl<'a> Context<'a> {
     pub fn new() -> Self {
         Self {
-            data: HashMap::new(),
+            data: FxHashMap::default(),
             file_manager: Box::new(io::FsFileManager::new(&PathBuf::new())),
             args: Vec::new(),
             spice_failed: false,
@@ -51,7 +51,7 @@ impl<'a> Context<'a> {
 
     pub fn with_file_manager<F: io::FileManager<'a> + 'a>(file_manager: F) -> Self {
         Self {
-            data: HashMap::new(),
+            data: FxHashMap::default(),
             file_manager: Box::new(file_manager),
             args: Vec::new(),
             spice_failed: false,
