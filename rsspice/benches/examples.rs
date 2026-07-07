@@ -14,6 +14,8 @@ fn gfoclt() {
 fn try_gfoclt() -> Result<()> {
     let mut spice = SpiceContext::new();
 
+    spice.trcoff();
+
     spice.furnsh("testdata/spk/planets/de432s.bsp")?;
     spice.furnsh("testdata/pck/pck00011.tpc")?;
     spice.furnsh("testdata/lsk/naif0012.tls")?;
