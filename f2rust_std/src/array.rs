@@ -10,20 +10,22 @@
 //! We implement Index for nicer syntax when accessing arrays.
 
 use crate::util::{offset_1d, offset_2d, offset_3d, offset_4d, parse_bounds};
-use std::ops::{Index, IndexMut, RangeBounds, RangeInclusive};
+use std::ops::{Index, IndexMut, RangeBounds};
 use std::slice::GetDisjointMutError;
 
 macro_rules! define_array {
     ($dims:expr, $actual:ident, $stack:ident, $dummy:ident, $dummy_mut:ident, $offset:ident, $index:ty,
-        ($($bn:ident: $Bn:ident),+)) => {
-        pub struct $actual<T: 'static> {
+        ($($bn:ident: ($Bn:ident, $BLn:ident, $BUn:ident)),+)) => {
+
+        pub struct $actual<T: 'static, $(const $BLn: i32, const $BUn: i32,)+> {
             data: Vec<T>,
-            bounds: [(i32, i32); $dims],
         }
 
-        pub struct $stack<T: 'static, const N: usize> {
+        // Like $actual, but fixed-size and allocated on the stack.
+        // N must equal product(BUn + 1 - BLn); ideally we'd compute it ourselves
+        // but that seems to require unstable `feature(generic_const_exprs)`
+        pub struct $stack<T: 'static, const N: usize, $(const $BLn: i32, const $BUn: i32,)+> {
             data: [T; N],
-            bounds: [(i32, i32); $dims],
         }
 
         pub struct $dummy<'a, T: 'static> {
@@ -36,41 +38,43 @@ macro_rules! define_array {
             bounds: [(i32, i32); $dims],
         }
 
-        impl<T> $actual<T>
+        impl<T, $(const $BLn: i32, const $BUn: i32,)+>
+            $actual<T, $($BLn, $BUn,)+>
+        {
+            const BOUNDS: [(i32, i32); $dims] = [ $( ($BLn, $BUn), )+ ];
+        }
+
+        impl<T, $(const $BLn: i32, const $BUn: i32,)+>
+            $actual<T, $($BLn, $BUn,)+>
         where
             T: Default + Copy,
         {
-            // Use RangeInclusive instead of RangeBounds, to enforce an upper limit
-            pub fn new($($bn: RangeInclusive<i32>),+) -> Self {
-                let bounds = [$(parse_bounds($bn)),+];
-                let size = bounds
+            pub fn new() -> Self {
+                let size = Self::BOUNDS
                     .iter()
                     .map(|(lower, upper)| (upper - lower + 1).max(0))
                     .product::<i32>();
 
                 Self {
                     data: vec![Default::default(); size as usize],
-                    bounds,
                 }
             }
         }
 
-        // Like $actual, but fixed-size and allocated on the stack
-        impl<T, const N: usize> $stack<T, N>
+        impl<T, const N: usize, $(const $BLn: i32, const $BUn: i32,)+>
+            $stack<T, N, $($BLn, $BUn,)+>
+        {
+            const BOUNDS: [(i32, i32); $dims] = [ $( ($BLn, $BUn), )+ ];
+        }
+
+        impl<T, const N: usize, $(const $BLn: i32, const $BUn: i32,)+>
+            $stack<T, N, $($BLn, $BUn,)+>
         where
             T: Default + Copy,
         {
-            pub fn new($($bn: RangeInclusive<i32>),+) -> Self {
-                let bounds = [$(parse_bounds($bn)),+];
-                let size = bounds
-                    .iter()
-                    .map(|(lower, upper)| (upper - lower + 1).max(0))
-                    .product::<i32>();
-                assert!(size == N as i32);
-
+            pub fn new() -> Self {
                 Self {
                     data: [Default::default(); N],
-                    bounds,
                 }
             }
         }
@@ -97,7 +101,9 @@ macro_rules! define_array {
             }
         }
 
-        impl<T> Index<$index> for $actual<T> {
+        impl<T, $(const $BLn: i32, const $BUn: i32,)+>
+            Index<$index> for $actual<T, $($BLn, $BUn,)+>
+        {
             type Output = T;
 
             fn index(&self, index: $index) -> &Self::Output {
@@ -106,7 +112,9 @@ macro_rules! define_array {
             }
         }
 
-        impl<T, const N: usize> Index<$index> for $stack<T, N> {
+        impl<T, const N: usize, $(const $BLn: i32, const $BUn: i32,)+>
+            Index<$index> for $stack<T, N, $($BLn, $BUn,)+>
+        {
             type Output = T;
 
             fn index(&self, index: $index) -> &Self::Output {
@@ -133,14 +141,18 @@ macro_rules! define_array {
             }
         }
 
-        impl<T> IndexMut<$index> for $actual<T> {
+        impl<T, $(const $BLn: i32, const $BUn: i32,)+>
+            IndexMut<$index> for $actual<T, $($BLn, $BUn,)+>
+        {
             fn index_mut(&mut self, index: $index) -> &mut Self::Output {
                 let offset = self.offset(index);
                 &mut self.data[offset]
             }
         }
 
-        impl<T, const N: usize> IndexMut<$index> for $stack<T, N> {
+        impl<T, const N: usize, $(const $BLn: i32, const $BUn: i32,)+>
+            IndexMut<$index> for $stack<T, N, $($BLn, $BUn,)+>
+        {
             fn index_mut(&mut self, index: $index) -> &mut Self::Output {
                 let offset = self.offset(index);
                 &mut self.data[offset]
@@ -154,33 +166,41 @@ macro_rules! define_array {
             }
         }
 
-        impl<T> ArrayOps<T, $index> for $actual<T> {
+        impl<T, $(const $BLn: i32, const $BUn: i32,)+>
+            ArrayOps<T, $index> for $actual<T, $($BLn, $BUn,)+>
+        {
             fn data(&self) -> &[T] {
                 &self.data
             }
 
             fn offset(&self, index: $index) -> usize {
-                $offset(self.bounds, index)
+                $offset(Self::BOUNDS, index)
             }
         }
 
-        impl<T> ArrayOpsMut<T, $index> for $actual<T> {
+        impl<T, $(const $BLn: i32, const $BUn: i32,)+>
+            ArrayOpsMut<T, $index> for $actual<T, $($BLn, $BUn,)+>
+        {
             fn data_mut(&mut self) -> &mut [T] {
                 &mut self.data
             }
         }
 
-        impl<T, const N: usize> ArrayOps<T, $index> for $stack<T, N> {
+        impl<T, const N: usize, $(const $BLn: i32, const $BUn: i32,)+>
+            ArrayOps<T, $index> for $stack<T, N, $($BLn, $BUn,)+>
+        {
             fn data(&self) -> &[T] {
                 &self.data
             }
 
             fn offset(&self, index: $index) -> usize {
-                $offset(self.bounds, index)
+                $offset(Self::BOUNDS, index)
             }
         }
 
-        impl<T, const N: usize> ArrayOpsMut<T, $index> for $stack<T, N> {
+        impl<T, const N: usize, $(const $BLn: i32, const $BUn: i32,)+>
+            ArrayOpsMut<T, $index> for $stack<T, N, $($BLn, $BUn,)+>
+        {
             fn data_mut(&mut self) -> &mut [T] {
                 &mut self.data
             }
@@ -214,10 +234,10 @@ macro_rules! define_array {
     }
 }
 
-define_array!(1, ActualArray, StackArray, DummyArray, DummyArrayMut, offset_1d, i32, (b0: B0));
-define_array!(2, ActualArray2D, StackArray2D, DummyArray2D, DummyArrayMut2D, offset_2d, [i32; 2], (b0: B0, b1: B1));
-define_array!(3, ActualArray3D, StackArray3D, DummyArray3D, DummyArrayMut3D, offset_3d, [i32; 3], (b0: B0, b1: B1, b2: B2));
-define_array!(4, ActualArray4D, StackArray4D, DummyArray4D, DummyArrayMut4D, offset_4d, [i32; 4], (b0: B0, b1: B1, b2: B2, b3: B3));
+define_array!(1, ActualArray, StackArray, DummyArray, DummyArrayMut, offset_1d, i32, (b0: (B0, BU0, BL0)));
+define_array!(2, ActualArray2D, StackArray2D, DummyArray2D, DummyArrayMut2D, offset_2d, [i32; 2], (b0: (B0, BU0, BL0), b1: (B1, BU1, BL1)));
+define_array!(3, ActualArray3D, StackArray3D, DummyArray3D, DummyArrayMut3D, offset_3d, [i32; 3], (b0: (B0, BU0, BL0), b1: (B1, BU1, BL1), b2: (B2, BU2, BL2)));
+define_array!(4, ActualArray4D, StackArray4D, DummyArray4D, DummyArrayMut4D, offset_4d, [i32; 4], (b0: (B0, BU0, BL0), b1: (B1, BU1, BL1), b2: (B2, BU2, BL2), b3: (B3, BU3, BL3)));
 
 pub trait ArrayOps<T: 'static, I> {
     fn data(&self) -> &[T];
@@ -352,7 +372,7 @@ mod tests {
 
     #[test]
     fn test_equivalence_array() {
-        let mut orig: ActualArray<f64> = ActualArray::new(1..=2);
+        let mut orig: ActualArray<f64, 1, 2> = ActualArray::new();
         orig[1] = 1.0;
         orig[2] = 2.0;
 

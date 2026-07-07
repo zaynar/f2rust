@@ -57,6 +57,7 @@ enum Ctx {
     Assignment,       // `X = 1`
     SaveStruct,       // `struct SaveVars { X: T, }`
     SaveInit,         // `X = 1` inside `SaveInit::new()`
+    ConstGenericArg,  // `T::<X>`
 }
 
 /// A symbol in a specific Entry
@@ -403,24 +404,25 @@ fn eval_dims(
 }
 
 // Determine whether we should allocate it on the stack,
-// and return the number of elements
-fn use_stack_array(sym: &Symbol, syms: &SymbolTable) -> Result<Option<i32>> {
+// and return the number of elements.
+// Fails if non-constant.
+fn use_stack_array(sym: &Symbol, syms: &SymbolTable) -> Result<(bool, i32)> {
     const MAX_SIZE: i32 = 256;
 
     let is_char = matches!(sym.ast.base_type, DataType::Character);
 
     let dims = eval_dims(&sym.ast.dims, syms)?;
-    if let Some(size) = dims
+    if let Some(const_dims) = dims
         .into_iter()
-        .map(|(l, u)| Some(u? + 1 - l?))
-        .reduce(|a, b| Some(a? * b?))
-        .unwrap()
+        .map(|(l, u)| Some((l?, u?)))
+        .collect::<Option<Vec<_>>>()
     {
-        if size <= MAX_SIZE && !is_char {
-            return Ok(Some(size));
-        }
+        let size: i32 = const_dims.iter().map(|(l, u)| u + 1 - l).product();
+        let stack = size <= MAX_SIZE && !is_char;
+        Ok((stack, size))
+    } else {
+        bail!("Actual array declarator must have constant dimension bounds");
     }
-    Ok(None)
 }
 
 fn eval_character_len(len: &Option<LenSpecification>, syms: &SymbolTable) -> Result<Option<i32>> {
@@ -793,16 +795,21 @@ impl CodeGenUnit<'_> {
             Ctx::SaveStruct => match sym.rs_ty {
                 RustType::SavePrimitive => format!("{name}: {ty}"),
                 RustType::SaveChar => format!("{name}: Vec<u8>"),
-                RustType::SaveActualArray => match use_stack_array(&sym, &self.syms)? {
-                    Some(size) => match sym.ast.dims.len() {
-                        1 => format!("{name}: StackArray<{ty}, {size}>"),
-                        n => format!("{name}: StackArray{n}D<{ty}, {size}>"),
-                    },
-                    None => match sym.ast.dims.len() {
-                        1 => format!("{name}: ActualArray<{ty}>"),
-                        n => format!("{name}: ActualArray{n}D<{ty}>"),
-                    },
-                },
+                RustType::SaveActualArray => {
+                    let (stack, size) = use_stack_array(&sym, &self.syms)?;
+                    let dims_gen = self.emit_dims_gen(loc, &sym)?;
+                    if stack {
+                        match sym.ast.dims.len() {
+                            1 => format!("{name}: StackArray<{ty}, {size}, {dims_gen}>"),
+                            n => format!("{name}: StackArray{n}D<{ty}, {size}, {dims_gen}>"),
+                        }
+                    } else {
+                        match sym.ast.dims.len() {
+                            1 => format!("{name}: ActualArray<{ty}, {dims_gen}>"),
+                            n => format!("{name}: ActualArray{n}D<{ty}, {dims_gen}>"),
+                        }
+                    }
+                }
                 RustType::SaveActualCharArray => match sym.ast.dims.len() {
                     1 => format!("{name}: ActualCharArray"),
                     n => format!("{name}: ActualCharArray{n}D"),
@@ -816,6 +823,9 @@ impl CodeGenUnit<'_> {
                 | RustType::SaveActualCharArray => name.to_owned(),
                 _ => bail!("{loc} invalid context {ctx:?} for symbol {name}: {sym:?}"),
             },
+            Ctx::ConstGenericArg => {
+                bail!("{loc} invalid context {ctx:?} for symbol {name}: {sym:?}")
+            }
         };
 
         // Ok(format!("{s} /* {ctx:?} */"))
@@ -995,6 +1005,14 @@ impl CodeGenUnit<'_> {
     /// Emit expression in given context. (Mostly the context only applies to symbols;
     /// expressions involving operators will output like Value regardless.)
     fn emit_expression_ctx(&self, loc: &SourceLoc, e: &Expression, ctx: Ctx) -> Result<String> {
+        if matches!(ctx, Ctx::ConstGenericArg) {
+            let val = self.emit_expression_ctx(loc, e, Ctx::Value)?;
+            return Ok(match e {
+                Expression::Symbol(_) | Expression::Constant(_) => val,
+                _ => format!("{{ {val} }}"),
+            });
+        }
+
         Ok(match e {
             Expression::Unary(op, e2) => {
                 let e2 = self.emit_expression(loc, e2)?;
@@ -1675,6 +1693,24 @@ impl CodeGenUnit<'_> {
         Ok(dims.collect::<Result<Vec<_>>>()?.join(", "))
     }
 
+    /// Dimension declarator for an actual array, in generic parameter form
+    fn emit_dims_gen(&self, loc: &SourceLoc, sym: &Symbol) -> Result<String> {
+        let dims = sym.ast.dims.iter().map(|dim| {
+            let lower = match &dim.lower {
+                None => "1".to_owned(),
+                Some(e) => self.emit_expression_ctx(loc, e, Ctx::ConstGenericArg)?,
+            };
+            match &dim.upper {
+                None => bail!("emit_dims_gen on assumed-size array"),
+                Some(e) => {
+                    let e = self.emit_expression_ctx(loc, e, Ctx::ConstGenericArg)?;
+                    Ok(format!("{lower}, {e}"))
+                }
+            }
+        });
+        Ok(dims.collect::<Result<Vec<_>>>()?.join(", "))
+    }
+
     /// Initialise local variables (including DummyArray accessors etc)
     fn emit_initialiser(
         &self,
@@ -1738,9 +1774,15 @@ impl CodeGenUnit<'_> {
 
                 let is_char = matches!(sym.ast.base_type, DataType::Character);
 
-                let (alloc, size_label) = match use_stack_array(sym, &self.syms)? {
-                    Some(size) => ("Stack", format!(", {size}")),
-                    None => ("Actual", "".to_owned()),
+                let dims_gen = self.emit_dims_gen(loc, sym)?;
+
+                let (stack, size) = use_stack_array(sym, &self.syms)?;
+                let (alloc, size_label, dim_label) = if stack {
+                    ("Stack", format!(", {size}, {dims_gen}"), "")
+                } else if !is_char {
+                    ("Actual", format!(", {dims_gen}"), "")
+                } else {
+                    ("Actual", "".to_owned(), dims.as_str())
                 };
 
                 let array = match sym.ast.dims.len() {
@@ -1764,7 +1806,7 @@ impl CodeGenUnit<'_> {
                 };
                 writeln!(
                     code,
-                    "let {mut_label}{name} = {array}{ty}::new({len_label}{dims});"
+                    "let {mut_label}{name} = {array}{ty}::new({len_label}{dim_label});"
                 )?;
             }
         } else if sym.ast.base_type == DataType::Character {
