@@ -38,6 +38,8 @@ pub fn VADDG(V1: &[f64], V2: &[f64], NDIM: i32, VOUT: &mut [f64]) {
 }
 ```
 
+See <https://zaynar.co.uk/posts/f2rust-1/> for some background information.
+
 ## Building
 
 ```sh
